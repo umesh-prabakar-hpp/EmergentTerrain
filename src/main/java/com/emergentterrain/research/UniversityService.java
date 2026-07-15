@@ -2185,15 +2185,8 @@ public class UniversityService {
         // an artifact-backed candidate.
         com.emergentterrain.research.publication.PublicationAssessment publicationAssessment =
                 com.emergentterrain.research.publication.ComputationalPublicationPhase.assess(
-                        draft.preRegistration(), narration.toolCallTrace(), paper.relatedWork());
+                        draft.preRegistration(), narration.toolCallTrace(), paper.relatedWork(), paper.status());
         paper.setPublicationLabel(publicationAssessment.label());
-        if (!"PUBLISHED".equals(paper.status()) && publicationAssessment.isArtifactBackedCandidate()) {
-            // A candidate must also have completed the existing integrity and
-            // review workflow cleanly; this phase never masks a revision or
-            // rejection state with a higher reader-facing tier.
-            paper.setPublicationLabel(
-                    com.emergentterrain.research.publication.PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE);
-        }
         try {
             String roomPrefix = draft.roomId().toString().substring(0, 8);
             java.nio.file.Path artifactDir =

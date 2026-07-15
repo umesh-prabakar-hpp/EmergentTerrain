@@ -416,6 +416,14 @@ public class MathToolSuite {
         this.referenceReader = reader;
     }
 
+    /** Phase 34 — optional read-only SQLite/FTS5 literature adapter. */
+    private volatile com.emergentterrain.research.literature.Phase34SqliteLiterature phase34SqliteLiterature;
+
+    public void setPhase34SqliteLiterature(
+            com.emergentterrain.research.literature.Phase34SqliteLiterature adapter) {
+        this.phase34SqliteLiterature = adapter;
+    }
+
     /** Phase 32 §32.5d — OEIS/DLMF domain-reference lookups. Null-safe (off ⇒ tools not advertised). */
     private volatile com.emergentterrain.research.literature.DomainRefClient domainRefClient;
 
@@ -822,9 +830,10 @@ public class MathToolSuite {
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
                         ? PROVE_IDENTITY_TOOL_JSON : "",
-                ((includeLiterature && literatureSearch != null)
+                ((includeLiterature && (literatureSearch != null || phase34SqliteLiterature != null))
                         ? SEARCH_LITERATURE_TOOL_JSON : "")
-                        + ((referenceReader != null && referenceReader.available())
+                        + (((referenceReader != null && referenceReader.available())
+                                || phase34SqliteLiterature != null)
                                 ? READ_REFERENCE_TOOL_JSON : "")
                         + (domainRefClient != null
                                 ? LOOKUP_OEIS_TOOL_JSON + LOOKUP_DLMF_TOOL_JSON : ""),
@@ -880,11 +889,11 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"read_reference",
-                "description":"READ the full text of a work search_literature matched (open-access subset). Use when search_literature returned EVIDENCE and you need the prior result's actual content — its theorem statement, constant, or range of validity — to position your result against it (consistent-with-but-weaker-than / extends-the-range-of / contradicts). Pass the [W...] key EXACTLY as printed and a focused query (the claim or quantity you are checking). Returns the top matching passages. ONE work per paper (hard cap 2 calls); if the source is a PDF extraction the output says so — then PARAPHRASE prior formulas and cite the key, never quote them verbatim.",
+                "description":"READ the full text of a work search_literature matched (open-access subset). Use when search_literature returned EVIDENCE and you need the prior result's actual content — its theorem statement, constant, or range of validity — to position your result against it (consistent-with-but-weaker-than / extends-the-range-of / contradicts). Pass the exact key printed by search_literature and a focused query (the claim or quantity you are checking). Returns the top matching passages. ONE work per paper (hard cap 2 calls); if the source warns of lossy extraction, PARAPHRASE prior formulas and cite the key, never quote them verbatim.",
                 "parameters":{
                   "type":"object",
                   "properties":{
-                    "key":{"type":"string","description":"The work key from search_literature, e.g. W4230159862."},
+                    "key":{"type":"string","description":"The exact work key returned by search_literature."},
                     "query":{"type":"string","description":"What to look for in the text — the specific claim, constant, or exponent you are checking."}
                   },
                   "required":["key","query"]
@@ -1390,6 +1399,12 @@ public class MathToolSuite {
      * zero-successes→suppressed gate.
      */
     private String searchLiterature(PaperDraft draft, JsonNode args) {
+        if (phase34SqliteLiterature != null) {
+            String query = args.path("claim").asText("");
+            if (query.isBlank()) query = args.path("topic").asText("");
+            if (query.isBlank() && draft != null) query = draft.topicName();
+            return phase34SqliteLiterature.search(query);
+        }
         // Phase 32 §32.5 step 4 — grounding mode. For qualifying papers (see groundingApplies),
         // route the lookup to the offline BM25 corpus on the py-sidecar. Any failure (sidecar
         // down/cold/corpus-less) returns null from the client and falls through to the curated
@@ -2323,14 +2338,19 @@ public class MathToolSuite {
 
     /** Phase 33 L2 — read_reference dispatch: cap, then delegate to the reader. */
     private String readReference(JsonNode args, int[] calls) {
-        if (referenceReader == null) {
+        if (referenceReader == null && phase34SqliteLiterature == null) {
             return "read_reference not configured.";
         }
         if (++calls[0] > 2) {
             return "read_reference budget exhausted for this paper (2 calls) — work from the "
                     + "passages you already retrieved.";
         }
-        return referenceReader.read(args.path("key").asText(""), args.path("query").asText(""));
+        String key = args.path("key").asText("");
+        String query = args.path("query").asText("");
+        if (phase34SqliteLiterature != null) {
+            return phase34SqliteLiterature.read(key, query);
+        }
+        return referenceReader.read(key, query);
     }
 
     private String lookupOeis(JsonNode args) {

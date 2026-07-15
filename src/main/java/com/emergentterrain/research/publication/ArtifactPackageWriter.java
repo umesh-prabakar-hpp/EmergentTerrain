@@ -50,7 +50,7 @@ public final class ArtifactPackageWriter {
         manifest.put("schema_version", 1);
         manifest.put("created_at", Instant.now().toString());
         manifest.put("paper_id", paper.paperId());
-        manifest.put("publication_label", assessment.label().name());
+        manifest.put("publication_label", paper.publicationLabel().name());
         manifest.put("paper_status", paper.status());
         manifest.put("source_revision", sourceRevision());
         manifest.set("missing_requirements", objectMapper.valueToTree(assessment.missingRequirements()));
@@ -81,7 +81,7 @@ public final class ArtifactPackageWriter {
         StringBuilder out = new StringBuilder("# Computational artifact package\n\n")
                 .append("This package is an immutable audit bundle for **")
                 .append(paper.paperId()).append("**. Its label is **")
-                .append(assessment.label().displayName()).append("**.\n\n")
+                .append(paper.publicationLabel().displayName()).append("**.\n\n")
                 .append("It does not imply external replication or human peer-review acceptance.\n\n")
                 .append("## Contents\n\n")
                 .append("- `paper.md`: rendered paper\n")

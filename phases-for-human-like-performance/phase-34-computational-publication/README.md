@@ -8,15 +8,18 @@ human-quality paper.
 ## Labels
 
 `status` remains the workflow disposition (`PUBLISHED`, `NEEDS_REVISION`,
-`REJECTED`, and so on). `publicationLabel` is an independent reader-facing
-tier:
+`REJECTED`, and so on). `publicationLabel` is a separate reader-facing tier:
 
 - `INTERNAL_RESEARCH_NOTE`: missing a locked claim or executed trace.
 - `COMPUTATIONAL_RESEARCH_NOTE`: has a pre-registration and trace, but does
   not yet meet every computational-paper gate.
-- `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE`: has all gates below. This
-  is a candidate for human review, not a claim of external replication or
-  acceptance.
+- `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE`: has all gates below **and**
+  a clean `PUBLISHED` workflow status. This is a candidate for human review,
+  not a claim of external replication or acceptance.
+
+The final paper's `publicationLabel` is authoritative. A paper that otherwise
+meets every computational gate but remains in `NEEDS_REVISION`, `REJECTED`, or
+another non-`PUBLISHED` workflow state is a `COMPUTATIONAL_RESEARCH_NOTE`.
 
 ## Gates
 
@@ -26,10 +29,13 @@ pre-registration. It must declare distinct `discovery_scope` and
 `reproduction_command`.
 
 The publication phase also requires an executed tool trace and source-grounded
-related work: both `search_literature` and `read_reference` must have run and
-the final paper must contain a related-work section. The phase intentionally
-does **not** treat an automated panel or a negative corpus search as a novelty
-proof.
+related work. A candidate must have a successful `read_reference` result for a
+source key returned by `search_literature`, and the final related-work text must
+cite that same key. Failed, empty, unrelated, or uncited tool results do not
+satisfy this gate.
+
+The phase intentionally does **not** treat an automated panel or a negative
+corpus search as a novelty proof.
 
 ## Artifact bundle
 
@@ -39,6 +45,10 @@ Each publication writes `research/<room>/artifacts/<paper-id>/` with:
 - a SHA-256 manifest and recorded source revision (`GIT_COMMIT` when supplied);
 - a reproduction-command wrapper that prints the pre-registered command but
   never executes LLM-supplied shell text on the application server.
+
+The bundle's `README.md` and `manifest.json` are written from the final paper
+label, including a workflow-status downgrade, so they remain aligned with the
+reader-facing result.
 
 The bundle is an audit package now. A future domain adapter can supply a
 reviewed executable runner for its allowed computation engine; only then
@@ -94,7 +104,7 @@ so a stopped full-text pass resumes without rereading completed shards. It
 also writes `MANIFEST.json` next to the database with counts, selection rule,
 and stage completion state. The raw downloads remain immutable.
 
-### Current build checkpoint (2026-07-14)
+### Initial build checkpoint (2026-07-14)
 
 The initial UW import and theorem FTS build completed successfully: the local
 manifest records 209,777 papers and 1,341,083 theorem statements. The derived
@@ -104,7 +114,7 @@ imported into `fulltext`/`fulltext_fts`: the manifest records zero full-text
 documents and zero processed full-text shards. No preparation process is
 currently running.
 
-This is an intentional, resumable checkpoint rather than a completed
+This was an intentional, resumable checkpoint rather than a completed
 multi-subject rebuild. Resume it with a controlled batch such as
 `./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20`;
 repeat the command until all available shards are recorded, or omit the limit
@@ -134,7 +144,10 @@ Build two linked, versioned indexes:
 
 1. **Theorem/claim index** over the UW records for high-recall novelty and
    overlap screening.
-2. **Full-text passage index** over filtered Marin papers for `read_reference`,
+2. **Full-text passage index** over broad Marin records for future
+   multi-subject retrieval. Mathematics is selected at query time; records
+   without UW category metadata remain explicitly `ar5iv-unclassified` until
+   metadata enrichment. This index is the planned input to `read_reference`,
    source-grounded related work, and citation verification.
 
 A theorem hit should resolve to its source paper and relevant full-text
@@ -144,20 +157,56 @@ establish any of those labels.
 
 ### Derived-data provenance and rollout
 
-Keep raw downloads immutable under `~/.emergentterrain/corpus-hf-math/`. Write
-derived indexes separately and attach a manifest containing dataset/revision,
-input checksums, importer version, retained-document count, and index build
-time. The first preparer already records its format, selection rule, source
-location, stage states, counts, and query contract. Adding source revision and
-checksums is required before this index can support a publication-quality
-label.
+Keep raw downloads immutable under `~/.emergentterrain/corpus-hf-math/`. The
+bootstrap records each dataset's requested revision and the resolved commit
+from the Hugging Face download cache. The preparer writes a manifest containing
+dataset revisions, SHA-256 values for raw inputs, importer version and script
+digest, retained-document count, and index build state. It caches input hashes
+only while every raw-file path, size, and modification time remains unchanged;
+any changed input triggers a fresh hash pass. A long-running full-text stage
+writes `MANIFEST.json` only after the stage returns, so query SQLite directly
+for live committed-shard progress.
 
-Wire the new indexes into `search_literature` and `read_reference` behind a
-feature flag. Before enabling them for publication-quality labels, evaluate a
-fixed mathematics claim set for correct theorem matches, correct source
-passages, and no fabricated citation keys. The current preparer deliberately
-does not change the live grounding route; sidecar query integration and
-feature-gated activation remain subsequent Phase 34 tasks.
+### Implementation checkpoint (2026-07-15)
+
+Completed during the current Phase 34 pass:
+
+- Publication classification now requires a clean `PUBLISHED` workflow status
+  and source-grounded related work: a successful `read_reference` result must
+  correspond to a key returned by `search_literature` and cited in the paper.
+- Artifact `README.md` and `manifest.json` take their publication label from
+  the final paper state, eliminating the former pre-downgrade label mismatch.
+- The Hugging Face bootstrap records requested and resolved revisions; the
+  importer records immutable raw-input SHA-256 values, revision metadata, and
+  an importer/script digest in its v2 manifest.
+- A read-only Java SQLite adapter is available behind
+  `app.research.literature.phase34-sqlite.enabled=false`. It searches
+  `theorem_fts`, reads `fulltext_fts`, and issues bounded opaque `HF...` keys
+  that cannot be fabricated into a readable source id.
+- The active Marin full-text import remains a single external writer. The
+  adapter opens independent read-only connections and does not alter that
+  import or its raw corpus.
+
+Before enabling the adapter for live publication labels:
+
+1. Let the Marin import complete, then run the updated preparer once to create
+   the v2 provenance manifest for the finished corpus.
+2. Run a fixed, real-mathematics claim set against the completed index and
+   record expected theorem sources, matching full-text passages, and rejection
+   of fabricated keys.
+3. Keep the feature flag off unless that acceptance suite is green; then run a
+   paper-generation smoke test and verify that the related-work citation, tool
+   trace, artifact package, and final publication label agree.
+
+The read-only SQLite adapter is implemented behind
+`app.research.literature.phase34-sqlite.enabled` (default `false`). When
+enabled, it routes `search_literature` through `theorem_fts` and
+`read_reference` through `fulltext_fts`, issuing opaque `HF...` keys that can
+only be read after the corresponding search returned them. Before enabling it
+for publication-quality labels, evaluate a fixed mathematics claim set for
+correct theorem matches, correct source passages, and no fabricated citation
+keys. Keep the feature off while the import is incomplete or that acceptance
+suite is not green.
 
 ## Host capacity and index placement
 

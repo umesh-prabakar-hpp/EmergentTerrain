@@ -1378,6 +1378,10 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.literature.ReferenceCoreReader referenceReader;
 
+    /** Phase 34 — disabled-by-default local SQLite/FTS5 literature adapter. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.Phase34SqliteLiterature phase34SqliteLiterature;
+
     /**
      * Phase 32 §32.5 step 4 — optional offline grounding client, field-injected like
      * {@link #discoveryService}. The bean exists only when
@@ -1403,6 +1407,7 @@ public class ResearchNarrationService {
             toolSuite.setLadderRungBudget(ladderRungBudgetFlag);
             toolSuite.setLiteratureGrounding(groundingClient);
             toolSuite.setReferenceReader(referenceReader);
+            toolSuite.setPhase34SqliteLiterature(phase34SqliteLiterature);
             toolSuite.setDomainRefClient(domainRefClient);
             if (domainRefClient != null) {
                 log.info("lookup_oeis + lookup_dlmf tools ON (domain-reference sidecar)");
@@ -1414,6 +1419,10 @@ public class ResearchNarrationService {
             if (groundingClient != null) {
                 log.info("search_literature grounding mode ON (py-sidecar corpus; "
                         + "promotion-track + measurement-frame/priority-target papers)");
+            }
+            if (phase34SqliteLiterature != null) {
+                log.info("Phase 34 SQLite literature adapter {}",
+                        phase34SqliteLiterature.available() ? "ON" : "configured but index unavailable");
             }
         }
         // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the

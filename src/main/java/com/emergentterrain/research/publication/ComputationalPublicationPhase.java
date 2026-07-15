@@ -5,6 +5,8 @@ import com.emergentterrain.research.PreRegistration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Phase 34 — publication-quality classification for non-physical,
@@ -14,11 +16,15 @@ import java.util.List;
  */
 public final class ComputationalPublicationPhase {
 
+    private static final Pattern REFERENCE_READ = Pattern.compile(
+            "(?s)^read_reference\\s+([A-Za-z0-9]+)(?:\\s+—|\\s+\\[).*Top passages matching.*");
+
     private ComputationalPublicationPhase() {}
 
     public static PublicationAssessment assess(PreRegistration preRegistration,
                                                 List<ToolInvocation> trace,
-                                                String relatedWork) {
+                                                String relatedWork,
+                                                String workflowStatus) {
         List<String> missing = new ArrayList<>();
         if (preRegistration == null) {
             missing.add("locked pre-registration");
@@ -41,6 +47,9 @@ public final class ComputationalPublicationPhase {
         if (!hasLiteraturePositioning(relatedWork, trace)) {
             missing.add("source-grounded related-work positioning");
         }
+        if (!"PUBLISHED".equals(workflowStatus)) {
+            missing.add("clean PUBLISHED workflow status");
+        }
 
         PublicationLabel label;
         if (preRegistration == null || trace == null || trace.isEmpty()) {
@@ -57,13 +66,35 @@ public final class ComputationalPublicationPhase {
         if (relatedWork == null || relatedWork.isBlank() || trace == null) {
             return false;
         }
-        boolean searched = false;
-        boolean readPrimary = false;
+        List<String> searchedKeys = new ArrayList<>();
+        List<String> readKeys = new ArrayList<>();
         for (ToolInvocation call : trace) {
             if (call == null || call.functionName() == null) continue;
-            searched |= "search_literature".equals(call.functionName());
-            readPrimary |= "read_reference".equals(call.functionName());
+            String result = call.resultJson();
+            if (result == null || result.isBlank()) continue;
+            if ("search_literature".equals(call.functionName())) {
+                searchedKeys.addAll(referenceKeys(result));
+            } else if ("read_reference".equals(call.functionName())) {
+                Matcher read = REFERENCE_READ.matcher(result);
+                if (read.matches()) {
+                    readKeys.add(read.group(1));
+                }
+            }
         }
-        return searched && readPrimary;
+        return readKeys.stream().anyMatch(key -> searchedKeys.contains(key)
+                && citesKey(relatedWork, key));
+    }
+
+    private static List<String> referenceKeys(String result) {
+        List<String> keys = new ArrayList<>();
+        Matcher keysInResult = Pattern.compile("\\[([A-Za-z0-9]+)]").matcher(result);
+        while (keysInResult.find()) {
+            keys.add(keysInResult.group(1));
+        }
+        return keys;
+    }
+
+    private static boolean citesKey(String relatedWork, String key) {
+        return relatedWork.contains("[" + key + "]");
     }
 }

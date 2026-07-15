@@ -47,6 +47,11 @@ hf download "$DATASET" \
   --include 'README.md' \
   --local-dir "$DESTINATION"
 
-printf 'dataset=%s\nrevision=%s\ndownloaded_at=%s\n' \
-  "$DATASET" "$REVISION" "$(date --iso-8601=seconds)" > "$DESTINATION/SOURCE.txt"
-echo "Done. SOURCE.txt records the requested revision; pin it to a commit hash for a paper artifact."
+RESOLVED_REVISION=""
+if [ -d "$DESTINATION/.cache/huggingface/download" ]; then
+  RESOLVED_REVISION="$(find "$DESTINATION/.cache/huggingface/download" -name '*.metadata' -type f \
+    -exec sed -n '1p' {} \; 2>/dev/null | sed -n '1p')"
+fi
+printf 'dataset=%s\nrequested_revision=%s\nresolved_revision=%s\ndownloaded_at=%s\n' \
+  "$DATASET" "$REVISION" "${RESOLVED_REVISION:-unrecorded}" "$(date --iso-8601=seconds)" > "$DESTINATION/SOURCE.txt"
+echo "Done. SOURCE.txt records both the requested revision and the resolved dataset commit. Pin a commit hash for a paper artifact."

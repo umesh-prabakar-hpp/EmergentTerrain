@@ -46,6 +46,8 @@ DEFAULT_CORPUS_DIR = Path.home() / ".emergentterrain" / "corpus-hf-math"
 DEFAULT_INDEX_DIR = Path.home() / ".emergentterrain" / "indexes" / "math-literature"
 UW_DIRNAME = "uw-math-ai--theorem-search-dataset"
 MARIN_DIRNAME = "marin-community--ar5iv-no-problem-markdown"
+INDEX_FORMAT = "phase34-hf-math-sqlite-v2"
+IMPORTER_VERSION = "2026-07-15"
 VERSION_RE = re.compile(r"v\d+$", re.IGNORECASE)
 AR5IV_SUFFIX_RE = re.compile(r"(?:\.html)?$")
 
@@ -184,7 +186,7 @@ def prepare_metadata(conn: sqlite3.Connection, paper_file: Path, force: bool) ->
             print(f"metadata: {imported:,} imported")
     set_state(conn, "metadata_complete", "true")
     set_state(conn, "metadata_imported_papers", str(imported))
-    set_state(conn, "index_format", "phase34-hf-math-sqlite-v1")
+    set_state(conn, "index_format", INDEX_FORMAT)
     conn.commit()
     print(f"metadata: complete ({imported:,} labeled papers; query-time category filtering applies)")
 
@@ -318,6 +320,83 @@ def prepare_fulltext(conn: sqlite3.Connection, marin_dir: Path, limit: int) -> N
     conn.commit()
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def source_record(dataset_dir: Path) -> dict[str, str]:
+    """Read the requested and resolved Hugging Face revisions without network access."""
+    out: dict[str, str] = {"requested_revision": "unrecorded", "resolved_revision": "unrecorded"}
+    source = dataset_dir / "SOURCE.txt"
+    if source.is_file():
+        for line in source.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if not separator:
+                continue
+            if key == "revision":  # Backward compatibility with the original bootstrap format.
+                out["requested_revision"] = value or "unrecorded"
+            elif key in out:
+                out[key] = value or "unrecorded"
+    metadata_files = sorted((dataset_dir / ".cache" / "huggingface" / "download").glob("*.metadata"))
+    commits = set()
+    for metadata in metadata_files:
+        lines = metadata.read_text(encoding="utf-8").splitlines()
+        if lines and lines[0].strip():
+            commits.add(lines[0].strip())
+    if len(commits) == 1:
+        out["resolved_revision"] = commits.pop()
+    elif commits:
+        out["resolved_revision"] = "inconsistent-cache-metadata"
+    return out
+
+
+def input_files(args: argparse.Namespace) -> list[Path]:
+    source_dir = args.corpus_dir.expanduser().resolve()
+    uw_dir = source_dir / UW_DIRNAME
+    marin_dir = source_dir / MARIN_DIRNAME
+    return [
+        required(uw_dir / "paper.parquet"),
+        required(uw_dir / "theorem.parquet"),
+        required(uw_dir / "theorem_slogan.parquet"),
+        *sorted(marin_dir.glob("*.jsonl.gz")),
+    ]
+
+
+def input_provenance(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    """Reuse content hashes only while every immutable raw-input fingerprint matches."""
+    files = input_files(args)
+    source_dir = args.corpus_dir.expanduser().resolve()
+    fingerprints = [
+        {
+            "path": str(path.relative_to(source_dir)),
+            "size_bytes": path.stat().st_size,
+            "mtime_ns": path.stat().st_mtime_ns,
+        }
+        for path in files
+    ]
+    cached = state(conn, "input_provenance")
+    if cached:
+        try:
+            parsed = json.loads(cached)
+            if parsed.get("fingerprints") == fingerprints and parsed.get("sha256"):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    print(f"provenance: hashing {len(files):,} immutable raw input file(s)")
+    provenance = {
+        "fingerprints": fingerprints,
+        "sha256": {str(path.relative_to(source_dir)): sha256_file(path) for path in files},
+        "computed_at_epoch_seconds": int(time.time()),
+    }
+    set_state(conn, "input_provenance", json.dumps(provenance, sort_keys=True))
+    conn.commit()
+    return provenance
+
+
 def write_manifest(conn: sqlite3.Connection, index_dir: Path, args: argparse.Namespace) -> None:
     counts = {
         "papers": conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0],
@@ -325,9 +404,13 @@ def write_manifest(conn: sqlite3.Connection, index_dir: Path, args: argparse.Nam
         "fulltext_documents": conn.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0],
         "processed_fulltext_shards": conn.execute("SELECT COUNT(*) FROM processed_shards").fetchone()[0],
     }
+    provenance = input_provenance(conn, args)
+    set_state(conn, "index_format", INDEX_FORMAT)
+    conn.commit()
     states = dict(conn.execute("SELECT key, value FROM metadata"))
+    source_dir = args.corpus_dir.expanduser().resolve()
     manifest = {
-        "format": "phase34-hf-math-sqlite-v1",
+        "format": INDEX_FORMAT,
         "updated_at_epoch_seconds": int(time.time()),
         "index_db": str(index_dir / "literature.db"),
         "source_corpus_dir": str(args.corpus_dir),
@@ -337,6 +420,17 @@ def write_manifest(conn: sqlite3.Connection, index_dir: Path, args: argparse.Nam
         "query_contract": {
             "theorem": "SELECT ... FROM theorem_fts JOIN theorems USING(theorem_id) WHERE theorem_fts MATCH ?",
             "fulltext": "SELECT ... FROM fulltext_fts JOIN fulltext USING(paper_id) WHERE fulltext_fts MATCH ?",
+        },
+        "provenance": {
+            "importer": {
+                "version": IMPORTER_VERSION,
+                "script_sha256": sha256_file(Path(__file__).resolve()),
+            },
+            "datasets": {
+                "uw-math-ai/theorem-search-dataset": source_record(source_dir / UW_DIRNAME),
+                "marin-community/ar5iv-no-problem-markdown": source_record(source_dir / MARIN_DIRNAME),
+            },
+            "inputs": provenance,
         },
     }
     (index_dir / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
