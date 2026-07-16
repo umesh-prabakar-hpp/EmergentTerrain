@@ -182,7 +182,7 @@ any changed input triggers a fresh hash pass. A long-running full-text stage
 writes `MANIFEST.json` only after the stage returns, so query SQLite directly
 for live committed-shard progress.
 
-### Implementation checkpoint (2026-07-15)
+### Implementation checkpoint (2026-07-16)
 
 Completed during the current Phase 34 pass:
 
@@ -194,8 +194,10 @@ Completed during the current Phase 34 pass:
 - The Hugging Face bootstrap records requested and resolved revisions; the
   importer records immutable raw-input SHA-256 values, revision metadata, and
   an importer/script digest in its v2 manifest.
-- A read-only Java SQLite adapter is available behind
-  `app.research.literature.phase34-sqlite.enabled=false`. It searches
+- The completed 392-shard Marin import contains 366,232 full-text documents;
+  its one-shot `fulltext_fts` build completed successfully.
+- The read-only Java SQLite adapter is enabled through
+  `app.research.literature.phase34-sqlite.enabled=true`. It searches
   `theorem_fts`, reads `fulltext_fts`, and issues bounded opaque `HF...` keys
   that cannot be fabricated into a readable source id.
 - The active Marin full-text import remains a single external writer. It first
@@ -204,26 +206,27 @@ Completed during the current Phase 34 pass:
   adapter is not advertised. The adapter opens independent read-only
   connections and does not alter that import or its raw corpus.
 
-Before enabling the adapter for live publication labels:
+The adapter is operationally enabled. Before treating its output as accepted
+for live publication labels:
 
 1. Let the Marin import and its final one-shot `fulltext_fts` build complete,
    then verify the v2 provenance manifest for the finished corpus.
 2. Run a fixed, real-mathematics claim set against the completed index and
    record expected theorem sources, matching full-text passages, and rejection
    of fabricated keys.
-3. Keep the feature flag off unless that acceptance suite is green; then run a
-   paper-generation smoke test and verify that the related-work citation, tool
-   trace, artifact package, and final publication label agree.
+3. Run a paper-generation smoke test and verify that the related-work citation,
+   tool trace, artifact package, and final publication label agree. Roll the
+   flag back to `false` if the claim set or smoke test fails.
 
-The read-only SQLite adapter is implemented behind
-`app.research.literature.phase34-sqlite.enabled` (default `false`). When
-enabled, it routes `search_literature` through `theorem_fts` and
+The read-only SQLite adapter is enabled through
+`app.research.literature.phase34-sqlite.enabled`. It routes
+`search_literature` through `theorem_fts` and
 `read_reference` through `fulltext_fts`, issuing opaque `HF...` keys that can
 only be read after the corresponding search returned them. Before enabling it
 for publication-quality labels, evaluate a fixed mathematics claim set for
 correct theorem matches, correct source passages, and no fabricated citation
-keys. Keep the feature off while the import is incomplete or that acceptance
-suite is not green.
+keys. The completed import is a prerequisite, not a substitute, for that
+acceptance suite.
 
 ## Host capacity and index placement
 
