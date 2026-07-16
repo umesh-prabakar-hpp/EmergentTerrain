@@ -55,6 +55,15 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void theoremSearchFallsBackToBroadTermsWhenTheFocusedQueryHasNoMatch() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+
+        assertThat(adapter.search("prime nonexistent"))
+                .contains("Prime gap bounds")
+                .doesNotContain("no theorem-index matches");
+    }
+
+    @Test
     void unknownKeyIsRejectedRatherThanResolvedAsAPaperId() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 

@@ -74,23 +74,30 @@ public final class Phase34SqliteLiterature {
                             snippet(theorem_fts, 4, '', '', '…', 24)
                        FROM theorem_fts
                        JOIN theorems t ON theorem_fts.theorem_id = t.theorem_id
+                       JOIN fulltext f ON f.paper_id = t.paper_id
                   LEFT JOIN papers p ON p.paper_id = t.paper_id
                       WHERE theorem_fts MATCH ?
                    ORDER BY bm25(theorem_fts)
                       LIMIT ?
                      """)) {
-            statement.setString(1, ftsQuery);
-            statement.setInt(2, SEARCH_ROWS);
             Map<String, Citation> distinct = new LinkedHashMap<>();
-            try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next() && distinct.size() < SEARCH_RESULTS) {
-                    String paperId = rows.getString(1);
-                    if (paperId == null || paperId.isBlank()) continue;
-                    String key = keyFor(paperId);
-                    paperForKey.put(key, paperId);
-                    distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
-                            rows.getString(3), rows.getString(4), rows.getString(5)));
+            // Prefer an all-terms query: it is materially more precise and avoids ranking every
+            // document that contains a generic word from a long claim. Preserve recall with the
+            // former OR query only when the focused attempt finds nothing.
+            for (String candidateQuery : searchQueries(ftsQuery)) {
+                statement.setString(1, candidateQuery);
+                statement.setInt(2, SEARCH_ROWS);
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                        String paperId = rows.getString(1);
+                        if (paperId == null || paperId.isBlank()) continue;
+                        String key = keyFor(paperId);
+                        paperForKey.put(key, paperId);
+                        distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
+                                rows.getString(3), rows.getString(4), rows.getString(5)));
+                    }
                 }
+                if (!distinct.isEmpty()) break;
             }
             if (distinct.isEmpty()) {
                 return "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.";
@@ -129,9 +136,12 @@ public final class Phase34SqliteLiterature {
                      SELECT COALESCE(p.title, ''), COALESCE(f.source_key, ''),
                             snippet(fulltext_fts, 2, '', '', '…', 180)
                        FROM fulltext_fts
-                       JOIN fulltext f ON f.paper_id = fulltext_fts.paper_id
+                       JOIN fulltext f ON f.rowid = fulltext_fts.rowid
                   LEFT JOIN papers p ON p.paper_id = f.paper_id
-                      WHERE f.paper_id = ? AND fulltext_fts MATCH ?
+                      WHERE fulltext_fts.rowid = (
+                                SELECT rowid FROM fulltext WHERE paper_id = ?
+                            )
+                        AND fulltext_fts MATCH ?
                       LIMIT 1
                      """)) {
             statement.setString(1, paperId);
@@ -165,6 +175,11 @@ public final class Phase34SqliteLiterature {
         Matcher matcher = TOKEN.matcher(input == null ? "" : input);
         while (matcher.find() && tokens.size() < 8) tokens.add(matcher.group());
         return String.join(" OR ", tokens);
+    }
+
+    private static List<String> searchQueries(String broadQuery) {
+        String focusedQuery = broadQuery.replace(" OR ", " AND ");
+        return focusedQuery.equals(broadQuery) ? List.of(broadQuery) : List.of(focusedQuery, broadQuery);
     }
 
     private static String keyFor(String paperId) {

@@ -218,6 +218,26 @@ for live publication labels:
    tool trace, artifact package, and final publication label agree. Roll the
    flag back to `false` if the claim set or smoke test fails.
 
+#### Real-index acceptance progress
+
+`Phase34RealIndexAcceptanceTest` is opt-in and exercises the Java adapter
+against the completed local database when
+`PHASE34_REAL_INDEX_DIR=~/.emergentterrain/indexes/math-literature` is set.
+Its fixed five-claim set spans number theory, graph/combinatorics, partition
+theory, commutative algebra, and functional analysis. Each fixture verifies an
+expected theorem source, its own issued key, and an expected full-text passage;
+the test also verifies fabricated-key rejection. **Passed on 2026-07-16**
+against the recorded 366,232-document local index (five fixtures; about
+59 seconds). Re-run it with:
+
+```bash
+PHASE34_REAL_INDEX_DIR=~/.emergentterrain/indexes/math-literature \
+  mvn test -Dtest=Phase34RealIndexAcceptanceTest
+```
+
+The paper-generation smoke test remains required before declaring the live
+adapter publication-ready.
+
 The read-only SQLite adapter is enabled through
 `app.research.literature.phase34-sqlite.enabled`. It routes
 `search_literature` through `theorem_fts` and
