@@ -100,27 +100,42 @@ python3 -m pip install --user pyarrow
 
 Use `--stage all` only when the host can give the streaming full-text pass the
 required I/O time. The script records completed Marin shards in the database,
-so a stopped full-text pass resumes without rereading completed shards. It
-also writes `MANIFEST.json` next to the database with counts, selection rule,
-and stage completion state. The raw downloads remain immutable.
+so a stopped full-text pass resumes without rereading completed shards. The
+shard pass writes only the `fulltext` source rows; after every available shard
+is committed it bulk-builds `fulltext_fts` in one transaction. This avoids
+rewriting an ever-larger FTS index for every imported record. The adapter
+considers the index unavailable until the `fulltext_fts_complete=true` marker
+is written. If an interrupted completed shard pass needs only that final step,
+run `./scripts/prepare-hf-math-index.py --stage fulltext-fts`. The script also
+writes `MANIFEST.json` next to the database with counts, selection rule, and
+stage completion state. The raw downloads remain immutable.
 
-### Initial build checkpoint (2026-07-14)
+### Initial build baseline (2026-07-14)
 
 The initial UW import and theorem FTS build completed successfully: the local
 manifest records 209,777 papers and 1,341,083 theorem statements. The derived
-SQLite database is about 3.4 GiB. The broad Marin input is present locally as
-392 compressed JSONL shards (about 3.4 GiB), but no Marin shard has yet been
-imported into `fulltext`/`fulltext_fts`: the manifest records zero full-text
-documents and zero processed full-text shards. No preparation process is
-currently running.
+SQLite database is about 3.4 GiB. At that point, the broad Marin input was
+present locally as 392 compressed JSONL shards (about 3.4 GiB), but no Marin
+shard had yet been imported into `fulltext`/`fulltext_fts`.
 
-This was an intentional, resumable checkpoint rather than a completed
+This was an intentional, resumable baseline rather than a completed
 multi-subject rebuild. Resume it with a controlled batch such as
 `./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20`;
 repeat the command until all available shards are recorded, or omit the limit
 when an uninterrupted full pass is appropriate. The observed host has about
 375 GiB free disk, so capacity does not currently block retaining the broad
 source corpus and its derived index.
+
+### Import-performance checkpoint (2026-07-15)
+
+The first whole-corpus pass reached a durable 167/392-shard checkpoint with
+148,252 stored full-text documents. Its per-record delete/insert operations on
+the growing FTS table made later shards take roughly 26–32 minutes, so it was
+safely stopped between committed shards. The resumable importer now stores
+each remaining shard's source rows first, then performs one final FTS rebuild
+only after all source shards are present. The optimized worker resumes from
+the 167-shard ledger; use SQLite committed-shard counts rather than an old
+manifest for live progress.
 
 ### Input handling
 
@@ -183,14 +198,16 @@ Completed during the current Phase 34 pass:
   `app.research.literature.phase34-sqlite.enabled=false`. It searches
   `theorem_fts`, reads `fulltext_fts`, and issues bounded opaque `HF...` keys
   that cannot be fabricated into a readable source id.
-- The active Marin full-text import remains a single external writer. The
-  adapter opens independent read-only connections and does not alter that
-  import or its raw corpus.
+- The active Marin full-text import remains a single external writer. It first
+  checkpoints raw full-text rows per shard and builds the full-text FTS table
+  once at completion; until the resulting completion marker is present, the
+  adapter is not advertised. The adapter opens independent read-only
+  connections and does not alter that import or its raw corpus.
 
 Before enabling the adapter for live publication labels:
 
-1. Let the Marin import complete, then run the updated preparer once to create
-   the v2 provenance manifest for the finished corpus.
+1. Let the Marin import and its final one-shot `fulltext_fts` build complete,
+   then verify the v2 provenance manifest for the finished corpus.
 2. Run a fixed, real-mathematics claim set against the completed index and
    record expected theorem sources, matching full-text passages, and rejection
    of fabricated keys.

@@ -46,7 +46,17 @@ public final class Phase34SqliteLiterature {
     }
 
     public boolean available() {
-        return Files.isRegularFile(database);
+        if (!Files.isRegularFile(database)) return false;
+        try (Connection connection = open();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT value FROM metadata WHERE key = 'fulltext_fts_complete'")) {
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() && "true".equalsIgnoreCase(result.getString(1));
+            }
+        } catch (Exception ignored) {
+            // Treat a partial, old, or unreadable staging database as unavailable.
+            return false;
+        }
     }
 
     public String search(String query) {

@@ -63,8 +63,8 @@ def parse_args() -> argparse.Namespace:
         help=f"destination for derived SQLite index (default: {DEFAULT_INDEX_DIR})",
     )
     parser.add_argument(
-        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext"),
-        help="stage to prepare; all runs metadata, theorems, then fulltext",
+        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts"),
+        help="stage to prepare; all runs metadata, theorems, then fulltext and its final FTS rebuild",
     )
     parser.add_argument(
         "--fulltext-shard-limit", type=int, default=0,
@@ -268,6 +268,22 @@ def prepare_theorems(conn: sqlite3.Connection, theorem_file: Path, slogan_file: 
     print(f"theorems: complete ({indexed:,} indexed theorem statements)")
 
 
+def rebuild_fulltext_fts(conn: sqlite3.Connection) -> None:
+    """Build the large full-text FTS index once, after all resumable imports have finished."""
+    print("fulltext-fts: rebuilding from stored full text in one SQLite transaction")
+    conn.execute("DELETE FROM fulltext_fts")
+    conn.execute(
+        """INSERT INTO fulltext_fts(rowid, paper_id, title, text)
+           SELECT f.rowid, f.paper_id, COALESCE(p.title, ''), f.text
+             FROM fulltext f LEFT JOIN papers p ON p.paper_id = f.paper_id"""
+    )
+    indexed = conn.execute("SELECT COUNT(*) FROM fulltext_fts").fetchone()[0]
+    set_state(conn, "fulltext_fts_complete", "true")
+    set_state(conn, "fulltext_fts_documents", str(indexed))
+    conn.commit()
+    print(f"fulltext-fts: complete ({indexed:,} documents)")
+
+
 def prepare_fulltext(conn: sqlite3.Connection, marin_dir: Path, limit: int) -> None:
     if not state(conn, "metadata_complete"):
         raise SystemExit("metadata stage must complete before full-text preparation")
@@ -284,7 +300,10 @@ def prepare_fulltext(conn: sqlite3.Connection, marin_dir: Path, limit: int) -> N
     if limit > 0:
         remaining = remaining[:limit]
     if not remaining:
-        print("fulltext: all available shards are already complete")
+        if len(processed) == len(shards) and state(conn, "fulltext_fts_complete") != "true":
+            rebuild_fulltext_fts(conn)
+        else:
+            print("fulltext: all available shards are already complete")
         return
     print(f"fulltext: scanning {len(remaining):,} shard(s); {len(arxiv_to_paper):,} records have UW category metadata")
     for number, shard in enumerate(remaining, 1):
@@ -304,20 +323,37 @@ def prepare_fulltext(conn: sqlite3.Connection, marin_dir: Path, limit: int) -> N
                 scope = "uw-categorized" if found else "ar5iv-unclassified"
                 digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 matches.append((paper_id, row["id"], text, digest, len(text), category, scope, title))
-        for paper_id, source_key, text, digest, chars, category, scope, title in matches:
-            conn.execute("INSERT OR REPLACE INTO fulltext VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         (paper_id, source_key, text, digest, chars, category, scope))
-            conn.execute("DELETE FROM fulltext_fts WHERE paper_id = ?", (paper_id,))
-            conn.execute("INSERT INTO fulltext_fts VALUES (?, ?, ?)", (paper_id, title, text))
+        # Full-text FTS updates are intentionally deferred until every shard is present.  The old
+        # per-record DELETE/INSERT into an ever-larger FTS table made later shards take ~30 minutes
+        # each.  The import ledger makes these rows naturally resumable; a single bulk rebuild at
+        # completion is both faster and keeps the reader feature unavailable until complete.
+        conn.executemany(
+            """INSERT INTO fulltext(paper_id, source_key, text, text_sha256, char_count,
+                                     primary_category, source_scope)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(paper_id) DO UPDATE SET
+                 source_key = excluded.source_key,
+                 text = excluded.text,
+                 text_sha256 = excluded.text_sha256,
+                 char_count = excluded.char_count,
+                 primary_category = excluded.primary_category,
+                 source_scope = excluded.source_scope""",
+            [row[:7] for row in matches],
+        )
         conn.execute("INSERT OR REPLACE INTO processed_shards VALUES (?, ?, datetime('now'), ?)",
                      (shard.name, shard.stat().st_size, len(matches)))
         conn.commit()
         print(f"fulltext: shard {number:,}/{len(remaining):,} {shard.name} — {len(matches):,} matched")
     done = conn.execute("SELECT COUNT(*) FROM processed_shards").fetchone()[0]
-    set_state(conn, "fulltext_complete", str(done == len(shards)).lower())
+    complete = done == len(shards)
+    set_state(conn, "fulltext_complete", str(complete).lower())
+    set_state(conn, "fulltext_data_complete", str(complete).lower())
+    set_state(conn, "fulltext_fts_complete", "false")
     set_state(conn, "fulltext_processed_shards", str(done))
     set_state(conn, "fulltext_total_shards", str(len(shards)))
     conn.commit()
+    if complete:
+        rebuild_fulltext_fts(conn)
 
 
 def sha256_file(path: Path) -> str:
@@ -403,6 +439,7 @@ def write_manifest(conn: sqlite3.Connection, index_dir: Path, args: argparse.Nam
         "theorems": conn.execute("SELECT COUNT(*) FROM theorems").fetchone()[0],
         "fulltext_documents": conn.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0],
         "processed_fulltext_shards": conn.execute("SELECT COUNT(*) FROM processed_shards").fetchone()[0],
+        "fulltext_fts_documents": conn.execute("SELECT COUNT(*) FROM fulltext_fts").fetchone()[0],
     }
     provenance = input_provenance(conn, args)
     set_state(conn, "index_format", INDEX_FORMAT)
@@ -462,6 +499,14 @@ def main() -> int:
             prepare_theorems(conn, theorem_file, slogan_file, args.force)
         if args.stage in ("all", "fulltext"):
             prepare_fulltext(conn, marin_dir, args.fulltext_shard_limit)
+        if args.stage == "fulltext-fts":
+            total_shards = len(list(marin_dir.glob("*.jsonl.gz")))
+            done_shards = conn.execute("SELECT COUNT(*) FROM processed_shards").fetchone()[0]
+            if done_shards != total_shards:
+                raise SystemExit(
+                    f"fulltext-fts requires all Marin shards first ({done_shards}/{total_shards} complete)"
+                )
+            rebuild_fulltext_fts(conn)
         write_manifest(conn, index_dir, args)
     finally:
         conn.close()

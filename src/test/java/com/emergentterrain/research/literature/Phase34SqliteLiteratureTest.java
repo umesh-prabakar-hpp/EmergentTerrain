@@ -26,6 +26,7 @@ class Phase34SqliteLiteratureTest {
             sql.execute("CREATE TABLE papers (paper_id TEXT PRIMARY KEY, title TEXT, authors TEXT, primary_category TEXT)");
             sql.execute("CREATE TABLE theorems (theorem_id INTEGER PRIMARY KEY, paper_id TEXT)");
             sql.execute("CREATE TABLE fulltext (paper_id TEXT PRIMARY KEY, source_key TEXT)");
+            sql.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
             sql.execute("CREATE VIRTUAL TABLE theorem_fts USING fts5(theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body)");
             sql.execute("CREATE VIRTUAL TABLE fulltext_fts USING fts5(paper_id UNINDEXED, title, text)");
             sql.execute("INSERT INTO papers VALUES ('2401.01234', 'Prime gap bounds', 'A. Author', 'math.NT')");
@@ -33,6 +34,7 @@ class Phase34SqliteLiteratureTest {
             sql.execute("INSERT INTO theorem_fts VALUES (1, '2401.01234', 'Prime gap theorem', 'gap bound', 'The prime gap has a tested bound.')");
             sql.execute("INSERT INTO fulltext VALUES ('2401.01234', 'no-problem/2401/2401.01234.html')");
             sql.execute("INSERT INTO fulltext_fts VALUES ('2401.01234', 'Prime gap bounds', 'The confirmed range gives a prime gap bound with a reproducible calculation.')");
+            sql.execute("INSERT INTO metadata VALUES ('fulltext_fts_complete', 'true')");
         }
         return new Phase34SqliteLiterature(indexDir);
     }
@@ -65,6 +67,22 @@ class Phase34SqliteLiteratureTest {
         Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir);
 
         assertThat(adapter.search("prime gap")).contains("not available");
+    }
+
+    @Test
+    void incompleteFullTextIndexIsNotAvailableOrAdvertised() throws Exception {
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+            sql.execute("INSERT INTO metadata VALUES ('fulltext_fts_complete', 'false')");
+        }
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir);
+        MathToolSuite suite = new MathToolSuite(null, new ObjectMapper());
+        suite.setPhase34SqliteLiterature(adapter);
+
+        assertThat(adapter.available()).isFalse();
+        assertThat(suite.toolsJson(false, true)).doesNotContain("search_literature")
+                .doesNotContain("read_reference");
     }
 
     @Test

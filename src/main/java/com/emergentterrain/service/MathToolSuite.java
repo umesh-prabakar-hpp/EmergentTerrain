@@ -421,7 +421,7 @@ public class MathToolSuite {
 
     public void setPhase34SqliteLiterature(
             com.emergentterrain.research.literature.Phase34SqliteLiterature adapter) {
-        this.phase34SqliteLiterature = adapter;
+        this.phase34SqliteLiterature = adapter != null && adapter.available() ? adapter : null;
     }
 
     /** Phase 32 §32.5d — OEIS/DLMF domain-reference lookups. Null-safe (off ⇒ tools not advertised). */
