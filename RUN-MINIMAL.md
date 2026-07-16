@@ -14,6 +14,15 @@ python3 scripts/build-oeis.py        # §32.5d OEIS domain ref (~40 MB, no key) 
 python3 scripts/build-dlmf.py        # §32.5d DLMF special-functions ref (free scrape) -> domain-refs/dlmf.jsonl
 # broad full-text (jedibear/S2ORC + ar5iv bulk) needs a transient AWS box — see §32.5e / scripts/aws/provision-build-box.sh
 
+# 0c. Optional Phase 34 local literature index (public, tokenless; does not enable the app adapter)
+python3 -m pip install --user -U huggingface_hub pyarrow
+./scripts/bootstrap-hf-math-literature.sh
+HF_DATASET=marin-community/ar5iv-no-problem-markdown ./scripts/bootstrap-hf-math-literature.sh
+python3 scripts/prepare-hf-math-index.py --stage metadata
+python3 scripts/prepare-hf-math-index.py --stage theorems
+systemd-run --user --unit emergentterrain-phase34-marin-index --collect --same-dir /usr/bin/python3 "$PWD/scripts/prepare-hf-math-index.py" --stage fulltext
+# One fulltext writer only. The final FTS build is automatic; see phase-34-computational-publication/README.md.
+
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
 
