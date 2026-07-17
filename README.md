@@ -42,13 +42,20 @@ Java 21 required.
 
 Fedora / Linux example:
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+# Fedora 44's native repositories provide OpenJDK 25, not OpenJDK 21. Install
+# the official Eclipse Adoptium Temurin 21 JDK, then use it explicitly.
+export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn spring-boot:run
 ```
 Open `http://localhost:8081/`
+
+The system `java` alternative may remain on Java 25; keeping `JAVA_HOME` and `PATH`
+above scoped to the terminal preserves Java 21 for this project without changing the
+machine-wide default. Follow the [official Adoptium Fedora RPM instructions](https://adoptium.net/installation/linux/)
+to add its signed repository, then install `temurin-21-jdk`.
 
 ### local-ai provider
 
@@ -90,6 +97,10 @@ What it does:
 - creates `emergentterrain` and `emergentterrain_perf`
 - installs the local npm dependency and Playwright Chromium for the UI scripts
 
+On Fedora 44, install Temurin 21 first as described in [Run](#run). The helper detects
+`/usr/lib/jvm/java-21-temurin-jdk`, skips the unavailable native `java-21-openjdk-devel`
+package, and prints the matching `JAVA_HOME` in its next-steps output.
+
 Useful flags:
 - `--postgres-password YourOwnPassword`
 - `--skip-playwright`
@@ -126,7 +137,7 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 5. **Honest null reporting** — NULL_RESULT papers are stored with status `NULL_RESULT` (not PUBLISHED), receive no confidence boost (fixed ×0.92), are excluded from average score calculations, and display a `∅ NULL RESULT` banner in markdown.
 6. **Replication and bridge guards** — null results are excluded from anomaly replication queues and cross-domain knowledge bridging; only positive results are eligible.
 7. **Cross-topic anomaly context** — the formulation prompt surfaces anomalous papers from adjacent topics in the same domain, enabling the LLM to reason across papers when exploring new parameter regions.
-8. **Computational-publication tiers** — workflow status is separate from the reader-facing publication label. Every paper receives an audit bundle under `research/<room>/artifacts/<paper-id>/`; only `PUBLISHED` papers with a locked discovery/confirmation plan, sensitivity and reproduction declarations, an executed trace, and source-grounded related work are labeled artifact-backed computational-paper candidates. The gate requires a successful `read_reference` result for a key returned by `search_literature`, and that same key must appear in the related-work text. Artifact metadata is written from the final paper label. `./scripts/bootstrap-hf-math-literature.sh` downloads the fast theorem-search corpus by default and records both requested and resolved dataset revisions; set `HF_DATASET=marin-community/ar5iv-no-problem-markdown` for the complementary full-text source used to read and position claims. `python3 -m pip install --user pyarrow` followed by `./scripts/prepare-hf-math-index.py --stage metadata`, `--stage theorems`, and resumable `--stage fulltext --fulltext-shard-limit 20` builds the separate local SQLite/FTS5 staging index under `~/.emergentterrain/indexes/math-literature/`; the shard pass stores source text first and bulk-builds `fulltext_fts` only after every shard is committed, avoiding costly per-record FTS rewrites. It records raw-input SHA-256 values, dataset revisions, and importer provenance and retains broad source data for future subjects while mathematics remains the current query-time scope. The completed-index adapter is enabled through `app.research.literature.phase34-sqlite.enabled`; it searches all claim terms first, falls back to broad matching only if necessary, and returns only sources with indexed full text. Its fixed claim-set acceptance suite is still required before treating live retrieval as publication-ready. Neither corpus alone proves novelty.
+8. **Computational-publication tiers** — workflow status is separate from the reader-facing publication label. Every paper receives an audit bundle under `research/<room>/artifacts/<paper-id>/`; only `PUBLISHED` papers with a locked discovery/confirmation plan, sensitivity and reproduction declarations, an executed trace, and source-grounded related work are labeled artifact-backed computational-paper candidates. The gate requires a successful `read_reference` result for a key returned by `search_literature`, and that same key must appear in the related-work text. Artifact metadata is written from the final paper label. `./scripts/bootstrap-hf-math-literature.sh` downloads the fast theorem-search corpus by default and records both requested and resolved dataset revisions; set `HF_DATASET=marin-community/ar5iv-no-problem-markdown` for the complementary full-text source used to read and position claims. `python3 -m pip install --user pyarrow` followed by `./scripts/prepare-hf-math-index.py --stage metadata`, `--stage theorems`, and resumable `--stage fulltext --fulltext-shard-limit 20` builds the separate local SQLite/FTS5 staging index under `~/.emergentterrain/indexes/math-literature/`; the shard pass stores source text first and bulk-builds `fulltext_fts` only after every shard is committed, avoiding costly per-record FTS rewrites. It records raw-input SHA-256 values, dataset revisions, and importer provenance and retains broad source data for future subjects while mathematics remains the current query-time scope. The completed-index adapter is enabled through `app.research.literature.phase34-sqlite.enabled`; it searches all claim terms first, falls back to broad matching only if necessary, and returns only sources with indexed full text. Full-paper promotions use that same adapter first for their related-work search and up to two source reads; the older BM25/core route is fallback-only. Its fixed claim-set acceptance suite is still required before treating live retrieval as publication-ready. Neither corpus alone proves novelty.
 
 **Quality pipeline (additional LLM calls):**
 8. **Novelty check** — before formulation, when ≥3 papers exist in the topic, a fast Ollama call assesses saturation (0=fully covered, 1=fresh). Score < 0.30 injects a NOVELTY WARNING redirecting the LLM to unexplored parameter regions; 0.30–0.59 injects a softer hint.
@@ -158,6 +169,13 @@ In-repo specs and design notes under `docs/`:
 Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performance/phase-30-conjecture/`.
 
 ## Tests (summary)
+- **Java/Mockito on sandboxed hosts** — run Maven with the project JDK
+  (`JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk`). Mockito's inline mock maker dynamically
+  attaches Byte Buddy by default, which restricted sandboxes can deny even on Java 21; the
+  affected test class fails before its mock-based tests run. Preload the cached agent instead:
+  `mvn test -Dtest=SynthesisPaperServiceTest -DargLine=-javaagent:$HOME/.m2/repository/net/bytebuddy/byte-buddy-agent/1.15.11/byte-buddy-agent-1.15.11.jar`.
+  This runs all 11 synthesis tests without changing the system Java default. Java 25 also works
+  with that preload for tests, but Java 21 remains the supported app runtime.
 - `ResultClassificationTest` — all 17 branches of `classifyResult`: DEGENERATE (NaN, Infinity, zero sentinel, zero authorScore), NULL_RESULT (score floor, REFUTED claim, low OBSERVATIONAL), SUPPORTED, PARTIALLY_SUPPORTED, and real computation round-trips.
 - `LlmServiceParseTest` — 35 tests for `parseFormulationResult`, `parseNarrationResult`, and `parseRefinementDecision`: valid JSON, boundary params, malformed input, preamble extraction, confidence clamping, paper ID filtering, follow-up validation.
 - `LlmServiceQualityPipelineTest` — 50 tests for the quality-pipeline parse/build methods: `parseNoveltyAssessment` (score clamping, fallback, saturation threshold), `buildStatisticalFramingPrompt` / `parseStatisticalFraming` (truncation, JSON rejection, preamble stripping), `parseCritiqueResult` (weaknesses + `ExperimentalGap` parsing for param and dynamic types, validation of param1/param2 ranges, predicate/metric allowlists, range limits), `buildCritiquePrompt` (domain-aware experiment specs, dynamic-paper exclusion), `buildRevisionPrompt` (professor experiment section, null-result vs supported spec).

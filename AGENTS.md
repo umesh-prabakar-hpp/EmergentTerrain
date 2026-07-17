@@ -24,9 +24,16 @@ bash ./scripts/setup-fedora-prereqs.sh
 
 That script installs the local Fedora prerequisites for both repos, initializes PostgreSQL, creates `emergentterrain` and `emergentterrain_perf`, and installs the optional Playwright browser dependency unless told to skip it.
 
+Fedora 44's native repositories ship Java 25 but not the required OpenJDK 21 package. Use
+the signed official Adoptium RPM repository and install `temurin-21-jdk`, then set
+`JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk` for this project. Do not needlessly change the
+machine-wide `java` alternative. See the [official Adoptium Linux instructions](https://adoptium.net/installation/linux/).
+After Temurin is installed, `setup-fedora-prereqs.sh` detects it, omits the unavailable native
+`java-21-openjdk-devel` package, and prints the corresponding `JAVA_HOME` value.
+
 ## Run the app
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
@@ -60,6 +67,21 @@ mvn -DskipTests package
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn test -DtrimStackTrace=false
 ```
+
+On sandboxed hosts, Mockito's inline mock maker cannot dynamically attach Byte Buddy even
+when Maven runs on Java 21. For mock-based synthesis tests, preload the local Maven-cache
+agent instead (tested: all 11 `SynthesisPaperServiceTest` tests pass):
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
+export PATH="$JAVA_HOME/bin:$PATH"
+
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+mvn test -Dtest=SynthesisPaperServiceTest \
+  -DargLine=-javaagent:$HOME/.m2/repository/net/bytebuddy/byte-buddy-agent/1.15.11/byte-buddy-agent-1.15.11.jar
+```
+
+Java 25 can run that command with the preloaded agent, but Java 21 remains the supported
+runtime for compiling and running the application.
 
 Real two-process GPU smoke check:
 ```bash
@@ -156,6 +178,6 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - If behavior, setup, or performance workflows change, update both `README.md` and `AGENTS.md` in the same change.
 - **Check `application.yml` for live flag state, not the `@Value` default.** Several flags read `…:false` in the Java `@Value` annotation but are set `true` in YAML (e.g. `first-pass-metric-guard`, `revision-trace-grounding`, the `app.research.discovery.*` flags). A flag's annotation default is not its running value.
 - **`research/<room>/` resets on app restart** — published paper `.md` files and `REVIEW_REPORT.md` are wiped; the paper-ID counter keeps climbing (gaps = generated-but-not-persisted). Treat each post-restart `/paper-review` as a fresh batch.
-- **Phase 34 publication labels** — `status` is workflow state; `publicationLabel` is the reader-facing tier (`INTERNAL_RESEARCH_NOTE`, `COMPUTATIONAL_RESEARCH_NOTE`, or `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE`). The candidate tier requires `PUBLISHED`, a complete computational plan and trace, plus a successful `read_reference` result for a key emitted by `search_literature` that is cited in related-work text. The artifact bundle is written under `research/<room>/artifacts/<paper-id>/` from the paper's final label and records a declared reproduction command but never executes LLM-supplied shell text server-side. The public, tokenless Hugging Face bootstrap is `./scripts/bootstrap-hf-math-literature.sh`: the default UW theorem corpus finds prior claims, while `HF_DATASET=marin-community/ar5iv-no-problem-markdown` downloads the full-text companion for source reading. It records requested and resolved revisions; pin `HF_REVISION` for a reproducible local snapshot. `scripts/prepare-hf-math-index.py` turns those external raw downloads into a resumable SQLite/FTS5 staging index at `~/.emergentterrain/indexes/math-literature/` (requires PyArrow), recording raw-input SHA-256 values and importer provenance in its manifest. It checkpoints Marin source rows per shard and bulk-builds `fulltext_fts` only after every shard is present; the `fulltext_fts_complete` marker must be `true` before the Java adapter can be advertised. The Java adapter is read-only and enabled by `app.research.literature.phase34-sqlite.enabled`; `search_literature` tries all query terms before its broad-match fallback, returns only sources with indexed full text, and gives opaque `HF...` keys that must be returned before `read_reference` will serve a passage. A fixed real-claim acceptance suite remains required before treating its live output as publication-ready. It retains all labeled UW theorem records plus broad Marin arXiv full text, attaches a primary category where UW knows it, and marks other Marin rows `ar5iv-unclassified` for a later metadata-enrichment pass. Mathematics is currently a query-time activation filter, not a destructive corpus restriction. The preparer streams and checkpoint-records Marin shards.
+- **Phase 34 publication labels** — `status` is workflow state; `publicationLabel` is the reader-facing tier (`INTERNAL_RESEARCH_NOTE`, `COMPUTATIONAL_RESEARCH_NOTE`, or `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE`). The candidate tier requires `PUBLISHED`, a complete computational plan and trace, plus a successful `read_reference` result for a key emitted by `search_literature` that is cited in related-work text. The artifact bundle is written under `research/<room>/artifacts/<paper-id>/` from the paper's final label and records a declared reproduction command but never executes LLM-supplied shell text server-side. The public, tokenless Hugging Face bootstrap is `./scripts/bootstrap-hf-math-literature.sh`: the default UW theorem corpus finds prior claims, while `HF_DATASET=marin-community/ar5iv-no-problem-markdown` downloads the full-text companion for source reading. It records requested and resolved revisions; pin `HF_REVISION` for a reproducible local snapshot. `scripts/prepare-hf-math-index.py` turns those external raw downloads into a resumable SQLite/FTS5 staging index at `~/.emergentterrain/indexes/math-literature/` (requires PyArrow), recording raw-input SHA-256 values and importer provenance in its manifest. It checkpoints Marin source rows per shard and bulk-builds `fulltext_fts` only after every shard is present; the `fulltext_fts_complete` marker must be `true` before the Java adapter can be advertised. The Java adapter is read-only and enabled by `app.research.literature.phase34-sqlite.enabled`; `search_literature` tries all query terms before its broad-match fallback, returns only sources with indexed full text, and gives opaque `HF...` keys that must be returned before `read_reference` will serve a passage. Full-paper promotions must use this adapter first for related-work search and up to two passage reads; only an unavailable/no-hit adapter may fall back to the older BM25/core route. A fixed real-claim acceptance suite remains required before treating its live output as publication-ready. It retains all labeled UW theorem records plus broad Marin arXiv full text, attaches a primary category where UW knows it, and marks other Marin rows `ar5iv-unclassified` for a later metadata-enrichment pass. Mathematics is currently a query-time activation filter, not a destructive corpus restriction. The preparer streams and checkpoint-records Marin shards.
 - Add new learnings from setup, debugging, performance work, or integration checks to markdown in the same change.
 - **Keep wording domain-neutral in pipeline-wide code.** Code applied to every paper regardless of domain — the `SinglePointSweepValidator` gate and the revision-stage grounding rules (`EXECUTED_SCOPE_RULE`/`DEFINITION_GROUNDING_RULE` appended in `ResearchNarrationService.buildRevisionPromptFromSynthesis`) — must phrase its prompt rules, validator messages, and examples generically, not around the one domain that surfaced the bug (most papers here are MATHEMATICS conjecture papers, so fixes drift math-specific). Reserve domain-specific wording (mertens/window/`log_window_*` terms) for domain-gated code like the `verify_conjecture` tool output, which is advertised only when a `ConjectureVerifier` is wired. Before editing a user-facing string, check whether its call site is domain/paper-kind-gated or runs for everything.

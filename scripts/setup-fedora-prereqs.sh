@@ -113,8 +113,17 @@ fi
 [[ -d "$repo_root" ]] || fail "Java repo path not found: $repo_root"
 [[ -d "$gpu_repo" ]] || fail "GPU repo path not found: $gpu_repo"
 
+java_home="/usr/lib/jvm/java-21-openjdk"
+java_package="java-21-openjdk-devel"
+# Fedora 44 no longer publishes the native Java 21 package. When the operator has
+# installed the official Temurin JDK, keep the helper from trying to install the
+# unavailable OpenJDK package and print the matching project JAVA_HOME instead.
+if [[ -x /usr/lib/jvm/java-21-temurin-jdk/bin/java ]]; then
+  java_home="/usr/lib/jvm/java-21-temurin-jdk"
+  java_package=""
+fi
+
 packages=(
-  java-21-openjdk-devel
   maven
   postgresql-server
   postgresql
@@ -131,6 +140,10 @@ packages=(
   curl
   powershell
 )
+
+if [[ -n "$java_package" ]]; then
+  packages=("$java_package" "${packages[@]}")
+fi
 
 if [[ $skip_packages -eq 0 ]]; then
   echo "Installing Fedora packages..."
@@ -212,7 +225,7 @@ Next steps:
      cargo run
 
   2. Start the Spring app:
-     export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+     export JAVA_HOME=$java_home
      export PATH="\$JAVA_HOME/bin:\$PATH"
      cd $repo_root
      mvn spring-boot:run

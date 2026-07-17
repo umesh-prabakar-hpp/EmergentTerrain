@@ -61,6 +61,7 @@ public class SynthesisPaperService {
     // letter-less render guard (compose loop) catches any stray separator
     // capture, so no min cap is needed and short titles still parse.
     private static final Pattern TITLE_JSON = Pattern.compile("\"([^\"]{1,250})\"");
+    private static final Pattern PHASE34_KEY = Pattern.compile("\\[(HF[0-9A-F]+)]");
 
     private final ResearchPaperRepository papersRepository;
     private final ResearchMemoryRepository memoryRepository;
@@ -101,6 +102,13 @@ public class SynthesisPaperService {
     private com.emergentterrain.research.literature.GroundingClient groundingClient;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.literature.ReferenceCoreReader referenceReader;
+    /**
+     * Phase 34 — full-paper promotion is its own pipeline, so it must receive the same
+     * read-only SQLite/FTS adapter as the professor tool suite rather than calling only the
+     * older BM25 sidecar.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.Phase34SqliteLiterature phase34SqliteLiterature;
     private final Path researchOutputDir;
 
     private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
@@ -264,31 +272,10 @@ public class SynthesisPaperService {
         }
         try {
             String headline = FullPaperComposer.class != null ? headlineOf(r) : null;
-            String groundingBlock = "";
-            StringBuilder reads = new StringBuilder();
-            if (groundingClient != null) {
-                var grounding = groundingClient.ground(headline, 5);
-                groundingBlock = FullPaperComposer.renderGroundingBlock(grounding);
-                if (referenceReader != null && referenceReader.available()
-                        && grounding != null && grounding.evidence() != null) {
-                    int readsDone = 0;
-                    for (var e : grounding.evidence()) {
-                        if (readsDone >= 2) {
-                            break;
-                        }
-                        if (referenceReader.hasCore(e.key())) {
-                            String passage = referenceReader.read(e.key(), headline);
-                            if (passage != null) {
-                                reads.append(passage, 0, Math.min(passage.length(),
-                                        FullPaperComposer.MAX_READ_PASSAGE_CHARS)).append("\n---\n");
-                                readsDone++;
-                            }
-                        }
-                    }
-                }
-            }
+            FullPaperLiterature literature = fullPaperLiterature(phase34SqliteLiterature,
+                    groundingClient, referenceReader, headline);
             String intro = synthesizer.apply(FullPaperComposer.buildIntroRelatedWorkPrompt(
-                    w.family(), headline, groundingBlock, reads.toString()));
+                    w.family(), headline, literature.groundingBlock(), literature.reads()));
             String abstractText = synthesizer.apply(FullPaperComposer.buildAbstractPrompt(
                     r.title(), r.bodyMarkdown()));
             if (intro == null || intro.isBlank() || abstractText == null
@@ -313,13 +300,73 @@ public class SynthesisPaperService {
             String fileId = "PAPER-" + w.family().replaceAll("[^A-Za-z0-9]+", "_")
                     + "-" + Integer.toHexString(md.hashCode());
             Files.writeString(dir.resolve(fileId + ".fullpaper.md"), md);
-            log.info("full-paper composed — family={} file={} reads={} grounding={}",
-                    w.family(), fileId, reads.length() > 0 ? "yes" : "no",
-                    groundingBlock.isBlank() ? "none" : "yes");
+            log.info("full-paper composed — family={} file={} literatureSource={} reads={} grounding={}",
+                    w.family(), fileId, literature.source(), literature.reads().isBlank() ? "no" : "yes",
+                    literature.groundingBlock().isBlank() ? "none" : "yes");
         } catch (Exception e) {
             log.warn("full-paper compose failed family={} (synthesis unaffected): {}",
                     w.family(), e.getMessage());
         }
+    }
+
+    /**
+     * Retrieves related-work material for a full-paper promotion. The Phase 34 adapter is first
+     * because it is the completed, readable full-text index. The legacy BM25 sidecar/core pair
+     * remains a failure-soft fallback for an unavailable index or a query with no Phase 34 hit.
+     */
+    static FullPaperLiterature fullPaperLiterature(
+            com.emergentterrain.research.literature.Phase34SqliteLiterature phase34,
+            com.emergentterrain.research.literature.GroundingClient grounding,
+            com.emergentterrain.research.literature.ReferenceCoreReader cores,
+            String headline) {
+        if (phase34 != null && phase34.available()) {
+            String search = phase34.search(headline);
+            List<String> keys = phase34Keys(search);
+            if (!keys.isEmpty()) {
+                StringBuilder reads = new StringBuilder();
+                for (String key : keys.stream().limit(2).toList()) {
+                    String passage = phase34.read(key, headline);
+                    if (passage != null && passage.startsWith("read_reference ")) {
+                        reads.append(passage, 0, Math.min(passage.length(),
+                                FullPaperComposer.MAX_READ_PASSAGE_CHARS)).append("\n---\n");
+                    }
+                }
+                return new FullPaperLiterature(search, reads.toString(), "phase34-sqlite");
+            }
+        }
+        if (grounding == null) {
+            return new FullPaperLiterature("", "", "none");
+        }
+        var result = grounding.ground(headline, 5);
+        String groundingBlock = FullPaperComposer.renderGroundingBlock(result);
+        StringBuilder reads = new StringBuilder();
+        if (cores != null && cores.available() && result != null && result.evidence() != null) {
+            int readsDone = 0;
+            for (var evidence : result.evidence()) {
+                if (readsDone >= 2) break;
+                if (!cores.hasCore(evidence.key())) continue;
+                String passage = cores.read(evidence.key(), headline);
+                if (passage != null) {
+                    reads.append(passage, 0, Math.min(passage.length(),
+                            FullPaperComposer.MAX_READ_PASSAGE_CHARS)).append("\n---\n");
+                    readsDone++;
+                }
+            }
+        }
+        return new FullPaperLiterature(groundingBlock, reads.toString(), "legacy-grounding");
+    }
+
+    private static List<String> phase34Keys(String searchResult) {
+        if (searchResult == null || searchResult.isBlank()) return List.of();
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        Matcher matcher = PHASE34_KEY.matcher(searchResult);
+        while (matcher.find() && keys.size() < 2) {
+            keys.add(matcher.group(1));
+        }
+        return List.copyOf(keys);
+    }
+
+    record FullPaperLiterature(String groundingBlock, String reads, String source) {
     }
 
     /** Render-1 polish — strip a leading "**Heading**" bold echo from a composed section. */

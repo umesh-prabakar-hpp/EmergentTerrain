@@ -1,9 +1,15 @@
 package com.emergentterrain.research.synthesis;
 
 import com.emergentterrain.research.EvidenceLabel;
+import com.emergentterrain.research.literature.Phase34SqliteLiterature;
 import com.emergentterrain.research.synthesis.SynthesisComposer.SourcePaper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,6 +21,8 @@ import static org.mockito.Mockito.mock;
  * NULL_SYNTHESIS path. Router-free via an injected synthesizer.
  */
 class SynthesisPaperServiceTest {
+
+    @TempDir Path indexDir;
 
     private static SynthesisPaperService svc() {
         return new SynthesisPaperService(
@@ -168,5 +176,38 @@ class SynthesisPaperServiceTest {
         assertThat(SynthesisComposer.looksLikeLeakedReasoning(
                 "The window-local Cramer ratio is bounded by 0.45 [P-1].")).isFalse();
         assertThat(SynthesisComposer.looksLikeLeakedReasoning(null)).isFalse();
+    }
+
+    @Test
+    void fullPaperLiterature_prefersPhase34SearchAndReadOverLegacyGrounding() throws Exception {
+        Phase34SqliteLiterature phase34 = indexedPhase34Adapter();
+
+        SynthesisPaperService.FullPaperLiterature literature =
+                SynthesisPaperService.fullPaperLiterature(phase34, null, null, "prime gap bound");
+
+        assertThat(literature.source()).isEqualTo("phase34-sqlite");
+        assertThat(literature.groundingBlock()).contains("Phase 34 SQLite theorem index")
+                .contains("[HF");
+        assertThat(literature.reads()).contains("read_reference HF")
+                .contains("confirmed range");
+    }
+
+    private Phase34SqliteLiterature indexedPhase34Adapter() throws Exception {
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE papers (paper_id TEXT PRIMARY KEY, title TEXT, authors TEXT, primary_category TEXT)");
+            sql.execute("CREATE TABLE theorems (theorem_id INTEGER PRIMARY KEY, paper_id TEXT)");
+            sql.execute("CREATE TABLE fulltext (paper_id TEXT PRIMARY KEY, source_key TEXT)");
+            sql.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+            sql.execute("CREATE VIRTUAL TABLE theorem_fts USING fts5(theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body)");
+            sql.execute("CREATE VIRTUAL TABLE fulltext_fts USING fts5(paper_id UNINDEXED, title, text)");
+            sql.execute("INSERT INTO papers VALUES ('2401.01234', 'Prime gap bounds', 'A. Author', 'math.NT')");
+            sql.execute("INSERT INTO theorems VALUES (1, '2401.01234')");
+            sql.execute("INSERT INTO theorem_fts VALUES (1, '2401.01234', 'Prime gap theorem', 'gap bound', 'The prime gap has a tested bound.')");
+            sql.execute("INSERT INTO fulltext VALUES ('2401.01234', 'no-problem/2401/2401.01234.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2401.01234', 'Prime gap bounds', 'The confirmed range gives a prime gap bound with a reproducible calculation.')");
+            sql.execute("INSERT INTO metadata VALUES ('fulltext_fts_complete', 'true')");
+        }
+        return new Phase34SqliteLiterature(indexDir);
     }
 }
