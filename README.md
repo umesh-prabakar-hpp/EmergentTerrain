@@ -83,6 +83,23 @@ complete Codex and Claude login, activation, connection, verification, and
 troubleshooting guide. The active Codex pool permits two concurrent requests;
 account-level usage limits still apply.
 
+### Related-service status
+
+Use the read-only status helper to check the four services required by the
+research and GPU runtime: the Spring app (`8081`), Julia math sidecar (`8088`),
+isolated PyCall/grounding sidecar (`8089`), and Rust GPU engine (`50051`). For
+each listener it prints the owning PID and exact active command from `ps`, then
+the copy-pasteable command to start it when absent. It exits nonzero if any is
+not healthy (or, for the gRPC GPU engine, not listening). It accepts
+`ET_APP_URL`, `ET_JULIA_URL`, `ET_PY_SIDECAR_URL`, `ET_APP_PORT`,
+`ET_JULIA_PORT`, `ET_PY_SIDECAR_PORT`, `ET_GPU_ENGINE_PORT`, and
+`ET_STATUS_TIMEOUT_SECONDS` overrides. Its terminal output uses color; pipe it
+or set `NO_COLOR=1` for plain text.
+
+```bash
+./scripts/status-related-apps.sh
+```
+
 ## Fedora Bootstrap
 If you want one native Fedora setup path for both repos, use:
 

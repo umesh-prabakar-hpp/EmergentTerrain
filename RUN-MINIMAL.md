@@ -26,14 +26,15 @@ systemd-run --user --unit emergentterrain-phase34-marin-index --collect --same-d
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
 
-# 2. Julia math sidecar
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_DISCOVER_EXEC=1 ./scripts/start.sh &
+# 2. Julia math sidecar. Discovery is served on 8088, so its execution gate
+#    belongs on this process. It also proxies the isolated PyCall routes.
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && JULIA_NUM_THREADS=4 PY_SIDECAR_ENABLED=true ET_DISCOVER_EXEC=1 ./scripts/start.sh &
 
 # 2b. Py-sidecar (PyCall routes + literature grounding). The recommended combined
 #     subject gate drops cross-domain near-misses and applies the anchored Number
 #     Theory MSC prefix (msc:11 matches 11N37, not topic-id "11"). Omit it to
 #     leave the gate dormant.
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics,msc:11 ET_DISCOVER_EXEC=1 ./scripts/start-py-sidecar.sh &
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh &
 
 # 3. Spring Boot app
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && ./scripts/start.sh

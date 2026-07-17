@@ -132,8 +132,14 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ```
 
 ## Runtime ports
-- Web app: `http://localhost:8080/`
+- Web app: `http://127.0.0.1:8081/`
 - GPU engine gRPC: `127.0.0.1:50051` by default
+- Related-service health: `./scripts/status-related-apps.sh` reports the
+  Spring app (`8081`), Julia math sidecar (`8088`), PyCall/grounding sidecar
+  (`8089`), and GPU gRPC listener (`50051`) without changing any process. It
+  prints each listener's PID and active `ps` command, plus its start command
+  when absent, and exits nonzero if any is unavailable. It uses color when
+  attached to a terminal; `NO_COLOR=1` disables it.
 
 ## Architecture notes
 - `src/main/java/com/emergentterrain/service/RoomService.java` is the core gameplay loop.
