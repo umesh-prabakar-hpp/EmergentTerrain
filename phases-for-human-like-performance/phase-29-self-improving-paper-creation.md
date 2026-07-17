@@ -280,6 +280,15 @@ also recorded in `phase-flags.md`.
     a genuinely-hung worker ties up a narration slot — fixing the swallowed
     interrupt (rec 2) is the real fix; this only buys room + visibility.
 
+- **2026-07-17 timeout re-tune (Phase 35 incident).** A Phase 34 FTS5 search
+  delayed two concurrent best-of-N cascades. One paper completed just before
+  the 40-minute deadline while the other timed out during its final candidate.
+  `narrationTimeoutMs` is therefore 90 minutes and `stuckDraftTtlMs` is 100
+  minutes, preserving the ordering in which the narration timeout fires first.
+  The dormant legacy AI gateway session TTL is 95 minutes for the same reason. This
+  is capacity for the current path, not a substitute for the Phase 35 bounded
+  retrieval implementation.
+
 ### §1.A — grok `/`-in-enum tool-schema rejection *(SHIPPED, always-on)*
 
 xAI/grok rejected the `symbolic_regress` tool **schema** ("'/' in 'enum' string

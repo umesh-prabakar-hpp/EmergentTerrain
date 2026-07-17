@@ -86,7 +86,10 @@ bringing the dormant Claude bridge back up. See
 [`docs/subscription-providers.md`](docs/subscription-providers.md) for the
 complete Codex and Claude login, activation, connection, verification, and
 troubleshooting guide. The active Codex pool permits two concurrent requests;
-account-level usage limits still apply.
+account-level usage limits still apply. A full research narration has a
+90-minute wall-clock deadline; its stale-draft reaper is 100 minutes, so the
+narration timeout is the first recovery mechanism. Phase 35 retrieval work
+remains necessary to avoid consuming that allowance in a broad FTS5 search.
 
 ### Related-service status
 
