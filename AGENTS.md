@@ -43,8 +43,9 @@ mvn spring-boot:run
 For the configured primary LLM, prefer `./scripts/start.sh`: it starts the
 local `local-ai-gateway` on `127.0.0.1:8788` before launching the JVM.
 The proxy uses the machine's `codex login` session with an ephemeral read-only
-turn in `/tmp`; it pins the signed-in account's confirmed default,
-`gpt-5.6-sol`, and reports its token usage for API-equivalent budget accounting.
+turn in `/tmp`; it pins the locally validated `gpt-5.6-terra`, and reports its
+token usage for API-equivalent budget accounting at Terra's $2.50 input / $15
+output per million-token public rates.
 The ChatGPT-authenticated CLI rejects `gpt-5-codex` as an explicit model
 selection on this installation. Claude is intentionally dormant
 (`legacy-ai.enabled: false`); OpenRouter is the fallback. Set

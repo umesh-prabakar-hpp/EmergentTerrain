@@ -44,10 +44,12 @@ disables Codex shell, browser, computer-use, app, image, and tool-suggestion
 features. Application-owned professor tools are instead planned by Codex and
 executed by EmergentTerrain.
 
-The current proxy model is `gpt-5.6-sol`, the confirmed default for the signed
-in account. Do not substitute `gpt-5-codex`: this ChatGPT-authenticated CLI
-installation rejects that explicit selection. A different available local
-model can be selected with `LOCAL_AI_GATEWAY_MODEL`.
+The current proxy model is `gpt-5.6-terra`, validated by a local read-only
+Codex probe on 2026-07-17. Its API-equivalent budget rate is $2.50 input / $15
+output per million tokens, half the configured Sol rate it replaces. Do not
+substitute `gpt-5-codex`: this ChatGPT-authenticated CLI installation rejects
+that explicit selection. A different available local model can be selected
+with `LOCAL_AI_GATEWAY_MODEL`.
 
 ### Claude Pro/Max subscription
 
