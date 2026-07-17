@@ -190,6 +190,7 @@ In-repo specs and design notes under `docs/`:
 - [`paper-creation-flow.md`](docs/paper-creation-flow.md) — end-to-end flow diagram: conjecture-investigation + discovery/frontier paths and their shared narration → validation → publish tail.
 - [`2026-06-04-pipeline-hardening.md`](docs/2026-06-04-pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
 - [`phase-34-computational-publication/README.md`](phases-for-human-like-performance/phase-34-computational-publication/README.md) — publication tiers, artifact/provenance rules, current SQLite adapter checkpoint, and the remaining live-activation checklist.
+- [`phase-35-fts-retrieval-efficiency/README.md`](phases-for-human-like-performance/phase-35-fts-retrieval-efficiency/README.md) — performance-preserving FTS5 retrieval plan, evidence invariants, acceptance suite, and rollout/rollback criteria.
 - [`research-puzzle-spec.md`](docs/research-puzzle-spec.md) · [`bot-lifecycle-spec.md`](docs/bot-lifecycle-spec.md) · [`constitutional-terrain-phase1.md`](docs/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/llm-cost-analysis.md)
 
 Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performance/phase-30-conjecture/`.
