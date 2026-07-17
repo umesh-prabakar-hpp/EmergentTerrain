@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
         help=f"destination for derived SQLite index (default: {DEFAULT_INDEX_DIR})",
     )
     parser.add_argument(
-        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts"),
+        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts", "optimize"),
         help="stage to prepare; all runs metadata, theorems, then fulltext and its final FTS rebuild",
     )
     parser.add_argument(
@@ -262,10 +262,26 @@ def prepare_theorems(conn: sqlite3.Connection, theorem_file: Path, slogan_file: 
             flush()
     flush()
     conn.execute("DROP TABLE IF EXISTS slogan_staging")
+    conn.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
     set_state(conn, "theorems_complete", "true")
     set_state(conn, "theorems_indexed", str(indexed))
+    set_state(conn, "theorem_fts_optimized_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     conn.commit()
     print(f"theorems: complete ({indexed:,} indexed theorem statements)")
+
+
+def optimize_fts(conn: sqlite3.Connection) -> None:
+    """Controlled maintenance for an already-complete immutable index."""
+    if state(conn, "theorems_complete") != "true" or state(conn, "fulltext_fts_complete") != "true":
+        raise SystemExit("optimize requires completed theorem and full-text FTS stages")
+    print("fts: optimizing completed theorem and full-text indexes")
+    conn.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
+    conn.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
+    optimized_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    set_state(conn, "theorem_fts_optimized_at", optimized_at)
+    set_state(conn, "fulltext_fts_optimized_at", optimized_at)
+    conn.commit()
+    print("fts: optimization complete")
 
 
 def rebuild_fulltext_fts(conn: sqlite3.Connection) -> None:
@@ -278,8 +294,12 @@ def rebuild_fulltext_fts(conn: sqlite3.Connection) -> None:
              FROM fulltext f LEFT JOIN papers p ON p.paper_id = f.paper_id"""
     )
     indexed = conn.execute("SELECT COUNT(*) FROM fulltext_fts").fetchone()[0]
+    # Controlled, one-time maintenance after the immutable bulk build. This merges FTS segments
+    # without changing any document or query semantics. Never run it from the serving app.
+    conn.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
     set_state(conn, "fulltext_fts_complete", "true")
     set_state(conn, "fulltext_fts_documents", str(indexed))
+    set_state(conn, "fulltext_fts_optimized_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     conn.commit()
     print(f"fulltext-fts: complete ({indexed:,} documents)")
 
@@ -488,15 +508,13 @@ def main() -> int:
     index_dir = args.index_dir.expanduser().resolve()
     uw_dir = source_dir / UW_DIRNAME
     marin_dir = source_dir / MARIN_DIRNAME
-    paper_file = required(uw_dir / "paper.parquet")
-    theorem_file = required(uw_dir / "theorem.parquet")
-    slogan_file = required(uw_dir / "theorem_slogan.parquet")
     conn = connect(index_dir)
     try:
         if args.stage in ("all", "metadata"):
-            prepare_metadata(conn, paper_file, args.force)
+            prepare_metadata(conn, required(uw_dir / "paper.parquet"), args.force)
         if args.stage in ("all", "theorems"):
-            prepare_theorems(conn, theorem_file, slogan_file, args.force)
+            prepare_theorems(conn, required(uw_dir / "theorem.parquet"),
+                             required(uw_dir / "theorem_slogan.parquet"), args.force)
         if args.stage in ("all", "fulltext"):
             prepare_fulltext(conn, marin_dir, args.fulltext_shard_limit)
         if args.stage == "fulltext-fts":
@@ -507,6 +525,8 @@ def main() -> int:
                     f"fulltext-fts requires all Marin shards first ({done_shards}/{total_shards} complete)"
                 )
             rebuild_fulltext_fts(conn)
+        if args.stage == "optimize":
+            optimize_fts(conn)
         write_manifest(conn, index_dir, args)
     finally:
         conn.close()

@@ -1,5 +1,9 @@
 package com.emergentterrain.research.literature;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.sqlite.ProgressHandler;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -8,10 +12,12 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,13 +33,24 @@ import java.util.regex.Pattern;
  */
 public final class Phase34SqliteLiterature {
 
+    private static final Logger log = LoggerFactory.getLogger(Phase34SqliteLiterature.class);
     private static final Pattern TOKEN = Pattern.compile("[\\p{Alnum}]{2,}");
-    private static final int SEARCH_ROWS = 12;
+    // The full-text companion is sparser than the theorem corpus. Oversample FTS hits before
+    // the full-text-presence join so a good eligible source is not hidden behind theorem-only rows.
+    private static final int SEARCH_CANDIDATES = 512;
+    private static final int LEGACY_SEARCH_ROWS = 12;
     private static final int SEARCH_RESULTS = 3;
     private static final int MAX_PASSAGE_CHARS = 7_500;
     private static final int MAX_ISSUED_KEYS = 4_096;
+    private static final long DEFAULT_SEARCH_TIMEOUT_MS = 15_000;
+    private static final int PROGRESS_HANDLER_VM_STEPS = 1_000;
+    // Leave cleanup/driver scheduling room inside the externally visible budget.
+    private static final long BUDGET_HEADROOM_MS = 750;
 
     private final Path database;
+    private final boolean phase35RetrievalEnabled;
+    private final long searchTimeoutMs;
+    private final LiteratureQueryPlanner queryPlanner;
     private final Map<String, String> paperForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
@@ -42,7 +59,23 @@ public final class Phase34SqliteLiterature {
     });
 
     public Phase34SqliteLiterature(Path indexDir) {
+        this(indexDir, false, DEFAULT_SEARCH_TIMEOUT_MS);
+    }
+
+    /**
+     * @param phase35RetrievalEnabled enables the bounded Phase 35 query path. {@code false}
+     *                                preserves the Phase 34 query construction for rollback.
+     */
+    public Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, new DeterministicLiteratureQueryPlanner());
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            LiteratureQueryPlanner queryPlanner) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
+        this.phase35RetrievalEnabled = phase35RetrievalEnabled;
+        this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
+        this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
     }
 
     public boolean available() {
@@ -60,44 +93,84 @@ public final class Phase34SqliteLiterature {
     }
 
     public String search(String query) {
-        String ftsQuery = ftsQuery(query);
         if (!available()) {
             return "search_literature: Phase 34 SQLite index is not available.";
         }
-        if (ftsQuery.isBlank()) {
-            return "search_literature: provide a claim or topic containing searchable terms.";
-        }
         try (Connection connection = open();
              PreparedStatement statement = connection.prepareStatement("""
+                     WITH ranked_theorems AS (
+                         SELECT rowid, rank
+                           FROM theorem_fts
+                          WHERE theorem_fts MATCH ?
+                       ORDER BY rank
+                          LIMIT ?
+                     )
                      SELECT t.paper_id, COALESCE(p.title, ''), COALESCE(p.authors, ''),
                             COALESCE(p.primary_category, ''),
-                            snippet(theorem_fts, 4, '', '', '…', 24)
-                       FROM theorem_fts
+                            snippet(theorem_fts, 4, '', '', '…', 24),
+                            COALESCE(theorem_fts.name, ''), COALESCE(theorem_fts.slogan, ''),
+                            COALESCE(theorem_fts.body, '')
+                       FROM ranked_theorems ranked
+                       JOIN theorem_fts ON theorem_fts.rowid = ranked.rowid
                        JOIN theorems t ON theorem_fts.theorem_id = t.theorem_id
-                       JOIN fulltext f ON f.paper_id = t.paper_id
+                     JOIN fulltext f ON f.paper_id = t.paper_id
                   LEFT JOIN papers p ON p.paper_id = t.paper_id
-                      WHERE theorem_fts MATCH ?
-                   ORDER BY bm25(theorem_fts)
-                      LIMIT ?
+                   ORDER BY ranked.rank
                      """)) {
-            Map<String, Citation> distinct = new LinkedHashMap<>();
-            // Prefer an all-terms query: it is materially more precise and avoids ranking every
-            // document that contains a generic word from a long claim. Preserve recall with the
-            // former OR query only when the focused attempt finds nothing.
-            for (String candidateQuery : searchQueries(ftsQuery)) {
-                statement.setString(1, candidateQuery);
-                statement.setInt(2, SEARCH_ROWS);
-                try (ResultSet rows = statement.executeQuery()) {
-                    while (rows.next() && distinct.size() < SEARCH_RESULTS) {
-                        String paperId = rows.getString(1);
-                        if (paperId == null || paperId.isBlank()) continue;
-                        String key = keyFor(paperId);
-                        paperForKey.put(key, paperId);
-                        distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
-                                rows.getString(3), rows.getString(4), rows.getString(5)));
-                    }
+            QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, searchTimeoutMs) : null;
+            List<SearchCandidate> candidateQueries;
+            if (phase35RetrievalEnabled) {
+                // Looking up each term in fts5vocab can itself scan the large on-disk vocabulary.
+                // The planner therefore treats an empty map as "unknown statistics" and lets the
+                // bounded phrase FTS searches establish whether a term exists within one budget.
+                LiteratureQueryPlan plan = queryPlanner.plan(query, Map.of());
+                if (!plan.unavailableReason().isBlank()) {
+                    if (budget != null) budget.close();
+                    return "search_literature: " + plan.unavailableReason();
                 }
-                if (!distinct.isEmpty()) break;
+                candidateQueries = plan.candidates().stream()
+                        .map(candidate -> new SearchCandidate(candidate.expression(), candidate.evidenceAnchors(),
+                                candidate.minimumEvidenceMatches(), candidate.requiredTitleAnchors()))
+                        .toList();
+            } else {
+                candidateQueries = legacySearchQueries(query).stream()
+                        .map(candidate -> new SearchCandidate(candidate, List.of(), 0, List.of()))
+                        .toList();
+            }
+            if (candidateQueries.isEmpty()) {
+                if (budget != null) budget.close();
+                return "search_literature: no sufficiently specific literature anchors were found; no evidence was issued.";
+            }
+            Map<String, Citation> distinct = new LinkedHashMap<>();
+            try {
+                for (int attempt = 0; attempt < candidateQueries.size(); attempt++) {
+                    if (budget != null) budget.apply(statement);
+                    SearchCandidate candidate = candidateQueries.get(attempt);
+                    statement.setString(1, candidate.expression());
+                    statement.setInt(2, phase35RetrievalEnabled ? SEARCH_CANDIDATES : LEGACY_SEARCH_ROWS);
+                    try (ResultSet rows = statement.executeQuery()) {
+                        while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                            String paperId = rows.getString(1);
+                            if (paperId == null || paperId.isBlank()) continue;
+                            String title = rows.getString(2);
+                            // A matching pair alone is too weak: generic mathematical wording can
+                            // match an unrelated theorem. Phase 35 needs corroboration across the
+                            // returned record before it grants an HF citation key.
+                            if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
+                                    rows.getString(7), rows.getString(8), candidate)) continue;
+                            String key = keyFor(paperId);
+                            paperForKey.put(key, paperId);
+                            distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
+                                    rows.getString(3), rows.getString(4), rows.getString(5)));
+                        }
+                    }
+                    log.debug("Phase 34 literature search attempt={} anchors={} results={} elapsedMs={} query={}",
+                            attempt, candidate.evidenceAnchors().size(), distinct.size(),
+                            budget == null ? -1 : budget.elapsedMs(), candidate.expression());
+                    if (!distinct.isEmpty()) break;
+                }
+            } finally {
+                if (budget != null) budget.close();
             }
             if (distinct.isEmpty()) {
                 return "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.";
@@ -115,6 +188,10 @@ public final class Phase34SqliteLiterature {
             }
             return output.toString().stripTrailing();
         } catch (Exception e) {
+            if (isInterrupted(e)) {
+                return "search_literature: Phase 34 SQLite retrieval exceeded its " + searchTimeoutMs
+                        + "ms Phase 35 budget; no evidence was issued.";
+            }
             return "search_literature: Phase 34 SQLite query unavailable (" + safeMessage(e) + ").";
         }
     }
@@ -127,7 +204,9 @@ public final class Phase34SqliteLiterature {
         if (!available()) {
             return "read_reference: Phase 34 SQLite index is not available.";
         }
-        String ftsQuery = ftsQuery(query);
+        // This is constrained to the one already-issued paper row, so its former OR expression
+        // cannot fan out across the corpus as search_literature can.
+        String ftsQuery = legacyFtsQuery(query);
         if (ftsQuery.isBlank()) {
             return "read_reference: provide a focused claim or quantity to locate in the source.";
         }
@@ -170,16 +249,18 @@ public final class Phase34SqliteLiterature {
         return connection;
     }
 
-    private static String ftsQuery(String input) {
+    private static List<String> legacySearchQueries(String input) {
+        String ftsQuery = legacyFtsQuery(input);
+        if (ftsQuery.isBlank()) return List.of();
+        String focusedQuery = ftsQuery.replace(" OR ", " AND ");
+        return focusedQuery.equals(ftsQuery) ? List.of(ftsQuery) : List.of(focusedQuery, ftsQuery);
+    }
+
+    private static String legacyFtsQuery(String input) {
         List<String> tokens = new ArrayList<>();
         Matcher matcher = TOKEN.matcher(input == null ? "" : input);
         while (matcher.find() && tokens.size() < 8) tokens.add(matcher.group());
         return String.join(" OR ", tokens);
-    }
-
-    private static List<String> searchQueries(String broadQuery) {
-        String focusedQuery = broadQuery.replace(" OR ", " AND ");
-        return focusedQuery.equals(broadQuery) ? List.of(broadQuery) : List.of(focusedQuery, broadQuery);
     }
 
     private static String keyFor(String paperId) {
@@ -198,11 +279,88 @@ public final class Phase34SqliteLiterature {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private static boolean hasSufficientRecordEvidence(String title, String name, String slogan, String body,
+                                                       SearchCandidate candidate) {
+        if (candidate.evidenceAnchors().isEmpty()) return true;
+        List<String> titleTerms = tokenTerms(title);
+        if (!titleTerms.containsAll(candidate.requiredTitleAnchors())) {
+            return false;
+        }
+        List<String> recordTerms = new ArrayList<>(titleTerms);
+        recordTerms.addAll(tokenTerms(name));
+        recordTerms.addAll(tokenTerms(slogan));
+        recordTerms.addAll(tokenTerms(body));
+        int corroborated = (int) candidate.evidenceAnchors().stream().filter(recordTerms::contains).count();
+        return corroborated >= candidate.minimumEvidenceMatches();
+    }
+
+    private static List<String> tokenTerms(String value) {
+        List<String> terms = new ArrayList<>();
+        Matcher matcher = TOKEN.matcher(value == null ? "" : value);
+        while (matcher.find()) terms.add(matcher.group().toLowerCase(Locale.ROOT));
+        return terms;
+    }
+
     private static String safeMessage(Exception error) {
         String message = error.getMessage();
         return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
     }
 
+    private static boolean isInterrupted(Exception error) {
+        Throwable current = error;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && (message.toLowerCase(Locale.ROOT).contains("interrupted")
+                    || message.toLowerCase(Locale.ROOT).contains("timeout"))) return true;
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    /** SQLite's progress handler stops CPU-bound FTS work; JDBC timeout covers the statement API. */
+    private static final class QueryBudget implements AutoCloseable {
+        private final Connection connection;
+        private final long startedNanos = System.nanoTime();
+        private final long deadlineNanos;
+        private final long timeoutMs;
+
+        private QueryBudget(Connection connection, long timeoutMs) throws SQLException {
+            this.connection = connection;
+            this.timeoutMs = timeoutMs;
+            long executionBudgetMs = Math.max(250, timeoutMs - BUDGET_HEADROOM_MS);
+            this.deadlineNanos = startedNanos + executionBudgetMs * 1_000_000L;
+            ProgressHandler.setHandler(connection, PROGRESS_HANDLER_VM_STEPS, new ProgressHandler() {
+                @Override
+                protected int progress() {
+                    if (System.nanoTime() < deadlineNanos) return 0;
+                    return 1;
+                }
+            });
+        }
+
+        private void apply(PreparedStatement statement) throws SQLException {
+            ensureTimeRemaining();
+            statement.setQueryTimeout((int) Math.max(1, Math.ceil(timeoutMs / 1_000.0)));
+        }
+
+        private void ensureTimeRemaining() throws SQLException {
+            if (System.nanoTime() >= deadlineNanos) throw new SQLException("Phase 35 SQLite retrieval timeout");
+        }
+
+        private long elapsedMs() {
+            return (System.nanoTime() - startedNanos) / 1_000_000L;
+        }
+
+        @Override
+        public void close() throws SQLException {
+            ProgressHandler.clearHandler(connection);
+        }
+    }
+
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet) {}
+
+    private record SearchCandidate(String expression, List<String> evidenceAnchors, int minimumEvidenceMatches,
+                                   List<String> requiredTitleAnchors) {}
+
 }

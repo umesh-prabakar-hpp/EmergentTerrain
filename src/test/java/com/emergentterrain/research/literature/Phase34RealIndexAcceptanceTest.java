@@ -5,6 +5,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,11 +33,19 @@ class Phase34RealIndexAcceptanceTest {
             new Fixture("Cohen Macaulay", "1712.03663v2", "tensor products"),
             new Fixture("reproducing kernel", "2003.10015v2", "cyclic")
     );
+    // Exact Phase 34 tool claims from P-b72c-77627868/-69, whose broad OR fallback held both
+    // narration slots for about twelve minutes on 2026-07-17.
+    private static final List<String> FORMERLY_SLOW_CLAIMS = List.of(
+            "The maximal divisor count up to x follows the Wigert growth law log(max d(n)) log log x / log x tending to log 2, with finite-scale corrections caused by optimizing decreasing prime exponents and integrality constraints.",
+            "The finite-scale coordinate log(max_divisor_count) times log log x divided by log x decreases toward log 2, while a tight affine multiple of exp(log x/log log x) bounds window maxima near x=700 million.",
+            "Finite-scale maximal prime gaps normalized by (log x)^2 show a slowly decreasing trajectory toward an asymptotic growth constant, but such a finite ladder may not discriminate Cramér-type convergence from plausible alternative asymptotic laws.",
+            "Finite-scale normalized maximal prime gaps decrease across a geometric scale ladder toward a log-squared growth constant near 0.6932, but the observed trajectory may not discriminate between alternative slowly converging asymptotic laws."
+    );
 
     @Test
     void fixedClaimsReturnExpectedFullTextBackedSourcesAndPassages() {
         Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
-                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")));
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
         assertThat(adapter.available()).isTrue();
 
         for (Fixture fixture : FIXTURES) {
@@ -51,10 +62,39 @@ class Phase34RealIndexAcceptanceTest {
     @Test
     void fabricatedKeyIsRejectedByTheRealAdapter() {
         Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
-                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")));
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
 
         assertThat(adapter.read("HFDEADBEEF", "multiple zeta values"))
                 .contains("unknown Phase 34 key");
+    }
+
+    @Test
+    void twoConcurrentSearchesFinishInsideTheConfiguredPhase35Budget() throws Exception {
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
+        try (ExecutorService executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<String> first = executor.submit(() -> adapter.search("multiple zeta values"));
+            Future<String> second = executor.submit(() -> adapter.search("graph isomorphism"));
+
+            assertThat(first.get(20, TimeUnit.SECONDS)).contains("EVIDENCE");
+            assertThat(second.get(20, TimeUnit.SECONDS)).contains("EVIDENCE");
+        }
+    }
+
+    @Test
+    void formerlySlowRunClaimsFailClosedUntilCuratedRelevantSourcesAreAvailable() {
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
+        for (String claim : FORMERLY_SLOW_CLAIMS) {
+            long started = System.nanoTime();
+            String result = adapter.search(claim);
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+            assertThat(elapsedMs).isLessThanOrEqualTo(15_000);
+            assertThat(result).contains("no theorem-index matches")
+                    .doesNotContain("EVIDENCE")
+                    .doesNotContain("exceeded its")
+                    .doesNotContain("not available");
+        }
     }
 
     private record Fixture(String claim, String expectedPaperId, String expectedPassageTerm) {
@@ -62,6 +102,7 @@ class Phase34RealIndexAcceptanceTest {
             return expectedPassageTerm;
         }
     }
+
 
     private static String keyForExpectedSource(String search, String expectedPaperId) {
         return search.lines()

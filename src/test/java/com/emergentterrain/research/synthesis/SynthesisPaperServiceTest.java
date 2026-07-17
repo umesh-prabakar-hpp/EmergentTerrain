@@ -208,6 +208,6 @@ class SynthesisPaperServiceTest {
             sql.execute("INSERT INTO fulltext_fts VALUES ('2401.01234', 'Prime gap bounds', 'The confirmed range gives a prime gap bound with a reproducible calculation.')");
             sql.execute("INSERT INTO metadata VALUES ('fulltext_fts_complete', 'true')");
         }
-        return new Phase34SqliteLiterature(indexDir);
+        return new Phase34SqliteLiterature(indexDir, true, 15_000);
     }
 }

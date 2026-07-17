@@ -15,7 +15,11 @@ public class Phase34SqliteLiteratureConfig {
     @Bean
     public Phase34SqliteLiterature phase34SqliteLiterature(
             @Value("${app.research.literature.phase34-sqlite.index-dir:${user.home}/.emergentterrain/indexes/math-literature}")
-            String indexDir) {
-        return new Phase34SqliteLiterature(Path.of(indexDir));
+            String indexDir,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.enabled:false}")
+            boolean phase35RetrievalEnabled,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:15000}")
+            long searchTimeoutMs) {
+        return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs);
     }
 }

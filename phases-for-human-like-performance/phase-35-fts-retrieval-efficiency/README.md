@@ -76,7 +76,11 @@ change for the current adapter result order. See the official FTS5 reference:
 
 ### 2. Limit FTS candidates before metadata work
 
-Perform the FTS match, relevance ordering, and `LIMIT 12` in a CTE/subquery.
+Perform the FTS match, relevance ordering, and a bounded `LIMIT 512` in a
+CTE/subquery. The adapter then emits at most three distinct full-text-backed
+sources. The oversampling is deliberate: the theorem corpus is broader than
+the Marin full-text companion, so a `LIMIT 12` candidate set can contain no
+readable source even when a well-ranked eligible source exists slightly later.
 Only then join `theorems`, `papers`, and the full-text-presence relation and
 only then call `snippet()`. This leaves the selected theorem IDs and their
 ranking unchanged while avoiding metadata joins and passage rendering across
@@ -85,23 +89,32 @@ every broad-query candidate.
 The full-text presence check must remain: a returned source must still be
 eligible for later `read_reference`.
 
-### 3. Replace the all-token OR fallback with a deterministic relaxation ladder
+### 3. Use validated subject phrases instead of broad fallback
 
-Normalize model-supplied text before constructing the FTS expression:
+The adapter extracts non-generic subject terms from the claim and considers
+only adjacent subject phrases that actually occur in its wording. It never
+combines distant rare words and never runs an all-terms OR fallback.
 
-- remove instruction/stop words and duplicate tokens;
-- retain domain identifiers, mathematical symbols rendered as tokens, and
-  numeric/technical anchors;
-- keep a small ordered set of discriminative terms;
-- try an all-anchor `AND` query first;
-- if empty, relax one lowest-value anchor at a time while retaining at least
-  two or three anchors;
-- return an honest no-match result rather than issue an unbounded OR search.
+- A claim with three or more subject anchors uses an escaped exact FTS phrase,
+  requires both phrase terms in the source title, and requires a third anchor
+  somewhere in the returned title/theorem record before issuing an `HF...` key.
+- A two-anchor claim uses one bounded `AND` pair so sources with descriptive
+  rather than topical titles can still be found; both terms must occur in the
+  returned theorem record.
+- Instructional and generic framing terms (`finite`, `scale`, `normalized`,
+  and similar) are not eligible anchors.
+- A match that lacks the required record evidence is an honest no-match, never
+  evidence.
 
-This is not a recall shortcut. It prevents generic prompt framing from
-dominating a claim search while preserving exact all-term matching first. The
-chosen query and relaxation step should be logged for diagnosis, but never
-shown as evidence in the paper.
+This deliberately favors a no-match over a plausible-looking but irrelevant
+citation. The selected expression and rejected candidate count are diagnostic
+data, not paper evidence.
+
+The boundary is `LiteratureQueryPlanner` → `LiteratureQueryPlan`. It is
+deterministic today. A future AI tool may propose only the validated
+`EXACT_PHRASE` or `AND_PAIR` query kinds and two safe anchors; it cannot supply
+raw FTS syntax or bypass the record-evidence and title-anchor policy before the
+adapter queries or issues a key.
 
 ### 4. Bound retrieval separately from paper narration
 
@@ -118,8 +131,10 @@ normal case.
 
 ### 5. One-time index maintenance
 
-After a completed immutable import, run FTS5's `optimize` command as a
-controlled index-maintenance step and record it in the Phase 34 manifest.
+After a completed immutable import, run
+`./scripts/prepare-hf-math-index.py --stage optimize` once. It runs FTS5's
+`optimize` command for both indexes and records the completion time in the
+Phase 34 manifest.
 This merges FTS segments, reducing query-side merge work without changing
 indexed documents or query semantics. It must never run concurrently with the
 external importer and must not be performed by the application at request
@@ -132,14 +147,14 @@ Before enabling the changes live:
 1. Run the fixed Phase 34 real-claim suite against the pre-change and
    post-change index. The same expected sources, key issuance restrictions,
    and accepted/rejected fabricated-key cases must hold.
-2. Add adapter tests for normalization, deterministic relaxation, no-match
-   behavior, result-key issuance, and result ordering.
+2. Add adapter tests for phrase planning, generic-anchor rejection,
+   false-positive no-match behavior, result-key issuance, and result ordering.
 3. Record query latency, candidate count before limiting, relaxation level,
    timeout/cancellation count, and result count. Do not log source passage
    text or model prompts unnecessarily.
-4. Run two concurrent professor-tool searches against the completed 27 GiB
-   index. Both must finish inside the configured search budget and neither may
-   prevent the next narration slot from starting.
+4. Run `Phase34RealIndexAcceptanceTest` with `PHASE34_REAL_INDEX_DIR` set.
+   Its two concurrent representative searches must finish inside the configured
+   search budget and neither may prevent the next narration slot from starting.
 5. Run a paper-generation smoke test. A paper may become an
    `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE` only if its issued key,
    `read_reference` result, related-work citation, artifact, and workflow
@@ -147,9 +162,20 @@ Before enabling the changes live:
 
 ## Rollout and rollback
 
-Ship the query changes behind a Phase 35 retrieval flag, defaulting to the
-current Phase 34 implementation until the acceptance suite passes. Roll back
-by disabling that flag; do not alter the external corpus or delete the index.
+The path is controlled by the explicit application property:
+
+```yaml
+app.research.literature.phase34-sqlite.phase35-retrieval:
+  enabled: true
+  search-timeout-ms: 15000
+```
+
+It is enabled in the checked-in `application.yml`. Set `enabled: false` to
+restore the former Phase 34 all-terms-then-OR query without altering the
+external corpus or deleting the index. `search-timeout-ms` is the aggregate
+budget for the search's complete relaxation ladder, not a new narration
+deadline. Run the fixed real-claim acceptance suite and concurrent-search
+smoke test after changing either value.
 
 Do not restart an active research run merely to apply this work: research room
 output is reset on application restart. Finish or safely stop the run first,

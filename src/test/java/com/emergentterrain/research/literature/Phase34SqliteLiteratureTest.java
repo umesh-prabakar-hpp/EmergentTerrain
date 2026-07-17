@@ -36,7 +36,7 @@ class Phase34SqliteLiteratureTest {
             sql.execute("INSERT INTO fulltext_fts VALUES ('2401.01234', 'Prime gap bounds', 'The confirmed range gives a prime gap bound with a reproducible calculation.')");
             sql.execute("INSERT INTO metadata VALUES ('fulltext_fts_complete', 'true')");
         }
-        return new Phase34SqliteLiterature(indexDir);
+        return new Phase34SqliteLiterature(indexDir, true, 15_000);
     }
 
     @Test
@@ -55,10 +55,40 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
-    void theoremSearchFallsBackToBroadTermsWhenTheFocusedQueryHasNoMatch() throws Exception {
+    void phase35FailsClosedWhenAnExtraClaimAnchorCannotBeCorroborated() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 
-        assertThat(adapter.search("prime nonexistent"))
+        assertThat(adapter.search("prime gap nonexistent"))
+                .contains("no theorem-index matches")
+                .doesNotContain("EVIDENCE");
+    }
+
+    @Test
+    void phase35NormalizesInstructionsAndKeepsAtLeastTwoAndAnchors() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "Search the literature for prime gap bounds and prior papers",
+                java.util.Map.of("prime", 10, "gap", 20, "bounds", 30));
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("prime AND gap")
+                .allMatch(query -> query.contains(" AND ") && !query.contains(" OR "));
+    }
+
+    @Test
+    void phase35FailsClosedWhenOnlyGenericClaimFramingRemains() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+
+        assertThat(adapter.search("finite scale normalized maximal coordinate"))
+                .contains("no sufficiently specific literature anchors")
+                .doesNotContain("EVIDENCE");
+    }
+
+    @Test
+    void phase35FlagCanRestoreTheLegacyBroadFallback() throws Exception {
+        Phase34SqliteLiterature legacy = new Phase34SqliteLiterature(indexDir, false, 15_000);
+        indexedAdapter();
+
+        assertThat(legacy.search("prime nonexistent"))
                 .contains("Prime gap bounds")
                 .doesNotContain("no theorem-index matches");
     }
