@@ -70,6 +70,10 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/start.sh
 ```
 
+`start.sh` first runs the graceful `stop.sh` sweep, so invoking it always
+reloads the Spring app and its managed subscription proxies rather than reusing
+a stale process. Use `stop.sh` directly when you only intend to shut down.
+
 Run `codex login` first if this machine has not been authenticated. The proxy
 pins the locally validated `gpt-5.6-terra`, and returns Codex token usage for
 API-equivalent budget accounting at Terra's $2.50 input / $15 output per
@@ -86,16 +90,19 @@ account-level usage limits still apply.
 
 ### Related-service status
 
-Use the read-only status helper to check the four services required by the
-research and GPU runtime: the Spring app (`8081`), Julia math sidecar (`8088`),
+Use the read-only status helper to check the Spring app (`8081`), local AI gateway
+(`8788`), optional/dormant legacy AI gateway (`8787`), Julia math sidecar (`8088`),
 isolated PyCall/grounding sidecar (`8089`), and Rust GPU engine (`50051`). For
 each listener it prints the owning PID and exact active command from `ps`, then
-the copy-pasteable command to start it when absent. It exits nonzero if any is
-not healthy (or, for the gRPC GPU engine, not listening). It accepts
-`ET_APP_URL`, `ET_JULIA_URL`, `ET_PY_SIDECAR_URL`, `ET_APP_PORT`,
-`ET_JULIA_PORT`, `ET_PY_SIDECAR_PORT`, `ET_GPU_ENGINE_PORT`, and
-`ET_STATUS_TIMEOUT_SECONDS` overrides. Its terminal output uses color; pipe it
-or set `NO_COLOR=1` for plain text.
+the copy-pasteable command to start it when absent. It exits nonzero if a
+required service is not healthy (or, for the gRPC GPU engine, not listening);
+the disabled legacy AI gateway is reported as `DORMANT`. It accepts matching
+`ET_*_URL` / `ET_*_PORT` overrides and `ET_STATUS_TIMEOUT_SECONDS`. Its terminal
+output uses color; pipe it or set `NO_COLOR=1` for plain text. The proxy entries
+are lifecycle-managed by `./scripts/start.sh`: Codex starts by default, while
+Claude starts only with `ET_ENABLE_LEGACY_AI_GATEWAY=1`. A redirect to `/login` is
+reported as ready-but-protected; set `ET_STATUS_COMMAND_CHARS` to adjust the
+abbreviated long `ps` command display.
 
 ```bash
 ./scripts/status-related-apps.sh

@@ -8,6 +8,7 @@
 #   ./scripts/start.sh --foreground   # run in current shell (Ctrl-C to stop)
 #
 # By default this script:
+#   - gracefully stops a previous app/proxy set before starting a fresh one
 #   - exports JAVA_HOME to the dnf-installed JDK 25 path
 #   - launches `mvn spring-boot:run` in the background via nohup
 #   - redirects Maven/JVM stdout to logs/maven-stdout.log
@@ -16,9 +17,9 @@
 #   - prints the parent PID and the tail commands so you can verify
 #     the app booted
 #
-# Idempotent — refuses to start if another instance is already running
-# (detected via the EmergentTerrainApplication class name on the JVM
-# command line). Use `./scripts/stop.sh` first if you want to restart.
+# Restart-safe — always delegates the initial cleanup to ./scripts/stop.sh, so
+# a new start reloads the app and its managed subscription proxies instead of
+# reusing an older process with stale model or code configuration.
 # =====================================================================
 set -euo pipefail
 
@@ -26,7 +27,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-PATTERN="EmergentTerrainApplication"
 FOREGROUND=0
 for arg in "$@"; do
     case "$arg" in
@@ -35,15 +35,10 @@ for arg in "$@"; do
     esac
 done
 
-# Bail if already running. pgrep -f matches against full command line
-# including the main class — selective enough that it won't false-
-# positive on unrelated java processes.
-if pgrep -f "$PATTERN" >/dev/null 2>&1; then
-    existing=$(pgrep -f "$PATTERN")
-    echo "EmergentTerrain: already running as PID(s) $existing — refusing to start a second instance."
-    echo "Run ./scripts/stop.sh first if you want to restart."
-    exit 1
-fi
+# Always refresh the process set before launch. stop.sh is idempotent and uses
+# SIGTERM plus a bounded grace period, so this is a safe no-op when nothing is
+# running and prevents a stale proxy from silently retaining an old model.
+"$SCRIPT_DIR/stop.sh"
 
 # Fedora 44 dropped JDK 21; JDK 25 is the only `dnf`-installable JDK
 # on this dev shell. The pom targets `release 21` so cross-compile is

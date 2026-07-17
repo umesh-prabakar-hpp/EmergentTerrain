@@ -42,6 +42,8 @@ mvn spring-boot:run
 
 For the configured primary LLM, prefer `./scripts/start.sh`: it starts the
 local `local-ai-gateway` on `127.0.0.1:8788` before launching the JVM.
+It first performs the graceful `./scripts/stop.sh` sweep so each start reloads
+the app and its managed proxies instead of retaining a stale process.
 The proxy uses the machine's `codex login` session with an ephemeral read-only
 turn in `/tmp`; it pins the locally validated `gpt-5.6-terra`, and reports its
 token usage for API-equivalent budget accounting at Terra's $2.50 input / $15
@@ -136,11 +138,16 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - Web app: `http://127.0.0.1:8081/`
 - GPU engine gRPC: `127.0.0.1:50051` by default
 - Related-service health: `./scripts/status-related-apps.sh` reports the
-  Spring app (`8081`), Julia math sidecar (`8088`), PyCall/grounding sidecar
-  (`8089`), and GPU gRPC listener (`50051`) without changing any process. It
-  prints each listener's PID and active `ps` command, plus its start command
-  when absent, and exits nonzero if any is unavailable. It uses color when
-  attached to a terminal; `NO_COLOR=1` disables it.
+  Spring app (`8081`), local AI gateway (`8788`), optional legacy AI gateway (`8787`),
+  Julia math sidecar (`8088`), PyCall/grounding sidecar (`8089`), and GPU gRPC
+  listener (`50051`) without changing any process. It prints each listener's
+  PID and active `ps` command, plus its start command when absent. The disabled
+  legacy AI gateway is `DORMANT`; other unavailable services make it exit nonzero.
+  It uses color when attached to a terminal; `NO_COLOR=1` disables it. Both
+  proxies are lifecycle-managed by `./scripts/start.sh`: Codex starts by
+  default and Claude only with `ET_ENABLE_LEGACY_AI_GATEWAY=1`. `/login` redirects
+  are ready-but-protected, and `ET_STATUS_COMMAND_CHARS` controls abbreviation
+  of long active `ps` commands.
 
 ## Architecture notes
 - `src/main/java/com/emergentterrain/service/RoomService.java` is the core gameplay loop.
