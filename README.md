@@ -73,7 +73,8 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 Run `codex login` first if this machine has not been authenticated. The proxy
 pins the locally validated `gpt-5.6-terra`, and returns Codex token usage for
 API-equivalent budget accounting at Terra's $2.50 input / $15 output per
-million-token public rates; it rejects the public
+million-token public rates. This includes a final usage frame on streamed
+narration, so those calls count toward the run-budget guard; it rejects the public
 API slug `gpt-5-codex` on this ChatGPT-authenticated installation. Claude is disabled by default;
 OpenRouter remains the automatic fallback. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to
 skip the local bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1` only when intentionally
