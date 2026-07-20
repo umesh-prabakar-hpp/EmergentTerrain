@@ -36,6 +36,11 @@ while timing evidence is collected. The focused acceptance tests are
 `RangePreservingChunkExecutorTest`: they pin exact coverage of
 `[1_000_000_000, 1_000_500_000)`, count-weighted reduction, and resume-after-failure semantics.
 
+Implementation note: the executor has a production Spring constructor and a package-visible
+test constructor. The production constructor is explicitly `@Autowired`; without that annotation
+Spring sees multiple constructors and incorrectly attempts a no-argument constructor during
+context creation. Keep the annotation if another test-oriented constructor is added.
+
 ## Why this phase is needed
 
 The current professor loop is deliberately bounded: `GenericOpenAICompatPool` normally permits

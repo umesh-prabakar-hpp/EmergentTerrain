@@ -1,6 +1,7 @@
 package com.emergentterrain.research.conjecture;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -37,6 +38,7 @@ public class RangePreservingChunkExecutor {
     private final int chunkSize;
     private final boolean enabled;
 
+    @Autowired
     public RangePreservingChunkExecutor(
             ObjectMapper mapper,
             @Value("${app.simulationHistory.root:simulation-history}") String simulationHistoryRoot,
