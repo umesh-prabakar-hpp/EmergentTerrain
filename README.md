@@ -183,6 +183,11 @@ or no-match lookup to be reproduced manually without logging full paper text.
 8. **Novelty check** — before formulation, when ≥3 papers exist in the topic, a fast Ollama call assesses saturation (0=fully covered, 1=fresh). Score < 0.30 injects a NOVELTY WARNING redirecting the LLM to unexplored parameter regions; 0.30–0.59 injects a softer hint.
 9. **Statistical framing** — after refinement and before narration, a fast Ollama call rewrites `rawFindings` with ≤3 significant figures, uncertainty qualifiers ("approximately", "within ~X%", "±"), and scientific notation for extreme values. Addresses fabricated-precision and uncertainty-quantification gaps.
 10. **Professor tool-calling + revision** — after first-pass Groq narration, the Groq professor is given a tool suite (`run_param_sweep`, `run_predicate_scan`, `evaluate_symbolic`, `run_sandboxed_code`) and can call any combination to gather evidence before writing a synthesis. Sandboxed code is reviewed by the fast 4b model, then executed in `SandboxEngine` (JavaScript-like mini-language; 5 000-iteration cap; whitelisted builtins only). A student (second Groq call) revises the paper incorporating the experimental evidence. Falls back to the legacy JSON-ExperimentalGap path when Groq is not configured.
+
+When a tool-bearing student revision is malformed, the pipeline now emits a trace-grounded fallback
+instead of reusing first-pass prose. It renders only the completed tool results and, when any result
+is `REFUTED`, concludes that no positive result is claimed. The `rev:parse_failed→trace_fallback`
+call-path stamp distinguishes this evidence-preserving path from the legacy no-tool fallback.
 11. **Cross-bot anomaly mentoring** — the genome mentoring prompt now includes anomalous findings from other bots in different domains (|z| ≥ 1.5), enabling the advisor to suggest cross-domain redirects. The mentoring callback passes 40 papers instead of 20 for broader coverage.
 
 Stats endpoint (`getStats`) now reports: `totalPublished`, `positiveResults`, `nullResults`, `disputed`, `totalRejected`.

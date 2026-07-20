@@ -2993,18 +2993,27 @@ public class ResearchNarrationService {
                 // run on the revised content as a backstop.
                 return maybeApplyPanelRevision(draft, paneled, profTrace, callPath);
             }
-            // Phase 14 F2a — diagnostic logging for the rev:parse_failed→fp
-            // path. Refresh #2 §1 rec #2 named this stamp as one of the leaks
+            // Phase 14 F2a — diagnostic logging for revision parse failure.
+            // Refresh #2 §1 rec #2 named the old first-pass stamp as one of the leaks
             // through which P-505 published with "0 successful sandbox calls"
             // despite the line 492 gate. Future refreshes can correlate the
             // WARN against published-paper trace size to confirm whether
             // additional suppression is needed here.
-            callPath.add("rev:parse_failed→fp");
-            log.warn("FALLBACK rev:parse_failed→fp paperId={} profTraceSize={} "
-                            + "firstPassBlocks={} (Phase 14 F2a)",
-                    draft.paperId(),
-                    profTrace != null ? profTrace.size() : 0,
-                    firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0);
+            if (profTrace != null && !profTrace.isEmpty()) {
+                callPath.add("rev:parse_failed→trace_fallback");
+                firstPass = traceGroundedRevisionFallback(firstPass, profTrace);
+                log.warn("FALLBACK rev:parse_failed→trace_fallback paperId={} profTraceSize={} "
+                                + "firstPassBlocks={} refuted={}",
+                        draft.paperId(), profTrace.size(),
+                        firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0,
+                        traceContainsRefutation(profTrace));
+            } else {
+                callPath.add("rev:parse_failed→fp");
+                log.warn("FALLBACK rev:parse_failed→fp paperId={} profTraceSize=0 firstPassBlocks={} "
+                                + "(Phase 14 F2a)",
+                        draft.paperId(),
+                        firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0);
+            }
             // Phase 17 P8a — raw-byte capture diagnostic. When the
             // operator flips `rev-parse-failed-byte-capture.enabled=true`,
             // a separate WARN line carries the first N chars of the
@@ -3019,7 +3028,7 @@ public class ResearchNarrationService {
                 int cap = Math.max(0, revParseFailedByteCaptureChars);
                 String preview = raw.length() <= cap ? raw
                         : raw.substring(0, cap);
-                log.warn("rev:parse_failed→fp BYTE_CAPTURE paperId={} rawLen={} "
+                log.warn("rev:parse_failed BYTE_CAPTURE paperId={} rawLen={} "
                                 + "preview={} (Phase 17 P8a)",
                         draft.paperId(), raw.length(),
                         // Sanitize newlines so the WARN remains single-line.
@@ -3061,6 +3070,53 @@ public class ResearchNarrationService {
         // exists. A paper that hit an exception after the professor produced
         // useful tool results still benefits from honesty/completeness grading.
         return runPanelAndStamp(draft, fallback, callPath, auditGapDimensions);
+    }
+
+    /**
+     * Trace-first salvage for a malformed student revision. A professor-tool trace is executed
+     * evidence; returning the pre-tool first pass after parsing fails can reverse its verdict.
+     * This deliberately keeps the prose domain-neutral and limits it to exact tool evidence.
+     */
+    static NarrationResult traceGroundedRevisionFallback(
+            NarrationResult firstPass, List<com.emergentterrain.llm.ToolInvocation> trace) {
+        boolean refuted = traceContainsRefutation(trace);
+        StringBuilder findings = new StringBuilder(
+                "The student revision could not be parsed. This fallback reports only the executed "
+                        + "tool evidence; it does not preserve unverified first-pass claims.\n\n");
+        int position = 0;
+        for (com.emergentterrain.llm.ToolInvocation invocation : trace) {
+            position++;
+            if (invocation == null) {
+                continue;
+            }
+            String callId = invocation.callId() == null || invocation.callId().isBlank()
+                    ? "call_" + position : invocation.callId();
+            String function = invocation.functionName() == null || invocation.functionName().isBlank()
+                    ? "tool" : invocation.functionName();
+            String result = invocation.resultJson() == null || invocation.resultJson().isBlank()
+                    ? "No result was returned." : clip(invocation.resultJson(), 1_200);
+            findings.append('[').append(callId).append("] ").append(function)
+                    .append(": ").append(result).append("\n\n");
+        }
+        String conclusion = refuted
+                ? "The proposed relationship is REFUTED on the executed scope; no positive result is "
+                  + "claimed. Any follow-up must reformulate the hypothesis and retain the executed "
+                  + "counterexample."
+                : "The student revision could not be parsed. This note records the executed scope only; "
+                  + "no supported conclusion or extrapolation is claimed.";
+        return new NarrationResult(
+                firstPass.hypothesis(), Map.of(1, findings.toString().strip()), conclusion,
+                firstPass.followUp(), firstPass.aiModel(), 0.0, List.of(), null,
+                List.of(), List.of(), firstPass.templateId(), firstPass.templateVersion(),
+                "The parsed revision was unavailable, so only the executed trace is reported.", null,
+                firstPass.auditGapDimensions(), trace, null);
+    }
+
+    private static boolean traceContainsRefutation(List<com.emergentterrain.llm.ToolInvocation> trace) {
+        return trace != null && trace.stream().filter(java.util.Objects::nonNull)
+                .map(com.emergentterrain.llm.ToolInvocation::resultJson)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(result -> result.matches("(?s).*\\bREFUTED\\s+across\\b.*"));
     }
 
     /**
