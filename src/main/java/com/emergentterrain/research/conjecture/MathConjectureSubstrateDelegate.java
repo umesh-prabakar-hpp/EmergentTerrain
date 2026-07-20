@@ -63,6 +63,15 @@ public class MathConjectureSubstrateDelegate {
      *         §28.6 legacy removal.
      */
     public Map<String, Double> evaluateWindow(int start, int size) {
+        return evaluateWindowTimed(start, size).scalars();
+    }
+
+    /**
+     * Same sidecar operation as {@link #evaluateWindow(int, int)}, retaining the sidecar-reported
+     * compute time and the enclosing client wall time.  Phase 36 uses this only for a
+     * range-preserving chunk trace; the scalar map remains the authoritative measurement.
+     */
+    public TimedWindow evaluateWindowTimed(int start, int size) {
         if (juliaMathClient == null || !juliaMathClient.isConjectureAvailable()) {
             throw new IllegalStateException(
                     "number-theory-window compute requires the Julia conjecture sidecar, which is "
@@ -71,13 +80,20 @@ public class MathConjectureSubstrateDelegate {
                             + "The in-process MathConjectureSubstrate was removed in phase-28 §28.6.");
         }
         try {
-            return juliaMathClient.numberTheoryWindow(start, size).scalars();
+            long startedAt = System.nanoTime();
+            JuliaMathClient.NumberTheoryWindow response = juliaMathClient.numberTheoryWindow(start, size);
+            long wallMs = (System.nanoTime() - startedAt) / 1_000_000L;
+            long computeMs = Math.max(0, response.elapsedMs());
+            return new TimedWindow(response.scalars(), computeMs, Math.max(0, wallMs - computeMs));
         } catch (RuntimeException e) {
             throw new IllegalStateException(
                     "sidecar /numbertheory/window failed (start=" + start + ", size=" + size
                             + "): " + e.getMessage(), e);
         }
     }
+
+    /** Timing-preserving response for a single exact sidecar window. */
+    public record TimedWindow(Map<String, Double> scalars, long computeMs, long transportMs) {}
 
     /**
      * Phase 28 §28.4 — accessor for the wrapped sidecar client.

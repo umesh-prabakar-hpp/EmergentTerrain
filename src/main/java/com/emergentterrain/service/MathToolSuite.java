@@ -493,6 +493,18 @@ public class MathToolSuite {
         this.ladderRungBudget = budget;
     }
 
+    /**
+     * Phase 36 vertical slice — optional restart-safe executor for metric-safe, range-preserving
+     * scale-ladder chunks.  It is setter-wired because this suite is assembled manually by
+     * {@link ResearchNarrationService}, not by Spring.
+     */
+    private volatile com.emergentterrain.research.conjecture.RangePreservingChunkExecutor rangeChunkExecutor;
+
+    public void setRangeChunkExecutor(
+            com.emergentterrain.research.conjecture.RangePreservingChunkExecutor executor) {
+        this.rangeChunkExecutor = executor;
+    }
+
     /** Widened per-rung window size under the ladder budget; never below the caller's ask. */
     static int ladderRungWindowSize(int windowSize, int numWindows, long budget) {
         if (budget <= 0) {
@@ -3120,11 +3132,52 @@ public class MathToolSuite {
         }
         double[] means = new double[starts.size()];
         StringBuilder traj = new StringBuilder();
+        int chunkedLogicalWindows = 0;
+        int chunkCount = 0;
+        long queuedMs = 0;
+        long computeMs = 0;
+        long transportMs = 0;
         for (int i = 0; i < starts.size(); i++) {
             long s = starts.get(i);
             java.util.List<java.util.Map<String, Double>> ws;
             try {
-                ws = conjectureVerifier.sampleWindows(s, rungWindowSize, numWindows);
+                if ("abundant_density".equals(lhs) && rangeChunkExecutor != null
+                        && rangeChunkExecutor.isEnabled()
+                        && rungWindowSize > rangeChunkExecutor.chunkSize()) {
+                    ws = new java.util.ArrayList<>(numWindows);
+                    for (int window = 0; window < numWindows; window++) {
+                        long logicalStart = s + (long) window * rungWindowSize;
+                        long logicalEnd = logicalStart + rungWindowSize;
+                        com.emergentterrain.research.conjecture.RangePreservingChunkExecutor.DensityJobResult job =
+                                rangeChunkExecutor.executeDensity("abundant_density", logicalStart, logicalEnd,
+                                        (chunkStart, chunkSize) -> {
+                                            com.emergentterrain.research.conjecture.ConjectureVerifier.TimedSampleWindow sample =
+                                                    conjectureVerifier.sampleWindowTimed(chunkStart, chunkSize);
+                                            return new com.emergentterrain.research.conjecture.RangePreservingChunkExecutor
+                                                    .DensityMeasurement(sample.scalars().getOrDefault("abundant_density", 0.0),
+                                                    sample.computeMs(), sample.transportMs());
+                                        });
+                        if (!job.complete()) {
+                            long total = logicalEnd - logicalStart;
+                            return String.format(
+                                    "verify_constant scale-ladder PARTIAL: abundant_density logical range [%d, %d) "
+                                            + "is %s after %,d / %,d integers; completed chunks are journaled as %s. "
+                                            + "No full-range result is claimed; resume preserves this exact range.",
+                                    logicalStart, logicalEnd, job.job().status(), job.completedLength(), total,
+                                    job.job().jobId());
+                        }
+                        ws.add(java.util.Map.of("abundant_density", job.density(),
+                                "_window_start", (double) logicalStart,
+                                "_window_size", (double) rungWindowSize));
+                        chunkedLogicalWindows++;
+                        chunkCount += job.job().chunks().size();
+                        queuedMs += job.queuedMs();
+                        computeMs += job.computeMs();
+                        transportMs += job.transportMs();
+                    }
+                } else {
+                    ws = conjectureVerifier.sampleWindows(s, rungWindowSize, numWindows);
+                }
             } catch (RuntimeException e) {
                 return "verify_constant scale-ladder eval failed at window_start=" + s + ": " + e.getMessage();
             }
@@ -3159,6 +3212,12 @@ public class MathToolSuite {
                     "No target — highest-scale estimate %.5f (vs %.5f one decade lower; %s). Report the "
                             + "cross-scale trajectory as the measurement.",
                     hi, prev, Math.abs(hi - prev) <= Math.abs(hi) * tol ? "settling" : "still moving"));
+        }
+        if (chunkedLogicalWindows > 0) {
+            sb.append(String.format(
+                    " Phase 36 execution: %,d exact logical window(s) were preserved and completed as %,d "
+                            + "resumable chunks (queue %,d ms; sidecar compute %,d ms; transport %,d ms).",
+                    chunkedLogicalWindows, chunkCount, queuedMs, computeMs, transportMs));
         }
         // run-25 rec 1 — the per-rung sample size is load-bearing context for any second-order
         // claim: count noise scales ~1/sqrt(count) for sparse quantities, so a paper must be able

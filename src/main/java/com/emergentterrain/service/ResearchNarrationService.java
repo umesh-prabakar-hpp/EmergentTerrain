@@ -1396,6 +1396,10 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.literature.DomainRefClient domainRefClient;
 
+    /** Phase 36 vertical slice — durable, exact-range Julia chunk executor. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.conjecture.RangePreservingChunkExecutor rangeChunkExecutor;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
@@ -1405,6 +1409,7 @@ public class ResearchNarrationService {
             toolSuite.setScalarStatsToolEnabled(scalarStatsToolFlag);
             toolSuite.setVerifyInformCaveatsEnabled(verifyInformCaveatsFlag);
             toolSuite.setLadderRungBudget(ladderRungBudgetFlag);
+            toolSuite.setRangeChunkExecutor(rangeChunkExecutor);
             toolSuite.setLiteratureGrounding(groundingClient);
             toolSuite.setReferenceReader(referenceReader);
             toolSuite.setPhase34SqliteLiterature(phase34SqliteLiterature);
@@ -1423,6 +1428,10 @@ public class ResearchNarrationService {
             if (phase34SqliteLiterature != null) {
                 log.info("Phase 34 SQLite literature adapter {}",
                         phase34SqliteLiterature.available() ? "ON" : "configured but index unavailable");
+            }
+            if (rangeChunkExecutor != null && rangeChunkExecutor.isEnabled()) {
+                log.info("Phase 36 range-preserving chunk execution ON (chunkSize={})",
+                        rangeChunkExecutor.chunkSize());
             }
         }
         // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the

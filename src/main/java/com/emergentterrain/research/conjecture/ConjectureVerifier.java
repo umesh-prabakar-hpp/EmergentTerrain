@@ -444,6 +444,24 @@ public class ConjectureVerifier {
         return out;
     }
 
+    /**
+     * Evaluate exactly one window while preserving the Julia sidecar timing split.  The returned
+     * scalar map has the same extracted shape as {@link #sampleWindows(long, int, int)}, which
+     * lets Phase 36 chunk a density window without changing the logical measurement.
+     */
+    public TimedSampleWindow sampleWindowTimed(long windowStart, int windowSize) {
+        if (windowStart < 1 || windowSize <= 0 || windowStart + (long) windowSize > maxN()) {
+            throw new IllegalArgumentException("window is outside the trusted oracle range");
+        }
+        MathConjectureSubstrateDelegate.TimedWindow response = substrate()
+                .evaluateWindowTimed(Math.toIntExact(windowStart), windowSize);
+        return new TimedSampleWindow(MathInvariants.extract(response.scalars(), windowStart, windowSize),
+                response.computeMs(), response.transportMs());
+    }
+
+    /** Timing-preserving extracted window used by the Phase 36 chunk executor. */
+    public record TimedSampleWindow(Map<String, Double> scalars, long computeMs, long transportMs) {}
+
     /** Per-window evaluation via the sidecar-backed substrate delegate. */
     private VerifyResult evaluatePerWindow(
             String lhs, String rhs, double k, double c,

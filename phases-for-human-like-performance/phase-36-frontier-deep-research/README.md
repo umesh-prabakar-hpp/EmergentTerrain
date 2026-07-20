@@ -8,8 +8,33 @@ them against real instruments, interpret failures, and choose the next discrimin
 The outcome remains a reproducible computational result, an honest null result, or an explicit
 failure—not persuasive prose unsupported by a trace.
 
-This phase is a design and acceptance plan. It does **not** change the current monetary budget,
-provider parallelism, or wall-clock deadlines.
+The first vertical slice is implemented: the `abundant_density` CONSTANT scale-ladder path
+preserves each original logical window while executing it as restart-safe 50,000-integer chunks.
+It does **not** change the current monetary budget, provider parallelism, or the 15-second Julia
+fail-soft deadline. The durable proposal/critic/hypothesis-tree loop remains later Phase 36 work.
+
+## Implemented vertical slice (2026-07-20)
+
+`RangePreservingChunkExecutor` journals exact density jobs under
+`simulation-history/research-experiments/`, outside the restart-cleared `research/<room>/` tree.
+For each `abundant_density` ladder window wider than
+`app.research.experiments.range-chunking.chunk-size` (currently 50,000), it records the immutable
+logical interval, ordered chunks, every terminal chunk result, attempt count, and queue / Julia
+compute / transport timings. On a sidecar failure the tool returns `PARTIAL` or `UNAVAILABLE` and
+names the completed coverage; it does not report a full-range density. Re-running the same logical
+interval and chunk size uses the same deterministic job id and runs only unfinished chunks.
+
+The reducer is deliberately narrow: chunk densities are combined as
+`sum(chunk_density × chunk_length) / logical_length`. No other ladder metric is chunked yet, since
+window extrema, correlations, quantiles, and path-dependent statistics require their own exact
+reducer or sufficient boundary state. This preserves equal treatment by applying the same rule to
+every paper that requests this supported metric, rather than creating a paper-specific exception.
+
+The toggle is `app.research.experiments.range-chunking.enabled`; set it to `false` for a quick
+rollback to the previous one-shot behavior. Keep `app.julia.conjecture.timeoutMs` at 15 seconds
+while timing evidence is collected. The focused acceptance tests are
+`RangePreservingChunkExecutorTest`: they pin exact coverage of
+`[1_000_000_000, 1_000_500_000)`, count-weighted reduction, and resume-after-failure semantics.
 
 ## Why this phase is needed
 

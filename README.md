@@ -360,6 +360,9 @@ See `src/main/resources/application.yml` for app settings:
 - `app.government.feedback.*` and `app.government.thresholds.*` for government simulation tuning
 - `app.government.timeline.*` for on-demand government trend storage, retention, and rollup cadence
 - `app.simulationHistory.root` for append-only civic history output
+- `app.research.experiments.range-chunking.*` for Phase 36's restart-safe Julia scale-ladder
+  execution; it preserves each supported logical density window and journals chunks under
+  `simulation-history/research-experiments/` (enabled at 50,000 integers per chunk)
 - `app.world.flushIntervalMs`
 - `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`
@@ -384,6 +387,11 @@ See `src/main/resources/application.yml` for app settings:
   - `elections`
   - `courts`
   - `legislation`
+- Phase 36 range-chunk journals are separate mutable execution state under
+  `simulation-history/research-experiments/`. The enabled first slice applies only to the safely
+  count-weighted `abundant_density` CONSTANT scale-ladder metric: a 500,000-wide requested window
+  remains the same logical interval, but runs as resumable 50,000-integer chunks. It records
+  queue, Julia compute, and transport timings; a partial job cannot support a full-range claim.
 - The current runtime slice now includes:
   - deterministic federal and state party / budget / election / bill simulation
   - executive order issuance when services or trust degrade
