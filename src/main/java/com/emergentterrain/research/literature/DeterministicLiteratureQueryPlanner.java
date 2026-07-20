@@ -48,6 +48,10 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
         List<LiteratureQueryPlan.Candidate> candidates = new ArrayList<>();
         for (List<String> pair : extractAdjacentSubjectPhrases(claim)) {
             if (!anchors.containsAll(pair) || candidates.size() >= MAX_CANDIDATES) continue;
+            // An identifier such as omega_Omega_gap tokenizes to omega, omega, gap.
+            // A repeated-token pair is neither a two-anchor query nor useful evidence; skip it
+            // so planning remains failure-soft and later distinct pairs can still be searched.
+            if (pair.get(0).equals(pair.get(1))) continue;
             // Exact subject phrases keep multi-concept claims selective. A two-word claim has no
             // independent third anchor, so its AND pair preserves recall for descriptive titles.
             LiteratureQueryPlan.QueryKind queryKind = requireTitleAnchor

@@ -132,6 +132,10 @@ public final class Phase34SqliteLiterature {
                         .map(candidate -> new SearchCandidate(candidate.expression(), candidate.evidenceAnchors(),
                                 candidate.minimumEvidenceMatches(), candidate.requiredTitleAnchors()))
                         .toList();
+                log.info("Phase 35 literature plan: expressions={} evidenceAnchors={} requiredTitleAnchors={}",
+                        candidateQueries.stream().map(SearchCandidate::expression).toList(),
+                        candidateQueries.isEmpty() ? List.of() : candidateQueries.getFirst().evidenceAnchors(),
+                        candidateQueries.isEmpty() ? List.of() : candidateQueries.getFirst().requiredTitleAnchors());
             } else {
                 candidateQueries = legacySearchQueries(query).stream()
                         .map(candidate -> new SearchCandidate(candidate, List.of(), 0, List.of()))

@@ -116,6 +116,12 @@ deterministic today. A future AI tool may propose only the validated
 raw FTS syntax or bypass the record-evidence and title-anchor policy before the
 adapter queries or issues a key.
 
+Every enabled lookup writes its exact FTS expressions, evidence anchors, and
+required title anchors to `logs/et-app.log` at INFO level. This supports manual
+reproduction without logging the paper body. Repeated identifier tokens (for
+example `omega_Omega_gap` → `omega`, `omega`, `gap`) are skipped instead of
+being treated as an invalid two-anchor query.
+
 ### 4. Bound retrieval separately from paper narration
 
 Add a small, configurable per-search execution budget (for example 10–20

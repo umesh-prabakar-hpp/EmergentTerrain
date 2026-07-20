@@ -175,6 +175,9 @@ key is issued. Its deterministic `LiteratureQueryPlanner` and validated
 `LiteratureQueryPlan` are the future boundary for an AI-assisted query-planning
 tool: an AI may propose one bounded query kind and two safe anchors, but cannot
 bypass record-evidence or title-anchor validation.
+Each Phase 35 lookup logs its exact FTS expressions, evidence anchors, and
+required title anchors at INFO level in `logs/et-app.log`, enabling a failed
+or no-match lookup to be reproduced manually without logging full paper text.
 
 **Quality pipeline (additional LLM calls):**
 8. **Novelty check** — before formulation, when ≥3 papers exist in the topic, a fast Ollama call assesses saturation (0=fully covered, 1=fresh). Score < 0.30 injects a NOVELTY WARNING redirecting the LLM to unexplored parameter regions; 0.30–0.59 injects a softer hint.

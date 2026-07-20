@@ -75,6 +75,17 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35SkipsDuplicateIdentifierTokensAndKeepsDistinctSubjectPhrases() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "omega_Omega_gap density",
+                java.util.Map.of());
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"omega gap\"", "\"gap density\"")
+                .doesNotContain("\"omega omega\"");
+    }
+
+    @Test
     void phase35FailsClosedWhenOnlyGenericClaimFramingRemains() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 
