@@ -1182,15 +1182,6 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ActivityMetrics activityMetrics;
 
-    /**
-     * Lever F (2026-06-10) — accumulates every best-of-N candidate's professor trace by paperId so the
-     * discovery→pool write-back in {@code publishPaper} sees verified bounds from LOSING candidates, not
-     * only the winner's {@code toolCallTrace()}. Field-injected (optional) so test call sites of the
-     * constructor are untouched. See {@link com.emergentterrain.research.conjecture.InvestigationTraceAccumulator}.
-     */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.emergentterrain.research.conjecture.InvestigationTraceAccumulator investigationTraceAccumulator;
-
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
@@ -2490,14 +2481,6 @@ public class ResearchNarrationService {
             // (gate closed, parse failed, exception) can still stamp the trace
             // onto the returned NarrationResult.
             profTrace = profResponse.trace();
-            // Lever F (2026-06-10) — feed THIS candidate's professor trace into the per-paper
-            // accumulator (union across all best-of-N candidates), so a verify_conjecture bound a
-            // losing candidate proved HELD still reaches the discovery→pool write-back in publishPaper.
-            // Only conjecture-investigation papers run that tool; gate to keep the accumulator lean.
-            if (investigationTraceAccumulator != null
-                    && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
-                investigationTraceAccumulator.add(draft.paperId(), profTrace);
-            }
             // Phase 12 D7 — surface budget / TPD / tool-call-failure model
             // rejections that drove fallback. The router records each handle it
             // tried and rejected before reaching the one whose synthesis is in
@@ -2811,17 +2794,6 @@ public class ResearchNarrationService {
                                 draft.paperId(), loLhs, joined);
                     }
                 }
-            }
-
-            // Lever F (2026-06-10 fix) — capture the FINAL professor trace, after the resample/pivot
-            // passes may have REPLACED profTrace (lines above). The pivot re-run is exactly the
-            // preregistered-LHS growth-anchor verification — where the tight bound is proven — so the
-            // first-pass capture (right after the initial profResponse) misses it for a LOSING candidate
-            // whose pivot found the bound. add() is additive + parse de-dups, so capturing both passes
-            // is safe and gives the write-back the complete per-candidate verify set.
-            if (investigationTraceAccumulator != null
-                    && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
-                investigationTraceAccumulator.add(draft.paperId(), profTrace);
             }
 
             // 2026-06-05 review rec #1 — recognize a conjecture investigation's FITTED

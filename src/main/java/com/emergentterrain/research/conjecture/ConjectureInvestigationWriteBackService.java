@@ -8,10 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -58,10 +54,9 @@ public class ConjectureInvestigationWriteBackService {
     /**
      * 2026-06-10 (tight-bound frontier, lever B) — the most a written-back bound may slack at its
      * binding window: {@code |margin| / |bound|} above this is "loose" — the flat-feature refutation
-     * dressed up, not a tight survivor — and is NOT enshrined in the pool. A bound with no parsed
-     * relative-slack figure (older traces / non-emitting paths) is admitted as before (lenient).
-     * Lenient ceiling: rejects egregiously loose bounds (e.g. a k=1 growth anchor at ~0.65) while
-     * still admitting numerically-tight survivors.
+     * dressed up, not a tight survivor — and is NOT enshrined in the pool. New cross-run promotions
+     * must carry the emitted relative-slack value; an older trace without it is not a documented tight
+     * hold.
      */
     private static final double MAX_REL_SLACK = 0.25;
 
@@ -78,6 +73,14 @@ public class ConjectureInvestigationWriteBackService {
                     + "([+-][0-9.]+) HELD across ([0-9]+) window\\(s\\) of size [0-9]+ "
                     + "starting at ([0-9]+)\\. worst margin: ([+-][0-9.]+)"
                     + "(?: at window starting [0-9]+\\. relative slack: ([0-9.]+))?");
+
+    /** Field extractors for the primitive JSON shape emitted by {@code verify_conjecture}. An incomplete
+     * or malformed call never receives promotion credit. */
+    private static final Pattern JSON_STRING = Pattern.compile("\\\"([a-zA-Z0-9_]+)\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+    private static final Pattern JSON_NUMBER = Pattern.compile("\\\"([a-zA-Z0-9_]+)\\\"\\s*:\\s*([+-]?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)");
+    /** A counterpart is nearby when each affine parameter changes by at most five percent. */
+    private static final double NEARBY_PARAMETER_FRACTION = 0.05;
+    private static final double NEARBY_PARAMETER_ABS_FLOOR = 0.005;
 
     // 2026-06-10 (lever D) — measured-invariant result lines (frames 1-3). A CONVERGED constant
     // (verify_constant / verify_growth) or a centred OSCILLATES envelope (verify_oscillation) at the
@@ -101,14 +104,6 @@ public class ConjectureInvestigationWriteBackService {
 
     @Value("${app.research.investigation-write-back.enabled:false}")
     private boolean enabled;
-
-    /** 2026-06-11 (rec 2, facet B) — the persisted per-paper LLM trace (research/llm-traces/{id}.jsonl)
-     *  is ground truth: it holds EVERY verify call across all best-of-N candidates and rounds, while the
-     *  in-memory union (winner + accumulator) has repeatedly proven a lossy subset (the tight
-     *  max_prime_gap fit found by a losing candidate didn't reach the write-back). Reading the file as a
-     *  supplementary source guarantees capture. Path mirrors LlmTraceWriter (researchOutputDir/llm-traces). */
-    @Value("${app.university.researchOutputDir:research}")
-    private String researchOutputDir;
 
     public ConjectureInvestigationWriteBackService(ConjectureRepository repo) {
         this.repo = repo;
@@ -218,9 +213,8 @@ public class ConjectureInvestigationWriteBackService {
     }
 
     /** True when the bound is worth writing back: held at the failure region, with adversarial
-     *  coverage, TIGHT enough at its binding window (lever B), and a legal (non-window-geometry-
-     *  subject) inequality. A bound with no parsed relative-slack figure passes the tightness check
-     *  (lenient — older/non-emitting lines). */
+     *  coverage, an emitted tightness measure at its binding window (lever B), and a legal
+     *  (non-window-geometry-subject) inequality. */
     static boolean writable(HeldBound b) {
         return rejectReason(b).isEmpty();
     }
@@ -230,11 +224,101 @@ public class ConjectureInvestigationWriteBackService {
     static String rejectReason(HeldBound b) {
         if (b.windowStart() < FAILURE_REGION_MIN_X) return "sub-failure-region(x=" + b.windowStart() + ")";
         if (b.numWindows() < MIN_WINDOWS) return "too-few-windows(" + b.numWindows() + ")";
-        if (b.relSlack() != null && b.relSlack() > MAX_REL_SLACK) return "too-loose(rel-slack=" + b.relSlack() + ")";
+        if (b.relSlack() == null) return "missing-relative-slack";
+        if (b.relSlack() > MAX_REL_SLACK) return "too-loose(rel-slack=" + b.relSlack() + ")";
         Inequality ineq = new Inequality(b.lhs(), b.rhs(), b.k(), b.c());
         if (b.rhs2() != null) ineq.setSecondTerm(b.rhs2(), b.k2());   // G2 — judge the whole two-term bound
         return ConjectureTrivialityFilter.dropReason(ineq)
                 .map(r -> "trivial(" + r + ")").orElse("");
+    }
+
+    /**
+     * A write-back candidate is documented only when the selected trace contains both this exact HELD
+     * verification and a nearby REFUTED variant over the same relation and grid. This deliberately does
+     * not search an all-candidate log: the final paper artifact serializes the selected trace, and
+     * cross-run state may only depend on evidence a reader can audit there.
+     */
+    static String bindingPairRejectReason(HeldBound bound, List<ToolInvocation> selectedTrace) {
+        if (selectedTrace == null || selectedTrace.isEmpty()) return "missing-selected-trace";
+        List<VerificationCall> calls = new ArrayList<>();
+        for (ToolInvocation invocation : selectedTrace) {
+            VerificationCall call = parseVerificationCall(invocation);
+            if (call != null) calls.add(call);
+        }
+        boolean heldInSelectedTrace = false;
+        for (VerificationCall held : calls) {
+            if (!held.held() || !held.matches(bound)) continue;
+            heldInSelectedTrace = true;
+            for (VerificationCall refuted : calls) {
+                if (refuted.refuted() && held.sameRelationAndGrid(refuted)
+                        && held.nearbyVariant(refuted)) {
+                    return "";
+                }
+            }
+        }
+        return heldInSelectedTrace ? "missing-nearby-refute-same-grid" : "not-in-selected-trace";
+    }
+
+    private static VerificationCall parseVerificationCall(ToolInvocation invocation) {
+        if (invocation == null || !"verify_conjecture".equals(invocation.functionName())
+                || invocation.argsJson() == null || invocation.resultJson() == null) {
+            return null;
+        }
+        String result = invocation.resultJson();
+        boolean held = result.contains(" HELD across ");
+        boolean refuted = result.contains(" REFUTED across ");
+        if (!held && !refuted) return null;
+        Map<String, String> strings = new LinkedHashMap<>();
+        Matcher stringMatcher = JSON_STRING.matcher(invocation.argsJson());
+        while (stringMatcher.find()) strings.put(stringMatcher.group(1), stringMatcher.group(2));
+        Map<String, Double> numbers = new LinkedHashMap<>();
+        Matcher numberMatcher = JSON_NUMBER.matcher(invocation.argsJson());
+        while (numberMatcher.find()) {
+            try {
+                numbers.put(numberMatcher.group(1), Double.valueOf(numberMatcher.group(2)));
+            } catch (NumberFormatException ignored) { }
+        }
+        String lhs = strings.get("lhs");
+        String rhs = strings.get("rhs");
+        Double k = numbers.get("k"), c = numbers.get("c"), start = numbers.get("window_start");
+        Double size = numbers.get("window_size"), windows = numbers.get("num_windows");
+        if (lhs == null || rhs == null || k == null || c == null || start == null || size == null || windows == null) {
+            return null;
+        }
+        return new VerificationCall(lhs, rhs, strings.get("rhs2"), k, numbers.getOrDefault("k2", 0.0), c,
+                start.longValue(), size.longValue(), windows.intValue(), held, refuted);
+    }
+
+    private record VerificationCall(String lhs, String rhs, String rhs2, double k, double k2, double c,
+                                    long windowStart, long windowSize, int numWindows,
+                                    boolean held, boolean refuted) {
+        boolean matches(HeldBound bound) {
+            return lhs.equals(bound.lhs()) && rhs.equals(bound.rhs())
+                    && java.util.Objects.equals(rhs2, bound.rhs2())
+                    && same(k, bound.k()) && same(k2, bound.k2()) && same(c, bound.c())
+                    && windowStart == bound.windowStart() && numWindows == bound.numWindows();
+        }
+
+        boolean sameRelationAndGrid(VerificationCall other) {
+            return lhs.equals(other.lhs) && rhs.equals(other.rhs)
+                    && java.util.Objects.equals(rhs2, other.rhs2)
+                    && windowStart == other.windowStart && windowSize == other.windowSize
+                    && numWindows == other.numWindows;
+        }
+
+        boolean nearbyVariant(VerificationCall other) {
+            boolean changed = !same(k, other.k) || !same(k2, other.k2) || !same(c, other.c);
+            return changed && nearby(k, other.k) && nearby(k2, other.k2) && nearby(c, other.c);
+        }
+
+        private static boolean same(double a, double b) {
+            return Math.abs(a - b) <= 1e-9;
+        }
+
+        private static boolean nearby(double a, double b) {
+            return Math.abs(a - b) <= Math.max(NEARBY_PARAMETER_ABS_FLOOR,
+                    NEARBY_PARAMETER_FRACTION * Math.max(Math.abs(a), Math.abs(b)));
+        }
     }
 
     /** Lever A — among several HELD verifications of the SAME relation, the tightest: smallest parsed
@@ -254,36 +338,15 @@ public class ConjectureInvestigationWriteBackService {
     }
 
     /**
-     * The persisted per-paper trace file wrapped as a single synthetic {@link ToolInvocation} so the
-     * parse regexes sweep the whole file (echoes de-dup). Empty list when the file is absent/unreadable
-     * (tracing disabled, no-paper, or pre-flush) — the in-memory union is then the only source.
-     */
-    List<ToolInvocation> traceFromFile(String paperId) {
-        if (paperId == null || paperId.isBlank() || "?".equals(paperId)) return List.of();
-        try {
-            Path f = Paths.get(researchOutputDir, "llm-traces", paperId + ".jsonl");
-            if (!Files.isReadable(f)) return List.of();
-            String content = Files.readString(f);
-            return List.of(new ToolInvocation("_trace_file", "{}", content, 0, null));
-        } catch (IOException | RuntimeException e) {
-            log.warn("investigation-write-back: could not read trace file for {} ({})", paperId, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * Write back every writable HELD bound from the trace. Returns the count written. No-op (returns 0)
-     * when the flag is OFF. {@code paperId} appears in every funnel log so a capture miss names the paper.
+     * Write back every documented, writable HELD bound from the selected paper trace. A pool bound must
+     * have a nearby REFUTED counterpart on exactly the same grid in that trace; this makes the artifact's
+     * evidence manifest, not an unselected candidate or a side-channel trace file, the sole authority.
+     * Returns the count written. No-op (returns 0) when the flag is OFF.
      */
     @Transactional
     public int writeBack(List<ToolInvocation> trace, String paperId) {
         if (!enabled) return 0;
-        // Rec 2 facet B — union the in-memory trace with the persisted ground-truth file, so a tight fit
-        // a losing best-of-N candidate found (and the in-memory union dropped) is still captured.
-        List<ToolInvocation> fileTrace = traceFromFile(paperId);
-        List<ToolInvocation> all = new ArrayList<>(trace == null ? List.of() : trace);
-        all.addAll(fileTrace);
-        trace = all;
+        trace = trace == null ? List.of() : trace;
         int traceSize = trace.size();
         // Diagnostic counters — separate "trace lacked the verify outputs" from "regex missed HELD
         // summaries" from "writability gate rejected them". verifyCalls = tool results that ARE verify
@@ -311,6 +374,7 @@ public class ConjectureInvestigationWriteBackService {
         // Per-bound diagnosis: log every parsed bound and the exact gate that bars it (or WRITE).
         for (HeldBound b : bounds) {
             String reason = rejectReason(b);
+            if (reason.isEmpty()) reason = bindingPairRejectReason(b, trace);
             log.info("investigation-write-back: paperId={} bound {} <= {} @{} (windows={}, rel-slack={}) -> {}",
                     paperId, b.lhs(), boundStr(b), b.windowStart(), b.numWindows(),
                     b.relSlack(), reason.isEmpty() ? "WRITABLE" : "reject:" + reason);
@@ -319,6 +383,7 @@ public class ConjectureInvestigationWriteBackService {
         Map<String, HeldBound> tightestByRelation = new LinkedHashMap<>();
         for (HeldBound b : bounds) {
             if (!writable(b)) continue;
+            if (!bindingPairRejectReason(b, trace).isEmpty()) continue;
             // Key on (lhs, rhs, rhs2) so a one-term and a two-term bound over the same primary pair stay
             // distinct relations (different ceilings) rather than the tighter one shadowing the other.
             tightestByRelation.merge(b.lhs() + "|" + b.rhs() + "|" + (b.rhs2() == null ? "" : b.rhs2()), b,
@@ -341,7 +406,8 @@ public class ConjectureInvestigationWriteBackService {
                     tightestByRelation.size());
         } else if (!bounds.isEmpty()) {
             log.info("investigation-write-back: paperId={} wrote 0 bound(s) — received {} tool-call(s): {} verify, "
-                    + "{} HELD-summary, {} parsed, 0 writable (failure-region x>={}, >={} windows, rel-slack<={})",
+                    + "{} HELD-summary, {} parsed, 0 eligible (failure-region x>={}, >={} windows, rel-slack<={}, "
+                    + "selected-trace binding pair required)",
                     paperId, traceSize, verifyCalls, heldSummaries, bounds.size(),
                     FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
         }

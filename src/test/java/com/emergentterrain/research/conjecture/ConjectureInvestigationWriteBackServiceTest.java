@@ -18,6 +18,14 @@ class ConjectureInvestigationWriteBackServiceTest {
         return new ToolInvocation("verify_conjecture", "{}", resultText, 0, "call_1");
     }
 
+    private static ToolInvocation verification(double k, double c, long start, long size, int windows,
+                                               String resultText, String callId) {
+        String args = "{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\","
+                + "\"k\":" + k + ",\"c\":" + c + ",\"window_start\":" + start
+                + ",\"window_size\":" + size + ",\"num_windows\":" + windows + "}";
+        return new ToolInvocation("verify_conjecture", args, resultText, 0, callId);
+    }
+
     private static final String HELD_AT_FAILURE =
             "verify_conjecture: max_prime_gap <= +1.0000 * log_sq_window_start + +0.0000 "
             + "HELD across 10 window(s) of size 500 starting at 1800000. "
@@ -112,6 +120,49 @@ class ConjectureInvestigationWriteBackServiceTest {
     }
 
     @Test
+    void bindingPair_requiresNearbyRefuteOnTheSelectedTraceAndSameGrid() {
+        ToolInvocation held = verification(0.7200, 1.5000, 1_800_000L, 500, 10,
+                HELD_TIGHT, "call_1");
+        String refuted = "verify_conjecture: max_prime_gap <= +0.7190 * log_sq_window_start + +1.5000 "
+                + "REFUTED across 10 window(s) of size 500 starting at 1800000. "
+                + "worst margin: +0.05000 at window starting 1810000.";
+        ToolInvocation nearbyRefute = verification(0.7190, 1.5000, 1_800_000L, 500, 10,
+                refuted, "call_2");
+        HeldBound bound = ConjectureInvestigationWriteBackService.parseHeldBounds(List.of(held)).get(0);
+
+        assertThat(ConjectureInvestigationWriteBackService.bindingPairRejectReason(
+                bound, List.of(held, nearbyRefute))).isEmpty();
+    }
+
+    @Test
+    void bindingPair_rejectsARefuteFromDifferentGridOrAnUnselectedTrace() {
+        ToolInvocation held = verification(0.7200, 1.5000, 1_800_000L, 500, 10,
+                HELD_TIGHT, "call_1");
+        String refuted = "verify_conjecture: max_prime_gap <= +0.7190 * log_sq_window_start + +1.5000 "
+                + "REFUTED across 10 window(s) of size 500 starting at 1900000. "
+                + "worst margin: +0.05000 at window starting 1910000.";
+        ToolInvocation wrongGrid = verification(0.7190, 1.5000, 1_900_000L, 500, 10,
+                refuted, "call_2");
+        HeldBound bound = ConjectureInvestigationWriteBackService.parseHeldBounds(List.of(held)).get(0);
+
+        assertThat(ConjectureInvestigationWriteBackService.bindingPairRejectReason(
+                bound, List.of(held))).isEqualTo("missing-nearby-refute-same-grid");
+        assertThat(ConjectureInvestigationWriteBackService.bindingPairRejectReason(
+                bound, List.of(held, wrongGrid))).isEqualTo("missing-nearby-refute-same-grid");
+    }
+
+    @Test
+    void writeBack_doesNotPromoteATightHoldWithoutItsSelectedTraceCounterpart() {
+        ToolInvocation held = verification(0.7200, 1.5000, 1_800_000L, 500, 10,
+                HELD_TIGHT, "call_1");
+        var service = new ConjectureInvestigationWriteBackService(null);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "enabled", true);
+
+        // No repository call is possible or needed: the binding-pair gate must stop before upsert.
+        assertThat(service.writeBack(List.of(held), "P-selected-only")).isZero();
+    }
+
+    @Test
     void tighter_prefersSmallerRelativeSlack() {
         // lever A: of two HELD verifications of the same relation, keep the tighter (smaller slack).
         HeldBound tight = ConjectureInvestigationWriteBackService.parseHeldBounds(
@@ -139,10 +190,12 @@ class ConjectureInvestigationWriteBackServiceTest {
     }
 
     @Test
-    void writable_heldAtFailureRegion_withCoverage_andLegalInequality() {
+    void notWritable_whenLegacyHeldOutputHasNoTightnessEvidence() {
         HeldBound b = ConjectureInvestigationWriteBackService.parseHeldBounds(
                 List.of(verify(HELD_AT_FAILURE))).get(0);
-        assertThat(ConjectureInvestigationWriteBackService.writable(b)).isTrue();
+        assertThat(ConjectureInvestigationWriteBackService.writable(b)).isFalse();
+        assertThat(ConjectureInvestigationWriteBackService.rejectReason(b))
+                .isEqualTo("missing-relative-slack");
     }
 
     @Test
@@ -184,14 +237,6 @@ class ConjectureInvestigationWriteBackServiceTest {
                 + "1500000. relative slack: 0.0100 (|margin|/|bound|, smaller = tighter).";
         var bounds = ConjectureInvestigationWriteBackService.parseHeldBounds(List.of(verify(fileLike)));
         assertThat(bounds).extracting(HeldBound::k).contains(0.72, 0.499);
-    }
-
-    @Test
-    void traceFromFile_guardsBlankAndSentinelPaperId() {
-        var svc = new ConjectureInvestigationWriteBackService(null);   // researchOutputDir stays null
-        assertThat(svc.traceFromFile(null)).isEmpty();
-        assertThat(svc.traceFromFile("")).isEmpty();
-        assertThat(svc.traceFromFile("?")).isEmpty();
     }
 
     // ── Lever D — measured-invariant (frames 1-3) parsing ──────────────────────────────────

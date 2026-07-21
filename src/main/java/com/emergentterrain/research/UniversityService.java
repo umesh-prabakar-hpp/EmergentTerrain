@@ -209,14 +209,6 @@ public class UniversityService {
     private com.emergentterrain.research.conjecture.ConjectureInvestigationWriteBackService
             conjectureWriteBackService;
     /**
-     * Lever F (2026-06-10) — union of all best-of-N candidates' professor traces by paperId, so the
-     * write-back below captures a verified bound from a LOSING candidate, not only the winning
-     * narration's trace. Optional/field-injected like the service above.
-     */
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.emergentterrain.research.conjecture.InvestigationTraceAccumulator
-            investigationTraceAccumulator;
-    /**
      * Paper-review 2026-05-22 fix 4 — flag papers whose Hypothesis text
      * declares a parameter range (e.g. "from 400nm to 700nm") but
      * whose persisted tool-call trace covers less than half of it.
@@ -307,6 +299,9 @@ public class UniversityService {
     private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
+    /** Papers emitted by this JVM only. This deliberately does not reuse {@link #published}, whose
+     * per-room cache may be seeded from prior database rows at startup. */
+    private final ConcurrentHashMap<String, RunCreatedPaper> runCreatedPapers = new ConcurrentHashMap<>();
     private static final Pattern CITED_PAPER_PATTERN = Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
 
     // (Replication threshold + queue moved to ReplicationService in Phase 0 Task 0.3b.)
@@ -1821,34 +1816,21 @@ public class UniversityService {
         }
 
         // A trace may seed future investigations only after every publication gate has selected a
-        // clean PUBLISHED terminal state. In particular, a confirmatory-only bound that is routed to
-        // NEEDS_REVISION by binding-regime coverage must not enter the conjecture pool merely because
-        // an earlier candidate held it. This also keeps any other revisable/rejected outcome out of the
-        // cross-run hypothesis supply.
+        // clean PUBLISHED terminal state. The selected narration trace is also the trace persisted in
+        // the paper's artifact evidence, so write-back must use it exclusively: a losing best-of-N
+        // candidate is not documented evidence for the selected paper and cannot seed later work.
         if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
                 && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
-            java.util.List<com.emergentterrain.llm.ToolInvocation> trace = narration.toolCallTrace();
-            java.util.List<com.emergentterrain.llm.ToolInvocation> union =
-                    new java.util.ArrayList<>(trace == null ? java.util.List.of() : trace);
-            int winnerCalls = union.size();
-            int accumulatedCalls = 0;
-            if (investigationTraceAccumulator != null) {
-                java.util.List<com.emergentterrain.llm.ToolInvocation> drained =
-                        investigationTraceAccumulator.drain(draft.paperId());
-                accumulatedCalls = drained.size();
-                union.addAll(drained);
-            }
+            java.util.List<com.emergentterrain.llm.ToolInvocation> winnerTrace =
+                    narration.toolCallTrace() == null ? java.util.List.of() : narration.toolCallTrace();
             if (!permitsFindingsPromotion(paperStatus)) {
-                log.info("investigation-write-back blocked: paperId={} status={} winner-trace={} call(s), "
-                                + "accumulated-candidates={} call(s)",
-                        draft.paperId(), paperStatus, winnerCalls, accumulatedCalls);
+                log.info("investigation-write-back blocked: paperId={} status={} selected-trace={} call(s)",
+                        draft.paperId(), paperStatus, winnerTrace.size());
             } else {
                 try {
-                    // Lever F — persist the union of best-of-N traces only after the terminal gate.
-                    log.info("investigation-write-back hook: paperId={} winner-trace={} call(s), "
-                                    + "accumulated-candidates={} call(s)",
-                            draft.paperId(), winnerCalls, accumulatedCalls);
-                    conjectureWriteBackService.writeBack(union, draft.paperId());
+                    log.info("investigation-write-back hook: paperId={} selected-trace={} call(s)",
+                            draft.paperId(), winnerTrace.size());
+                    conjectureWriteBackService.writeBack(winnerTrace, draft.paperId());
                 } catch (RuntimeException e) {
                     log.warn("investigation-write-back failed paperId={} ({})",
                             draft.paperId(), e.getMessage());
@@ -2854,7 +2836,27 @@ public class UniversityService {
     @jakarta.annotation.PreDestroy
     void markShutdown() {
         this.shuttingDown = true;
+        logRunCreatedPaperSummary();
     }
+
+    /** Log the durable, operator-facing end-of-run paper list after a drain, budget stop, Ctrl-C, or
+     * normal context close. It is intentionally session-scoped rather than DB-scoped so prior runs never
+     * appear in this summary. */
+    private void logRunCreatedPaperSummary() {
+        List<RunCreatedPaper> created = new ArrayList<>(runCreatedPapers.values());
+        created.sort(Comparator.comparing(RunCreatedPaper::paperId));
+        if (created.isEmpty()) {
+            log.info("Run paper summary: no papers were created in this application run.");
+            return;
+        }
+        String list = created.stream()
+                .map(p -> "  - " + p.paperId() + " — " + p.title() + " [" + p.status() + "]")
+                .collect(Collectors.joining(System.lineSeparator()));
+        log.info("Run paper summary: {} paper(s) created in this application run:{}{}",
+                created.size(), System.lineSeparator(), list);
+    }
+
+    private record RunCreatedPaper(String paperId, String title, String status) {}
 
     private void addPaper(UUID roomId, ResearchPaper paper) {
         // DB is source of truth. Persist first, then mirror to in-memory cache and disk.
@@ -2875,6 +2877,9 @@ public class UniversityService {
             if (bucket.size() > MAX_PAPERS_PER_ROOM) bucket.remove(0);
         }
         writePaperToFile(roomId, paper);
+        runCreatedPapers.putIfAbsent(paper.paperId(), new RunCreatedPaper(
+                paper.paperId(), paper.title() == null || paper.title().isBlank() ? "(untitled)" : paper.title(),
+                paper.status() == null || paper.status().isBlank() ? "UNKNOWN" : paper.status()));
     }
 
     String nextPaperId(UUID roomId) {

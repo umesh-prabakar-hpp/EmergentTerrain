@@ -97,6 +97,11 @@ started papers. The independent 350-call cap and 60-call reserve are unchanged
 (call drain begins at 290). This is aggregate closeout headroom, not per-paper
 escrow: optional work can still consume the shared reserve.
 
+At application shutdown—including a clean budget drain—the log ends with a
+`Run paper summary` listing only papers created by that JVM (paper ID, title,
+and final workflow status). It reports an explicit empty summary when none
+were created; historical database papers are never included.
+
 Phase 35 literature retrieval deterministically drops generic connective,
 ordinal, measurement-framing, comparative model-prose, and numeric/coefficient fragments before issuing FTS5 queries. Full-text fallback also requires its source title to contain a distinctive query-subject anchor, so a generic body overlap such as “density” cannot issue evidence for an unrelated domain. Each
 enabled lookup logs the retained expressions and its bounded completion
@@ -113,7 +118,11 @@ argument-size limit.
 Only a clean `PUBLISHED` paper may promote tool findings into the conjecture
 pool or cross-run verified-results ledger. `NEEDS_REVISION`, `NULL_RESULT`,
 `PUBLISHED_NO_PROFESSOR`, and `REJECTED` papers retain their local trace for
-revision but cannot seed later hypotheses or evidence.
+revision but cannot seed later hypotheses or evidence. Conjecture-pool
+write-back uses only the final selected paper trace—the same evidence preserved
+in its artifact—and never a losing best-of-N candidate or a side-channel run
+log. A bound additionally needs a tight HELD verification and a nearby REFUTED
+variant on the identical window grid before it can seed later work.
 
 ### Related-service status
 
