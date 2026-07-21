@@ -350,6 +350,20 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @org.junit.jupiter.api.Test
+    void scaleLadderFailsBeforeSchedulingWhenJuliaConjectureSidecarIsUnavailable() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, new ConjectureVerifier());
+
+        String result = suite.buildExecutor(stubDraft()).apply(mapper.writeValueAsString(Map.of(
+                "name", "verify_constant",
+                "arguments", Map.of("lhs", "richly_divisible_density", "scale_ladder", true))));
+
+        assertThat(result).startsWith("verify_constant scale-ladder unavailable:")
+                .contains("No broad logical range or chunk was scheduled");
+    }
+
+    @org.junit.jupiter.api.Test
     void tightHold_namesTheLiteralRefutingIntercept_p796() throws Exception {
         // run-26 rec 2: a TIGHT hold previously got NO hint (LOOSE branches fire on large slack
         // only) — P-796 reached rel-slack 0.0026 and spent its extension re-holding. The tool

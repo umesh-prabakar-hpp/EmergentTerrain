@@ -46,8 +46,25 @@ class RangePreservingChunkExecutorTest {
             assertEquals(RangePreservingChunkExecutor.ChunkStatus.COMPLETE, chunk.status());
         }
         assertEquals(0.2045, result.density(), 1.0e-12);
+        assertEquals(0, result.queuedMs());
         assertEquals(70, result.computeMs());
         assertEquals(30, result.transportMs());
+    }
+
+    @Test
+    void recordsQueueSeparatelyRatherThanCountingComputeAsQueueTime() {
+        RangePreservingChunkExecutor executor = new RangePreservingChunkExecutor(
+                new ObjectMapper(), journalRoot, 50_000, true);
+
+        RangePreservingChunkExecutor.DensityJobResult result = executor.executeDensity(
+                "richly_divisible_density", 1_000_000L, 1_050_000L,
+                (start, size) -> new RangePreservingChunkExecutor.DensityMeasurement(0.48, 11, 7, 3));
+
+        assertTrue(result.complete());
+        assertEquals(11, result.queuedMs());
+        assertEquals(7, result.computeMs());
+        assertEquals(3, result.transportMs());
+        assertEquals(11, result.job().chunks().getFirst().queuedMs());
     }
 
     @Test

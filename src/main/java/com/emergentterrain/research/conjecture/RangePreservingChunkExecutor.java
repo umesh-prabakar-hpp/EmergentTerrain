@@ -83,21 +83,19 @@ public class RangePreservingChunkExecutor {
                 if (chunk.status() == ChunkStatus.COMPLETE) {
                     continue;
                 }
-                long queuedAt = System.nanoTime();
                 try {
                     DensityMeasurement measurement = evaluator.evaluate(chunk.start(), Math.toIntExact(chunk.end() - chunk.start()));
                     if (!Double.isFinite(measurement.density())) {
                         throw new IllegalStateException("chunk returned a non-finite density");
                     }
-                    long queuedMs = elapsedMillis(queuedAt);
                     ChunkResult completed = new ChunkResult(chunk.start(), chunk.end(), ChunkStatus.COMPLETE,
-                            measurement.density(), queuedMs, Math.max(0, measurement.computeMs()),
+                            measurement.density(), Math.max(0, measurement.queuedMs()), Math.max(0, measurement.computeMs()),
                             Math.max(0, measurement.transportMs()), chunk.attempt() + 1, null);
                     job = replaceChunk(job, i, completed, JobStatus.RUNNING);
                     persist(job);
                 } catch (RuntimeException e) {
                     ChunkResult failed = new ChunkResult(chunk.start(), chunk.end(), ChunkStatus.FAILED,
-                            null, elapsedMillis(queuedAt), 0, 0, chunk.attempt() + 1, conciseFailure(e));
+                            null, 0, 0, 0, chunk.attempt() + 1, conciseFailure(e));
                     JobStatus status = completedChunks(job) == 0 ? JobStatus.UNAVAILABLE : JobStatus.PARTIAL;
                     job = replaceChunk(job, i, failed, status);
                     persist(job);
@@ -197,10 +195,6 @@ public class RangePreservingChunkExecutor {
         return error.getClass().getSimpleName() + (message == null || message.isBlank() ? "" : ": " + message);
     }
 
-    private static long elapsedMillis(long startedAt) {
-        return (System.nanoTime() - startedAt) / 1_000_000L;
-    }
-
     private static String jobId(String metric, long start, long end, int chunkSize) {
         String source = FORMAT_VERSION + "|" + metric + "|" + start + "|" + end + "|" + chunkSize;
         try {
@@ -216,7 +210,16 @@ public class RangePreservingChunkExecutor {
         DensityMeasurement evaluate(long start, int size);
     }
 
-    public record DensityMeasurement(double density, long computeMs, long transportMs) {}
+    /**
+     * Exact timing split for one chunk. Queue time is actual wait before the sidecar starts work;
+     * it is intentionally not inferred from the synchronous wall clock, which would otherwise
+     * double-count compute as queueing. Callers with no local queue report zero.
+     */
+    public record DensityMeasurement(double density, long queuedMs, long computeMs, long transportMs) {
+        public DensityMeasurement(double density, long computeMs, long transportMs) {
+            this(density, 0, computeMs, transportMs);
+        }
+    }
 
     public enum JobStatus { PENDING, RUNNING, PARTIAL, COMPLETE, UNAVAILABLE }
     public enum ChunkStatus { PENDING, COMPLETE, FAILED }

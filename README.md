@@ -98,14 +98,17 @@ started papers. The independent 350-call cap and 60-call reserve are unchanged
 escrow: optional work can still consume the shared reserve.
 
 Phase 35 literature retrieval deterministically drops generic connective,
-ordinal, and measurement-framing words before issuing FTS5 queries. Each
+ordinal, measurement-framing, and model-prose words before issuing FTS5 queries. Each
 enabled lookup logs the retained expressions and its bounded completion
 telemetry, so problematic query shaping can be corrected without exposing
 paper prompts or bypassing the evidence gate. The theorem-record index is
 searched first; if it has no qualifying source, the same subject pair plus an
 independent corroborating anchor is searched in the indexed full text. That
 fallback still issues only a process-scoped `HF...` key and requires
-`read_reference` before a source can support paper prose.
+`read_reference` before a source can support paper prose. Search tool output is
+also capped before it is passed to the model/proxy, so an anomalously large
+indexed record cannot make the next tool turn fail at the operating-system
+argument-size limit.
 
 ### Related-service status
 
@@ -382,8 +385,10 @@ See `src/main/resources/application.yml` for app settings:
 - `app.government.timeline.*` for on-demand government trend storage, retention, and rollup cadence
 - `app.simulationHistory.root` for append-only civic history output
 - `app.research.experiments.range-chunking.*` for Phase 36's restart-safe Julia scale-ladder
-  execution; it preserves each supported logical density window and journals chunks under
-  `simulation-history/research-experiments/` (enabled at 50,000 integers per chunk)
+  execution; it preserves every count-weighted density metric's full logical window and journals
+  chunks under `simulation-history/research-experiments/` (enabled at 50,000 integers per chunk).
+  A ladder checks Julia readiness before it schedules a wide request, and each chunk records
+  actual queue wait, Julia compute, and transport time separately.
 - `app.world.flushIntervalMs`
 - `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`

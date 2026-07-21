@@ -3117,6 +3117,10 @@ public class MathToolSuite {
      * even when no single window is "converged".
      */
     private String verifyConstantLadder(String lhs, int windowSize, int numWindows, Double target, double tol) {
+        if (!conjectureVerifier.isConjectureSidecarAvailable()) {
+            return "verify_constant scale-ladder unavailable: the Julia conjecture sidecar is not ready. "
+                    + "No broad logical range or chunk was scheduled; restore the sidecar and retry the same request.";
+        }
         long maxN = conjectureVerifier.maxN();
         // run-25 rec 1 — ladder rungs use their own sample budget (see ladderRungBudget): the
         // interactive WORK cap is a per-call guard, not a substrate limit, and second-order
@@ -3141,7 +3145,8 @@ public class MathToolSuite {
             long s = starts.get(i);
             java.util.List<java.util.Map<String, Double>> ws;
             try {
-                if ("abundant_density".equals(lhs) && rangeChunkExecutor != null
+                if (com.emergentterrain.research.conjecture.MathInvariants.isCountWeightedDensity(lhs)
+                        && rangeChunkExecutor != null
                         && rangeChunkExecutor.isEnabled()
                         && rungWindowSize > rangeChunkExecutor.chunkSize()) {
                     ws = new java.util.ArrayList<>(numWindows);
@@ -3149,24 +3154,24 @@ public class MathToolSuite {
                         long logicalStart = s + (long) window * rungWindowSize;
                         long logicalEnd = logicalStart + rungWindowSize;
                         com.emergentterrain.research.conjecture.RangePreservingChunkExecutor.DensityJobResult job =
-                                rangeChunkExecutor.executeDensity("abundant_density", logicalStart, logicalEnd,
+                                rangeChunkExecutor.executeDensity(lhs, logicalStart, logicalEnd,
                                         (chunkStart, chunkSize) -> {
                                             com.emergentterrain.research.conjecture.ConjectureVerifier.TimedSampleWindow sample =
                                                     conjectureVerifier.sampleWindowTimed(chunkStart, chunkSize);
                                             return new com.emergentterrain.research.conjecture.RangePreservingChunkExecutor
-                                                    .DensityMeasurement(sample.scalars().getOrDefault("abundant_density", 0.0),
+                                                    .DensityMeasurement(sample.scalars().getOrDefault(lhs, 0.0),
                                                     sample.computeMs(), sample.transportMs());
                                         });
                         if (!job.complete()) {
                             long total = logicalEnd - logicalStart;
                             return String.format(
-                                    "verify_constant scale-ladder PARTIAL: abundant_density logical range [%d, %d) "
+                                    "verify_constant scale-ladder PARTIAL: %s logical range [%d, %d) "
                                             + "is %s after %,d / %,d integers; completed chunks are journaled as %s. "
                                             + "No full-range result is claimed; resume preserves this exact range.",
-                                    logicalStart, logicalEnd, job.job().status(), job.completedLength(), total,
+                                    lhs, logicalStart, logicalEnd, job.job().status(), job.completedLength(), total,
                                     job.job().jobId());
                         }
-                        ws.add(java.util.Map.of("abundant_density", job.density(),
+                        ws.add(java.util.Map.of(lhs, job.density(),
                                 "_window_start", (double) logicalStart,
                                 "_window_size", (double) rungWindowSize));
                         chunkedLogicalWindows++;

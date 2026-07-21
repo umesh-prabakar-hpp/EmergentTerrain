@@ -138,6 +138,36 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35RejectsGenericModelProsePairsFromTheLatestRun() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "integers satisfying omega obeys richly divisible density mean approximately 77316",
+                java.util.Map.of());
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"richly divisible\"", "\"divisible density\"")
+                .doesNotContain("\"integers satisfying\"", "\"satisfying omega\"", "\"omega obeys\"",
+                        "\"obeys richly\"", "\"density mean\"", "\"mean approximately\"");
+    }
+
+    @Test
+    void phase35BoundsSearchToolOutputBeforeItReachesTheModelProxy() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            String longTitle = "Prime giant " + "x".repeat(20_000);
+            sql.execute("INSERT INTO papers VALUES ('2501.00001', '" + longTitle + "', 'A. Author', 'math.NT')");
+            sql.execute("INSERT INTO theorems VALUES (2, '2501.00001')");
+            sql.execute("INSERT INTO theorem_fts VALUES (2, '2501.00001', 'Prime giant theorem', 'prime giant', 'prime giant')");
+            sql.execute("INSERT INTO fulltext VALUES ('2501.00001', 'no-problem/2501/2501.00001.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2501.00001', 'Prime giant', 'prime giant')");
+        }
+
+        String output = adapter.search("prime giant");
+
+        assertThat(output).contains("2501.00001").hasSizeLessThanOrEqualTo(12_000);
+    }
+
+    @Test
     void phase35StagingAlwaysRetainsTheEstablishedFullCandidateRange() {
         assertThat(Phase34SqliteLiterature.stagedCandidateLimits(64)).containsExactly(64, 512);
         assertThat(Phase34SqliteLiterature.stagedCandidateLimits(512)).containsExactly(512);

@@ -42,6 +42,10 @@ public final class Phase34SqliteLiterature {
     private static final int DEFAULT_INITIAL_SEARCH_CANDIDATES = 64;
     private static final int LEGACY_SEARCH_ROWS = 12;
     private static final int SEARCH_RESULTS = 3;
+    // Tool results become part of the next model/proxy request. Bound this independently of FTS
+    // row limits so a pathological title, author string, or snippet cannot produce E2BIG.
+    private static final int MAX_SEARCH_TOOL_RESULT_CHARS = 12_000;
+    private static final int MAX_SEARCH_SNIPPET_CHARS = 1_800;
     private static final int MAX_PASSAGE_CHARS = 7_500;
     private static final int MAX_ISSUED_KEYS = 4_096;
     private static final long DEFAULT_SEARCH_TIMEOUT_MS = 15_000;
@@ -212,16 +216,30 @@ public final class Phase34SqliteLiterature {
             StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite index): "
                     + "EVIDENCE — cite only the returned [HF…] keys.\n");
             for (Citation citation : distinct.values()) {
-                output.append("- [").append(citation.key()).append("] ")
+                StringBuilder rendered = new StringBuilder("- [").append(citation.key()).append("] ")
                         .append(blankAs(citation.title(), "Untitled record"))
                         .append(" (source: ").append(citation.paperId()).append(")");
-                if (!citation.authors().isBlank()) output.append(" — ").append(citation.authors());
-                if (!citation.category().isBlank()) output.append(" [category: ").append(citation.category()).append("]");
-                if (!citation.snippet().isBlank()) output.append("\n  ").append(citation.snippet());
-                output.append('\n');
+                if (!citation.authors().isBlank()) rendered.append(" — ").append(citation.authors());
+                if (!citation.category().isBlank()) rendered.append(" [category: ").append(citation.category()).append("]");
+                if (!citation.snippet().isBlank()) rendered.append("\n  ")
+                        .append(truncate(citation.snippet(), MAX_SEARCH_SNIPPET_CHARS));
+                rendered.append('\n');
+                if (output.length() + rendered.length() > MAX_SEARCH_TOOL_RESULT_CHARS) {
+                    String minimal = "- [" + citation.key() + "] "
+                            + truncate(blankAs(citation.title(), "Untitled record"), 320)
+                            + " (source: " + citation.paperId() + ")\n";
+                    if (output.length() + minimal.length() > MAX_SEARCH_TOOL_RESULT_CHARS) {
+                        output.append("[Additional evidence details omitted to keep this tool result bounded.]\n");
+                        break;
+                    }
+                    output.append(minimal);
+                    output.append("[Evidence details omitted to keep this tool result bounded.]\n");
+                    break;
+                }
+                output.append(rendered);
             }
             logSearchTelemetry(telemetry, "evidence", distinct.size());
-            return output.toString().stripTrailing();
+            return truncate(output.toString().stripTrailing(), MAX_SEARCH_TOOL_RESULT_CHARS);
         } catch (Exception e) {
             if (isInterrupted(e)) {
                 logSearchTelemetry(telemetry, "timeout", 0);
@@ -392,6 +410,11 @@ public final class Phase34SqliteLiterature {
 
     private static String blankAs(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String truncate(String value, int maxChars) {
+        if (value == null || value.length() <= maxChars) return value == null ? "" : value;
+        return value.substring(0, Math.max(0, maxChars - 1)) + "…";
     }
 
     private static boolean hasSufficientRecordEvidence(String title, String name, String slogan, String body,

@@ -174,11 +174,14 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   restart-safe research execution under `simulation-history/research-experiments/` (not
   `research/<room>/`, which resets). With
   `app.research.experiments.range-chunking.enabled=true`, only the metric-safe
-  `abundant_density` CONSTANT scale-ladder path chunks a wide logical window; its union remains
-  exactly the original `[start,end)` request and it resumes only unfinished chunks. Its reducer is
-  count-weighted density; do not add another metric until it has an exact reducer or enough state.
-  Keep `app.julia.conjecture.timeoutMs=15000` for now; use the recorded queue, compute, and
-  transport times before changing deadlines or concurrency. Disable the flag for rollback.
+  count-weighted-density CONSTANT scale-ladder paths chunk a wide logical window; their union
+  remains exactly the original `[start,end)` request and they resume only unfinished chunks. The
+  eligible scalars are the literal per-integer density metrics in `MathInvariants`, including
+  `richly_divisible_density`; their reducer is count-weighted density. Do not add another metric
+  until it has an exact reducer or enough state. A ladder must check Julia conjecture-sidecar
+  readiness before scheduling its wide request. Keep `app.julia.conjecture.timeoutMs=15000` for
+  now; use the separately recorded actual queue, compute, and transport times before changing
+  deadlines or concurrency. Disable the flag for rollback.
 - `src/main/java/com/emergentterrain/research/ResultClassification.java` is an enum with four values (SUPPORTED, PARTIALLY_SUPPORTED, NULL_RESULT, DEGENERATE) that drives narration prompt framing, paper status, and downstream guards. It is assigned deterministically by `UniversityService.classifyResult()` before any LLM call.
 - `src/main/java/com/emergentterrain/research/PreRegistration.java` is a record holding the LLM-written hypothesis, prediction, falsification condition, and mapping notes — locked before computation runs. It is populated by `LlmService.parseFormulationResult()` and stored on `PaperDraft`.
 - `UniversityService.classifyResult()` is the sole source of truth for result classification; it is static package-private and directly unit-tested. Do not call it after narration — classification must precede narration.

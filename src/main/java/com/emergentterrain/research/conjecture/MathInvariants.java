@@ -58,6 +58,17 @@ public final class MathInvariants {
             "omega_excess_density"
     );
 
+    /**
+     * Window scalars that are literal fractions over the integers in a window.  Their value over
+     * adjacent chunks has the exact count-weighted reducer used by Phase 36; other scalar types
+     * (means, extrema, ratios, and path-dependent values) deliberately do not opt in until they
+     * provide an equally exact reducer.
+     */
+    private static final Set<String> COUNT_WEIGHTED_DENSITIES = Set.of(
+            "abundant_density", "deficient_density", "prime_density", "happy_density",
+            "twin_prime_density", "squarefree_density", "richly_divisible_density",
+            "omega_excess_density");
+
     public static final Map<String, Function<Map<String, Double>, Double>> DERIVED = derivedMap();
 
     /**
@@ -106,6 +117,11 @@ public final class MathInvariants {
     /** The exact instrument definition for a scalar, or null when unregistered. */
     public static String definitionOf(String name) {
         return name == null ? null : DEFINITIONS.get(name);
+    }
+
+    /** True when chunk densities can be reduced exactly by their integer counts. */
+    public static boolean isCountWeightedDensity(String name) {
+        return name != null && COUNT_WEIGHTED_DENSITIES.contains(name);
     }
 
     private static Map<String, Function<Map<String, Double>, Double>> derivedMap() {

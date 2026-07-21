@@ -34,7 +34,11 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             // Relation, ordinal, and measurement framing terms. They often occur beside a subject
             // word in model prose but do not make a selective literature phrase on their own.
             "has", "have", "had", "one", "order", "over", "consecutive", "high", "location",
-            "tracks", "squared");
+            "tracks", "squared",
+            // Generic model-prose connectors observed to consume the full retrieval deadline
+            // before a mathematical subject phrase was tried. They are not literature anchors.
+            "integer", "integers", "satisfying", "satisfy", "satisfied", "obey", "obeys",
+            "obeying", "mean", "sum", "approximately", "approximate");
 
     @Override
     public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {

@@ -459,6 +459,16 @@ public class ConjectureVerifier {
                 response.computeMs(), response.transportMs());
     }
 
+    /**
+     * Readiness gate for broad, sidecar-backed experiments. This performs no computation; it
+     * reports the client's latest health state so a scale ladder can fail before scheduling a
+     * wide logical request when the required Julia path is unavailable.
+     */
+    public boolean isConjectureSidecarAvailable() {
+        com.emergentterrain.llm.JuliaMathClient client = juliaMathClientOrNull();
+        return client != null && client.isConjectureAvailable();
+    }
+
     /** Timing-preserving extracted window used by the Phase 36 chunk executor. */
     public record TimedSampleWindow(Map<String, Double> scalars, long computeMs, long transportMs) {}
 

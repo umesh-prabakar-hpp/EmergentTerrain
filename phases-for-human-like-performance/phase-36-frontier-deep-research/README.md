@@ -8,7 +8,7 @@ them against real instruments, interpret failures, and choose the next discrimin
 The outcome remains a reproducible computational result, an honest null result, or an explicit
 failure—not persuasive prose unsupported by a trace.
 
-The first vertical slice is implemented: the `abundant_density` CONSTANT scale-ladder path
+The first vertical slice is implemented: every count-weighted density CONSTANT scale-ladder path
 preserves each original logical window while executing it as restart-safe 50,000-integer chunks.
 It does **not** change the current monetary budget, provider parallelism, or the 15-second Julia
 fail-soft deadline. The durable proposal/critic/hypothesis-tree loop remains later Phase 36 work.
@@ -17,7 +17,7 @@ fail-soft deadline. The durable proposal/critic/hypothesis-tree loop remains lat
 
 `RangePreservingChunkExecutor` journals exact density jobs under
 `simulation-history/research-experiments/`, outside the restart-cleared `research/<room>/` tree.
-For each `abundant_density` ladder window wider than
+For each supported count-weighted density ladder window wider than
 `app.research.experiments.range-chunking.chunk-size` (currently 50,000), it records the immutable
 logical interval, ordered chunks, every terminal chunk result, attempt count, and queue / Julia
 compute / transport timings. On a sidecar failure the tool returns `PARTIAL` or `UNAVAILABLE` and
@@ -29,6 +29,14 @@ The reducer is deliberately narrow: chunk densities are combined as
 window extrema, correlations, quantiles, and path-dependent statistics require their own exact
 reducer or sufficient boundary state. This preserves equal treatment by applying the same rule to
 every paper that requests this supported metric, rather than creating a paper-specific exception.
+The eligible metrics are the literal per-integer density scalars in `MathInvariants`, including
+`richly_divisible_density`.
+
+Before a scale ladder schedules a broad logical request, it checks the Julia conjecture-sidecar
+health state. If the sidecar is unavailable, the tool returns `UNAVAILABLE` before any chunk is
+created. `queued_ms` is actual dispatch wait only; it is no longer inferred from synchronous wall
+time, which previously counted Julia computation as queueing. A direct caller has no local queue
+and therefore records zero; `compute_ms` and `transport_ms` remain separate.
 
 The toggle is `app.research.experiments.range-chunking.enabled`; set it to `false` for a quick
 rollback to the previous one-shot behavior. Keep `app.julia.conjecture.timeoutMs` at 15 seconds
