@@ -216,13 +216,18 @@ Arbor is reference material, not a runtime dependency. Phase 36 must use the app
 Spring lifecycle, deterministic classification, literature guardrails, and sidecar interfaces.
 Do not copy its benchmark claims or introduce an unchecked external search path.
 
-## Budget option — deferred
+## Budget option
 
-No budget values change in this phase. After the chunking, campaign loop, and acceptance suite are
-proven, an operator may choose a 2× or 3× global run budget. If enabled, increase the cost and
-call ceilings together while retaining the existing drain reserve and per-paper caps. More money
-must buy additional falsification, replication, and algorithm diversity for **every** paper—not
-more simultaneous drafts or preferential treatment.
+The global run budget is `$5.00` and 350 calls. It enters drain at `$2.20`,
+reserving `$2.80` for already-started papers while admitting no new research;
+the call drain remains at 290. This is shared aggregate closeout headroom, not
+per-paper escrow or a completion guarantee.
+
+A further 2× or 3× budget increase remains deferred. If enabled, increase cost
+and call ceilings together while retaining a drain policy and per-paper caps.
+More money must buy additional falsification, replication, and algorithm
+diversity for **every** paper—not more simultaneous drafts or preferential
+treatment.
 
 Provider parallelism and `maxDraftBacklog` remain unchanged initially because the Julia sidecar
 can serialize expensive work. Telemetry must demonstrate spare capacity before any concurrency

@@ -91,6 +91,12 @@ account-level usage limits still apply. A full research narration has a
 narration timeout is the first recovery mechanism. Phase 35 retrieval work
 remains necessary to avoid consuming that allowance in a broad FTS5 search.
 
+The run-wide LLM budget has a $5.00 hard cost cap. It enters drain at $2.20,
+stops admitting new research, and retains the remaining $2.80 for already
+started papers. The independent 350-call cap and 60-call reserve are unchanged
+(call drain begins at 290). This is aggregate closeout headroom, not per-paper
+escrow: optional work can still consume the shared reserve.
+
 ### Related-service status
 
 Use the read-only status helper to check the Spring app (`8081`), local AI gateway

@@ -212,6 +212,18 @@ class RunBudgetTrackerTest {
     }
 
     @Test
+    void fiveDollarCapKeepsConfiguredCostDrainAtTwoTwenty() {
+        BudgetProperties.Caps c = new BudgetProperties.Caps();
+        c.setMaxCostUsd(5.00);
+        c.setDrainReserveCostUsd(2.80);
+        c.setMaxCalls(350);
+        c.setDrainReserveCalls(60);
+
+        assertThat(c.effectiveDrainStartCostUsd()).isEqualTo(2.20);
+        assertThat(c.effectiveDrainStartCalls()).isEqualTo(290);
+    }
+
+    @Test
     void drainDisabledWhenReserveAndStartBothOff() {
         BudgetProperties props = new BudgetProperties();
         props.setEnabled(true);
