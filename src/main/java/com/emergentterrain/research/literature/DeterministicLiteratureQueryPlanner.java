@@ -30,7 +30,11 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             "near", "normalized", "observed", "plausible", "scale", "slowly", "such", "tending", "tight",
             "than", "then", "times", "toward", "trajectory", "type", "up", "when", "while", "window", "windows",
             "two", "term", "vs", "sq", "statistic", "empirical", "inequality", "admits", "rather",
-            "stable", "convergent", "converges", "upper", "bound", "bounded", "linear", "combination");
+            "stable", "convergent", "converges", "upper", "bound", "bounded", "linear", "combination",
+            // Relation, ordinal, and measurement framing terms. They often occur beside a subject
+            // word in model prose but do not make a selective literature phrase on their own.
+            "has", "have", "had", "one", "order", "over", "consecutive", "high", "location",
+            "tracks", "squared");
 
     @Override
     public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
@@ -44,7 +48,6 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
                 .limit(MAX_RARE_ANCHORS)
                 .toList();
         if (anchors.size() < 2) return LiteratureQueryPlan.empty();
-        int minimumEvidenceMatches = Math.min(3, anchors.size());
         boolean requireTitleAnchor = anchors.size() >= 3;
 
         List<LiteratureQueryPlan.Candidate> candidates = new ArrayList<>();
@@ -59,10 +62,23 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             LiteratureQueryPlan.QueryKind queryKind = requireTitleAnchor
                     ? LiteratureQueryPlan.QueryKind.EXACT_PHRASE
                     : LiteratureQueryPlan.QueryKind.AND_PAIR;
-            candidates.add(new LiteratureQueryPlan.Candidate(queryKind, pair, anchors,
-                    minimumEvidenceMatches, requireTitleAnchor ? pair : List.of()));
+            candidates.add(new LiteratureQueryPlan.Candidate(queryKind, pair,
+                    evidenceAnchorsFor(pair, anchors), requireTitleAnchor ? pair : List.of()));
         }
         return new LiteratureQueryPlan(candidates, "");
+    }
+
+    /**
+     * Keep the core pair plus one independent, early claim anchor where available. This separates
+     * a source's subject/result evidence from later interpretive qualifiers in the same claim.
+     */
+    private static List<String> evidenceAnchorsFor(List<String> pair, List<String> anchors) {
+        Set<String> evidence = new LinkedHashSet<>(pair);
+        for (String anchor : anchors) {
+            if (evidence.size() >= 3) break;
+            evidence.add(anchor);
+        }
+        return List.copyOf(evidence);
     }
 
     static List<String> extractAnchors(String input) {

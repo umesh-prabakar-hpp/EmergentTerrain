@@ -64,6 +64,26 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35FullTextFallbackIssuesAKeyWhenTheTheoremCorpusHasNoLinkedRecord() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO papers VALUES ('1508.06394', 'Error terms for a divisor problem', 'A. Author', 'math.NT')");
+            sql.execute("INSERT INTO fulltext VALUES ('1508.06394', 'no-problem/1508/1508.06394.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('1508.06394', 'Error terms for a divisor problem', "
+                    + "'The error term in the classical Dirichlet divisor problem is studied here.')");
+        }
+
+        String search = adapter.search("Dirichlet divisor error");
+        Matcher key = Pattern.compile("\\[(HF[0-9A-F]+)]").matcher(search);
+        assertThat(key.find()).isTrue();
+        assertThat(search).contains("EVIDENCE").contains("1508.06394");
+        assertThat(adapter.read(key.group(1), "error term"))
+                .startsWith("read_reference " + key.group(1))
+                .contains("error term");
+    }
+
+    @Test
     void phase35NormalizesInstructionsAndKeepsAtLeastTwoAndAnchors() {
         LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
                 "Search the literature for prime gap bounds and prior papers",
@@ -94,6 +114,27 @@ class Phase34SqliteLiteratureTest {
                 .contains("\"twin prime\"")
                 .doesNotContain("\"two term\"", "\"term empirical\"", "\"inequality twin\"",
                         "\"prime statistic\"", "\"prime sq\"");
+    }
+
+    @Test
+    void phase35RejectsGenericPairsCapturedInRunLogsButKeepsTechnicalPhrases() {
+        LiteratureQueryPlan dirichlet = new DeterministicLiteratureQueryPlanner().plan(
+                "dirichlet divisor error has order one oscillation envelope", java.util.Map.of());
+        assertThat(dirichlet.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"dirichlet divisor\"", "\"divisor error\"", "\"oscillation envelope\"")
+                .doesNotContain("\"error has\"", "\"has order\"", "\"order one\"", "\"one oscillation\"");
+
+        LiteratureQueryPlan measurement = new DeterministicLiteratureQueryPlanner().plan(
+                "maximum prime gap consecutive high location tracks squared", java.util.Map.of());
+        assertThat(measurement.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"maximum prime\"", "\"prime gap\"")
+                .doesNotContain("\"consecutive high\"", "\"high location\"", "\"tracks squared\"");
+
+        LiteratureQueryPlan wigert = new DeterministicLiteratureQueryPlanner().plan(
+                "has wigert max divisor", java.util.Map.of());
+        assertThat(wigert.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .contains("\"wigert max\"", "\"max divisor\"")
+                .doesNotContain("\"has wigert\"");
     }
 
     @Test

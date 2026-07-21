@@ -95,9 +95,12 @@ The adapter extracts non-generic subject terms from the claim and considers
 only adjacent subject phrases that actually occur in its wording. It never
 combines distant rare words and never runs an all-terms OR fallback.
 
-- A claim with three or more subject anchors uses an escaped exact FTS phrase,
-  requires both phrase terms in the source title, and requires a third anchor
-  somewhere in the returned title/theorem record before issuing an `HF...` key.
+- A claim with three or more subject anchors uses an escaped exact FTS phrase.
+  Each candidate keeps its subject pair plus one independent early anchor,
+  separating core subject/result evidence from later interpretive qualifiers.
+  The theorem-record path requires both phrase terms in the source title and
+  all candidate evidence in the returned title/theorem record before issuing
+  an `HF...` key.
 - A two-anchor claim uses one bounded `AND` pair so sources with descriptive
   rather than topical titles can still be found; both terms must occur in the
   returned theorem record.
@@ -105,6 +108,16 @@ combines distant rare words and never runs an all-terms OR fallback.
   and similar) are not eligible anchors.
 - A match that lacks the required record evidence is an honest no-match, never
   evidence.
+
+The theorem dataset and full-text companion do not completely overlap. If all
+theorem-record candidates fail, the adapter retries the same safe pair against
+`fulltext_fts`, adding the candidate's independent corroborating anchor to the
+FTS expression. This is a bounded fallback, not broad full-text search: it
+uses no raw model syntax, returns only indexed sources, and still grants only a
+process-scoped `HF...` key whose source must be checked through
+`read_reference`. It permits a source such as an error-term paper whose full
+text is indexed but whose theorem record is absent; it does not weaken the
+theorem path's title gate.
 
 This deliberately favors a no-match over a plausible-looking but irrelevant
 citation. The selected expression and rejected candidate count are diagnostic
@@ -116,11 +129,11 @@ deterministic today. A future AI tool may propose only the validated
 raw FTS syntax or bypass the record-evidence and title-anchor policy before the
 adapter queries or issues a key.
 
-Every enabled lookup writes its exact FTS expressions, evidence anchors, and
-required title anchors to `logs/et-app.log` at INFO level. This supports manual
-reproduction without logging the paper body. Repeated identifier tokens (for
-example `omega_Omega_gap` → `omega`, `omega`, `gap`) are skipped instead of
-being treated as an invalid two-anchor query.
+Every enabled lookup writes its exact FTS expressions plus per-candidate
+evidence and required-title anchors to `logs/et-app.log` at INFO level. This
+supports manual reproduction without logging the paper body. Repeated
+identifier tokens (for example `omega_Omega_gap` → `omega`, `omega`, `gap`)
+are skipped instead of being treated as an invalid two-anchor query.
 
 ### 4. Bound retrieval separately from paper narration
 
@@ -148,13 +161,18 @@ full established eligibility range: it is not a reduced-recall mode and is
 applied identically to every paper.
 
 The deterministic planner also rejects clearly generic connector phrases
-(`two term`, `vs`, `empirical inequality`, and similar) before they can occupy
-the first ranked tranche. It still accepts adjacent, domain-bearing phrases
-such as `twin prime` or any other validated subject pair.
+(`two term`, `vs`, `empirical inequality`, relation/ordinal phrases such as
+`order one`, and measurement framing such as `high location`) before they can
+occupy the first ranked tranche. It still accepts adjacent, domain-bearing
+phrases such as `twin prime` or any other validated subject pair. This
+domain-neutral filter was extended after the 2026-07-20 logs showed generic
+pairs consuming a full bounded search despite the technical phrases in the
+same claim being available.
 
 Every completed lookup logs `outcome`, total elapsed time, candidate and batch
-counts, rows inspected, results issued, the final batch duration/limit, and
-the last FTS expression. It never logs source passages or full paper prompts.
+counts, rows inspected, results issued, the final search surface
+(`theorem`/`fulltext`), final batch duration/limit, and the last FTS expression.
+It never logs source passages or full paper prompts.
 
 ### 5. One-time index maintenance
 

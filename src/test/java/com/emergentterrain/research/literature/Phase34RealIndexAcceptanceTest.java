@@ -41,6 +41,13 @@ class Phase34RealIndexAcceptanceTest {
             "Finite-scale maximal prime gaps normalized by (log x)^2 show a slowly decreasing trajectory toward an asymptotic growth constant, but such a finite ladder may not discriminate Cramér-type convergence from plausible alternative asymptotic laws.",
             "Finite-scale normalized maximal prime gaps decrease across a geometric scale ladder toward a log-squared growth constant near 0.6932, but the observed trajectory may not discriminate between alternative slowly converging asymptotic laws."
     );
+    // Exact candidate-word sequences captured in the 2026-07-20 Phase 35 logs. They must fail
+    // closed quickly rather than letting generic pairs such as "order one" consume the budget.
+    private static final List<String> LOGGED_TERM_SEQUENCES = List.of(
+            "dirichlet divisor error has order one oscillation envelope",
+            "maximum prime gap consecutive high location tracks squared",
+            "has wigert max divisor"
+    );
 
     @Test
     void fixedClaimsReturnExpectedFullTextBackedSourcesAndPassages() {
@@ -82,7 +89,7 @@ class Phase34RealIndexAcceptanceTest {
     }
 
     @Test
-    void formerlySlowRunClaimsFailClosedUntilCuratedRelevantSourcesAreAvailable() {
+    void formerlySlowRunClaimsCompleteBoundedlyWithoutUngroundedFailures() {
         Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
                 Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
         for (String claim : FORMERLY_SLOW_CLAIMS) {
@@ -90,11 +97,41 @@ class Phase34RealIndexAcceptanceTest {
             String result = adapter.search(claim);
             long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
             assertThat(elapsedMs).isLessThanOrEqualTo(15_000);
-            assertThat(result).contains("no theorem-index matches")
-                    .doesNotContain("EVIDENCE")
-                    .doesNotContain("exceeded its")
+            assertThat(result).doesNotContain("exceeded its")
+                    .doesNotContain("not available");
+            if (result.contains("EVIDENCE")) {
+                assertThat(result).contains("[HF").contains("(source: ");
+            } else {
+                assertThat(result).contains("no theorem-index matches");
+            }
+        }
+    }
+
+    @Test
+    void loggedTermSequencesDoNotReintroduceGenericPhraseTimeouts() {
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
+        for (String claim : LOGGED_TERM_SEQUENCES) {
+            long started = System.nanoTime();
+            String result = adapter.search(claim);
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+            assertThat(elapsedMs).isLessThanOrEqualTo(15_000);
+            assertThat(result).doesNotContain("exceeded its")
                     .doesNotContain("not available");
         }
+    }
+
+    @Test
+    void dirichletErrorTermCanUseTheFullTextFallbackWhenNoTheoremRecordIsLinked() {
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
+
+        String search = adapter.search("The Dirichlet divisor error term");
+        assertThat(search).contains("EVIDENCE").contains("(source: 1508.06394)");
+        String key = keyForExpectedSource(search, "1508.06394");
+        assertThat(adapter.read(key, "error term"))
+                .startsWith("read_reference " + key)
+                .containsIgnoringCase("error term");
     }
 
     private record Fixture(String claim, String expectedPaperId, String expectedPassageTerm) {

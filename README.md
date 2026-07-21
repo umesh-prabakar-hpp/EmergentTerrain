@@ -97,6 +97,16 @@ started papers. The independent 350-call cap and 60-call reserve are unchanged
 (call drain begins at 290). This is aggregate closeout headroom, not per-paper
 escrow: optional work can still consume the shared reserve.
 
+Phase 35 literature retrieval deterministically drops generic connective,
+ordinal, and measurement-framing words before issuing FTS5 queries. Each
+enabled lookup logs the retained expressions and its bounded completion
+telemetry, so problematic query shaping can be corrected without exposing
+paper prompts or bypassing the evidence gate. The theorem-record index is
+searched first; if it has no qualifying source, the same subject pair plus an
+independent corroborating anchor is searched in the indexed full text. That
+fallback still issues only a process-scoped `HF...` key and requires
+`read_reference` before a source can support paper prose.
+
 ### Related-service status
 
 Use the read-only status helper to check the Spring app (`8081`), local AI gateway

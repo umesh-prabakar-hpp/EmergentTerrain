@@ -140,16 +140,17 @@ public final class Phase34SqliteLiterature {
                     return "search_literature: " + plan.unavailableReason();
                 }
                 candidateQueries = plan.candidates().stream()
-                        .map(candidate -> new SearchCandidate(candidate.expression(), candidate.evidenceAnchors(),
-                                candidate.minimumEvidenceMatches(), candidate.requiredTitleAnchors()))
+                        .map(candidate -> new SearchCandidate(candidate.expression(), candidate.queryAnchors(),
+                                candidate.evidenceAnchors(), candidate.minimumEvidenceMatches(),
+                                candidate.requiredTitleAnchors()))
                         .toList();
-                log.info("Phase 35 literature plan: expressions={} evidenceAnchors={} requiredTitleAnchors={}",
+                log.info("Phase 35 literature plan: expressions={} candidateEvidenceAnchors={} candidateRequiredTitleAnchors={}",
                         candidateQueries.stream().map(SearchCandidate::expression).toList(),
-                        candidateQueries.isEmpty() ? List.of() : candidateQueries.getFirst().evidenceAnchors(),
-                        candidateQueries.isEmpty() ? List.of() : candidateQueries.getFirst().requiredTitleAnchors());
+                        candidateQueries.stream().map(SearchCandidate::evidenceAnchors).toList(),
+                        candidateQueries.stream().map(SearchCandidate::requiredTitleAnchors).toList());
             } else {
                 candidateQueries = legacySearchQueries(query).stream()
-                        .map(candidate -> new SearchCandidate(candidate, List.of(), 0, List.of()))
+                        .map(candidate -> new SearchCandidate(candidate, List.of(), List.of(), 0, List.of()))
                         .toList();
             }
             if (candidateQueries.isEmpty()) {
@@ -166,6 +167,7 @@ public final class Phase34SqliteLiterature {
                         if (budget != null) budget.apply(statement);
                         telemetry.batches++;
                         telemetry.lastExpression = candidate.expression();
+                        telemetry.lastSurface = "theorem";
                         telemetry.lastBatchLimit = batchLimit;
                         long batchStarted = System.nanoTime();
                         statement.setString(1, candidate.expression());
@@ -197,6 +199,9 @@ public final class Phase34SqliteLiterature {
                     }
                     if (!distinct.isEmpty()) break;
                 }
+                if (distinct.isEmpty() && phase35RetrievalEnabled) {
+                    searchFullTextFallback(connection, budget, candidateQueries, distinct, telemetry);
+                }
             } finally {
                 if (budget != null) budget.close();
             }
@@ -204,7 +209,7 @@ public final class Phase34SqliteLiterature {
                 logSearchTelemetry(telemetry, "no_match", 0);
                 return "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.";
             }
-            StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite theorem index): "
+            StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite index): "
                     + "EVIDENCE — cite only the returned [HF…] keys.\n");
             for (Citation citation : distinct.values()) {
                 output.append("- [").append(citation.key()).append("] ")
@@ -236,10 +241,74 @@ public final class Phase34SqliteLiterature {
 
     private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
         log.info("Phase 35 literature retrieval: outcome={} elapsedMs={} candidateAttempts={} batches={} "
-                        + "rowsInspected={} results={} lastBatchElapsedMs={} lastBatchLimit={} lastExpression={}",
+                        + "rowsInspected={} results={} lastSurface={} lastBatchElapsedMs={} lastBatchLimit={} lastExpression={}",
                 outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
-                telemetry.rowsInspected, resultCount, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit,
+                telemetry.rowsInspected, resultCount, telemetry.lastSurface, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit,
                 telemetry.lastExpression);
+    }
+
+    /**
+     * The theorem corpus and full-text companion do not have complete overlap. After the same
+     * bounded theorem search misses, look for the validated subject/result anchors in an indexed
+     * full-text source. This path never accepts raw model FTS syntax or issues an ungrounded key.
+     */
+    private void searchFullTextFallback(Connection connection, QueryBudget budget,
+                                        List<SearchCandidate> candidateQueries,
+                                        Map<String, Citation> distinct,
+                                        SearchTelemetry telemetry) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                WITH ranked_sources AS (
+                    SELECT rowid, rank
+                      FROM fulltext_fts
+                     WHERE fulltext_fts MATCH ?
+                  ORDER BY rank
+                     LIMIT ?
+                )
+                SELECT f.paper_id, COALESCE(p.title, ''), COALESCE(p.authors, ''),
+                       COALESCE(p.primary_category, ''),
+                       snippet(fulltext_fts, 2, '', '', '…', 24)
+                  FROM ranked_sources ranked
+                  JOIN fulltext_fts ON fulltext_fts.rowid = ranked.rowid
+                  JOIN fulltext f ON f.rowid = fulltext_fts.rowid
+             LEFT JOIN papers p ON p.paper_id = f.paper_id
+              ORDER BY ranked.rank
+                """)) {
+            for (SearchCandidate candidate : candidateQueries) {
+                telemetry.candidateAttempts++;
+                String expression = fullTextExpression(candidate);
+                for (int batchLimit : stagedCandidateLimits(initialSearchCandidates)) {
+                    if (budget != null) budget.apply(statement);
+                    telemetry.batches++;
+                    telemetry.lastExpression = expression;
+                    telemetry.lastSurface = "fulltext";
+                    telemetry.lastBatchLimit = batchLimit;
+                    long batchStarted = System.nanoTime();
+                    statement.setString(1, expression);
+                    statement.setInt(2, batchLimit);
+                    try (ResultSet rows = statement.executeQuery()) {
+                        while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                            telemetry.rowsInspected++;
+                            String paperId = rows.getString(1);
+                            if (paperId == null || paperId.isBlank()) continue;
+                            String key = keyFor(paperId);
+                            paperForKey.put(key, paperId);
+                            distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
+                                    rows.getString(3), rows.getString(4), rows.getString(5)));
+                        }
+                    }
+                    telemetry.lastBatchElapsedMs = (System.nanoTime() - batchStarted) / 1_000_000L;
+                    if (!distinct.isEmpty()) return;
+                }
+            }
+        }
+    }
+
+    private static String fullTextExpression(SearchCandidate candidate) {
+        StringBuilder expression = new StringBuilder(candidate.expression());
+        candidate.evidenceAnchors().stream()
+                .filter(anchor -> !candidate.queryAnchors().contains(anchor))
+                .forEach(anchor -> expression.append(" AND ").append(anchor));
+        return expression.toString();
     }
 
     public String read(String key, String query) {
@@ -406,8 +475,8 @@ public final class Phase34SqliteLiterature {
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet) {}
 
-    private record SearchCandidate(String expression, List<String> evidenceAnchors, int minimumEvidenceMatches,
-                                   List<String> requiredTitleAnchors) {}
+    private record SearchCandidate(String expression, List<String> queryAnchors, List<String> evidenceAnchors,
+                                   int minimumEvidenceMatches, List<String> requiredTitleAnchors) {}
 
     private static final class SearchTelemetry {
         private final long startedNanos = System.nanoTime();
@@ -416,6 +485,7 @@ public final class Phase34SqliteLiterature {
         private int rowsInspected;
         private long lastBatchElapsedMs;
         private int lastBatchLimit;
+        private String lastSurface = "none";
         private String lastExpression = "";
 
         private long elapsedMs() {

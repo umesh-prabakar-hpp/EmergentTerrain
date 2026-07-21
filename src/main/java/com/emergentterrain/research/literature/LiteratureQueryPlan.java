@@ -27,7 +27,7 @@ record LiteratureQueryPlan(List<Candidate> candidates, String unavailableReason)
      * key without satisfying these bounded, token-only checks.
      */
     record Candidate(QueryKind queryKind, List<String> queryAnchors, List<String> evidenceAnchors,
-                     int minimumEvidenceMatches, List<String> requiredTitleAnchors) {
+                     List<String> requiredTitleAnchors) {
         private static final Pattern TOKEN = Pattern.compile("[\\p{Alnum}]{2,}");
 
         Candidate {
@@ -52,11 +52,13 @@ record LiteratureQueryPlan(List<Candidate> candidates, String unavailableReason)
             if (queryKind == null || queryAnchors.size() != 2 || queryAnchors.stream()
                     .anyMatch(anchor -> !TOKEN.matcher(anchor).matches())
                     || !evidenceAnchors.containsAll(queryAnchors)
-                    || !queryAnchors.containsAll(requiredTitleAnchors)
-                    || minimumEvidenceMatches < queryAnchors.size()
-                    || minimumEvidenceMatches > evidenceAnchors.size()) {
+                    || !queryAnchors.containsAll(requiredTitleAnchors)) {
                 throw new IllegalArgumentException("literature candidate must have validated bounded anchors");
             }
+        }
+
+        int minimumEvidenceMatches() {
+            return evidenceAnchors.size();
         }
 
         String expression() {
