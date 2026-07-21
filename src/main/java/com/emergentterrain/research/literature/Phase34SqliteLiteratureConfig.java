@@ -19,7 +19,10 @@ public class Phase34SqliteLiteratureConfig {
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.enabled:false}")
             boolean phase35RetrievalEnabled,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:15000}")
-            long searchTimeoutMs) {
-        return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs);
+            long searchTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.initial-candidates:64}")
+            int initialCandidates) {
+        return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
+                initialCandidates, new DeterministicLiteratureQueryPlanner());
     }
 }

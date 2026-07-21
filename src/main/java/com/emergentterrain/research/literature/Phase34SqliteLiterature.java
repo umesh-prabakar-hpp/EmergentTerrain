@@ -38,6 +38,8 @@ public final class Phase34SqliteLiterature {
     // The full-text companion is sparser than the theorem corpus. Oversample FTS hits before
     // the full-text-presence join so a good eligible source is not hidden behind theorem-only rows.
     private static final int SEARCH_CANDIDATES = 512;
+    // Start cheaply on a cold index, then retain the complete Phase 35 eligibility range if needed.
+    private static final int DEFAULT_INITIAL_SEARCH_CANDIDATES = 64;
     private static final int LEGACY_SEARCH_ROWS = 12;
     private static final int SEARCH_RESULTS = 3;
     private static final int MAX_PASSAGE_CHARS = 7_500;
@@ -50,6 +52,7 @@ public final class Phase34SqliteLiterature {
     private final Path database;
     private final boolean phase35RetrievalEnabled;
     private final long searchTimeoutMs;
+    private final int initialSearchCandidates;
     private final LiteratureQueryPlanner queryPlanner;
     private final Map<String, String> paperForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
@@ -67,14 +70,21 @@ public final class Phase34SqliteLiterature {
      *                                preserves the Phase 34 query construction for rollback.
      */
     public Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs) {
-        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, new DeterministicLiteratureQueryPlanner());
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES,
+                new DeterministicLiteratureQueryPlanner());
     }
 
     Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
                             LiteratureQueryPlanner queryPlanner) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES, queryPlanner);
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            int initialSearchCandidates, LiteratureQueryPlanner queryPlanner) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
         this.phase35RetrievalEnabled = phase35RetrievalEnabled;
         this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
+        this.initialSearchCandidates = Math.clamp(initialSearchCandidates, 1, SEARCH_CANDIDATES);
         this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
     }
 
@@ -93,6 +103,7 @@ public final class Phase34SqliteLiterature {
     }
 
     public String search(String query) {
+        SearchTelemetry telemetry = new SearchTelemetry();
         if (!available()) {
             return "search_literature: Phase 34 SQLite index is not available.";
         }
@@ -148,35 +159,49 @@ public final class Phase34SqliteLiterature {
             Map<String, Citation> distinct = new LinkedHashMap<>();
             try {
                 for (int attempt = 0; attempt < candidateQueries.size(); attempt++) {
-                    if (budget != null) budget.apply(statement);
                     SearchCandidate candidate = candidateQueries.get(attempt);
-                    statement.setString(1, candidate.expression());
-                    statement.setInt(2, phase35RetrievalEnabled ? SEARCH_CANDIDATES : LEGACY_SEARCH_ROWS);
-                    try (ResultSet rows = statement.executeQuery()) {
-                        while (rows.next() && distinct.size() < SEARCH_RESULTS) {
-                            String paperId = rows.getString(1);
-                            if (paperId == null || paperId.isBlank()) continue;
-                            String title = rows.getString(2);
-                            // A matching pair alone is too weak: generic mathematical wording can
-                            // match an unrelated theorem. Phase 35 needs corroboration across the
-                            // returned record before it grants an HF citation key.
-                            if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
-                                    rows.getString(7), rows.getString(8), candidate)) continue;
-                            String key = keyFor(paperId);
-                            paperForKey.put(key, paperId);
-                            distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
-                                    rows.getString(3), rows.getString(4), rows.getString(5)));
+                    telemetry.candidateAttempts++;
+                    for (int batchLimit : phase35RetrievalEnabled
+                            ? stagedCandidateLimits(initialSearchCandidates) : List.of(LEGACY_SEARCH_ROWS)) {
+                        if (budget != null) budget.apply(statement);
+                        telemetry.batches++;
+                        telemetry.lastExpression = candidate.expression();
+                        telemetry.lastBatchLimit = batchLimit;
+                        long batchStarted = System.nanoTime();
+                        statement.setString(1, candidate.expression());
+                        statement.setInt(2, batchLimit);
+                        try (ResultSet rows = statement.executeQuery()) {
+                            while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                                telemetry.rowsInspected++;
+                                String paperId = rows.getString(1);
+                                if (paperId == null || paperId.isBlank()) continue;
+                                String title = rows.getString(2);
+                                // A matching pair alone is too weak: generic mathematical wording can
+                                // match an unrelated theorem. Phase 35 needs corroboration across the
+                                // returned record before it grants an HF citation key.
+                                if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
+                                        rows.getString(7), rows.getString(8), candidate)) continue;
+                                String key = keyFor(paperId);
+                                paperForKey.put(key, paperId);
+                                distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
+                                        rows.getString(3), rows.getString(4), rows.getString(5)));
+                            }
                         }
+                        telemetry.lastBatchElapsedMs = (System.nanoTime() - batchStarted) / 1_000_000L;
+                        log.debug("Phase 34 literature search attempt={} batchLimit={} anchors={} rows={} results={} "
+                                        + "batchElapsedMs={} elapsedMs={} query={}",
+                                attempt, batchLimit, candidate.evidenceAnchors().size(), telemetry.rowsInspected,
+                                distinct.size(), telemetry.lastBatchElapsedMs,
+                                budget == null ? -1 : budget.elapsedMs(), candidate.expression());
+                        if (!distinct.isEmpty()) break;
                     }
-                    log.debug("Phase 34 literature search attempt={} anchors={} results={} elapsedMs={} query={}",
-                            attempt, candidate.evidenceAnchors().size(), distinct.size(),
-                            budget == null ? -1 : budget.elapsedMs(), candidate.expression());
                     if (!distinct.isEmpty()) break;
                 }
             } finally {
                 if (budget != null) budget.close();
             }
             if (distinct.isEmpty()) {
+                logSearchTelemetry(telemetry, "no_match", 0);
                 return "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.";
             }
             StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite theorem index): "
@@ -190,14 +215,31 @@ public final class Phase34SqliteLiterature {
                 if (!citation.snippet().isBlank()) output.append("\n  ").append(citation.snippet());
                 output.append('\n');
             }
+            logSearchTelemetry(telemetry, "evidence", distinct.size());
             return output.toString().stripTrailing();
         } catch (Exception e) {
             if (isInterrupted(e)) {
+                logSearchTelemetry(telemetry, "timeout", 0);
                 return "search_literature: Phase 34 SQLite retrieval exceeded its " + searchTimeoutMs
                         + "ms Phase 35 budget; no evidence was issued.";
             }
+            logSearchTelemetry(telemetry, "error", 0);
             return "search_literature: Phase 34 SQLite query unavailable (" + safeMessage(e) + ").";
         }
+    }
+
+    /** The second stage deliberately retains the established 512-result eligibility range. */
+    static List<Integer> stagedCandidateLimits(int initialCandidates) {
+        int initial = Math.clamp(initialCandidates, 1, SEARCH_CANDIDATES);
+        return initial == SEARCH_CANDIDATES ? List.of(SEARCH_CANDIDATES) : List.of(initial, SEARCH_CANDIDATES);
+    }
+
+    private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
+        log.info("Phase 35 literature retrieval: outcome={} elapsedMs={} candidateAttempts={} batches={} "
+                        + "rowsInspected={} results={} lastBatchElapsedMs={} lastBatchLimit={} lastExpression={}",
+                outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
+                telemetry.rowsInspected, resultCount, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit,
+                telemetry.lastExpression);
     }
 
     public String read(String key, String query) {
@@ -366,5 +408,19 @@ public final class Phase34SqliteLiterature {
 
     private record SearchCandidate(String expression, List<String> evidenceAnchors, int minimumEvidenceMatches,
                                    List<String> requiredTitleAnchors) {}
+
+    private static final class SearchTelemetry {
+        private final long startedNanos = System.nanoTime();
+        private int candidateAttempts;
+        private int batches;
+        private int rowsInspected;
+        private long lastBatchElapsedMs;
+        private int lastBatchLimit;
+        private String lastExpression = "";
+
+        private long elapsedMs() {
+            return (System.nanoTime() - startedNanos) / 1_000_000L;
+        }
+    }
 
 }

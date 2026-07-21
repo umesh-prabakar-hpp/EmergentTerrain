@@ -135,6 +135,27 @@ This guard is defense in depth. It protects the two narration slots from a
 pathological query while the ranking and query-shaping changes address the
 normal case.
 
+### 4.1 Range-preserving staged ranked retrieval (2026-07-20)
+
+Live logs showed that a cold or concurrently read 27 GiB index can make an
+otherwise valid 512-result ranked search consume the complete 15-second
+fail-soft budget, while the same plan is fast once its pages are warm. The
+adapter therefore first requests the highest-ranked `initial-candidates` rows
+(64 by default). If that tranche produces no admissible full-text-backed
+evidence, it reruns the same validated expression with the existing 512-row
+limit, subject to the unchanged aggregate budget. The second stage keeps the
+full established eligibility range: it is not a reduced-recall mode and is
+applied identically to every paper.
+
+The deterministic planner also rejects clearly generic connector phrases
+(`two term`, `vs`, `empirical inequality`, and similar) before they can occupy
+the first ranked tranche. It still accepts adjacent, domain-bearing phrases
+such as `twin prime` or any other validated subject pair.
+
+Every completed lookup logs `outcome`, total elapsed time, candidate and batch
+counts, rows inspected, results issued, the final batch duration/limit, and
+the last FTS expression. It never logs source passages or full paper prompts.
+
 ### 5. One-time index maintenance
 
 After a completed immutable import, run

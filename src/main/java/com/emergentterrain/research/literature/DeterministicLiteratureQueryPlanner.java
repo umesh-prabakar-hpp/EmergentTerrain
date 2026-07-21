@@ -28,7 +28,9 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             "corrections", "count", "decrease", "decreasing", "divided", "exp", "finite", "follows",
             "function", "geometric", "growth", "ladder", "law", "log", "maximal", "may", "million",
             "near", "normalized", "observed", "plausible", "scale", "slowly", "such", "tending", "tight",
-            "than", "then", "times", "toward", "trajectory", "type", "up", "when", "while", "window", "windows");
+            "than", "then", "times", "toward", "trajectory", "type", "up", "when", "while", "window", "windows",
+            "two", "term", "vs", "sq", "statistic", "empirical", "inequality", "admits", "rather",
+            "stable", "convergent", "converges", "upper", "bound", "bounded", "linear", "combination");
 
     @Override
     public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {

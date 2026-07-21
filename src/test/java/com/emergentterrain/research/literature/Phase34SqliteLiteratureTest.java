@@ -86,6 +86,23 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35SuppressesGenericConnectorPhrasesBeforeTheSubjectPhrase() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "two term empirical inequality for twin prime statistic versus prime sq converges", java.util.Map.of());
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .contains("\"twin prime\"")
+                .doesNotContain("\"two term\"", "\"term empirical\"", "\"inequality twin\"",
+                        "\"prime statistic\"", "\"prime sq\"");
+    }
+
+    @Test
+    void phase35StagingAlwaysRetainsTheEstablishedFullCandidateRange() {
+        assertThat(Phase34SqliteLiterature.stagedCandidateLimits(64)).containsExactly(64, 512);
+        assertThat(Phase34SqliteLiterature.stagedCandidateLimits(512)).containsExactly(512);
+    }
+
+    @Test
     void phase35FailsClosedWhenOnlyGenericClaimFramingRemains() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 
