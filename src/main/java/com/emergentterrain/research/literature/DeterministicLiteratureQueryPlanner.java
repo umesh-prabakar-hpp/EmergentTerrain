@@ -39,7 +39,13 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             // before a mathematical subject phrase was tried. They are not literature anchors.
             "integer", "integers", "satisfying", "satisfy", "satisfied", "obey", "obeys",
             "obeying", "mean", "sum", "approximately", "approximate", "requiring", "feature",
-            "minus");
+            "minus",
+            // Comparative and trajectory prose from P76/P77. These describe a claimed state but
+            // do not identify a literature subject; letting them form phrases admitted unrelated
+            // full-text records that happened to discuss a generic density or baseline.
+            "above", "across", "asymptotically", "baseline", "below", "decreases",
+            "elevated", "elevation", "exhaustive", "like", "limiting", "local", "known", "relative",
+            "remains", "remain", "should", "track", "tracked");
 
     @Override
     public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
@@ -62,6 +68,11 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             // A repeated-token pair is neither a two-anchor query nor useful evidence; skip it
             // so planning remains failure-soft and later distinct pairs can still be searched.
             if (pair.get(0).equals(pair.get(1))) continue;
+            // A pair of broad measurement words (for example "number density") has no
+            // domain-bearing anchor. Keep it from displacing a real subject pair such as
+            // "abundant number" or "twin prime".
+            if (LiteratureQueryPlan.isWeakSubjectTerm(pair.get(0))
+                    && LiteratureQueryPlan.isWeakSubjectTerm(pair.get(1))) continue;
             // Exact subject phrases keep multi-concept claims selective. A two-word claim has no
             // independent third anchor, so its AND pair preserves recall for descriptive titles.
             LiteratureQueryPlan.QueryKind queryKind = requireTitleAnchor

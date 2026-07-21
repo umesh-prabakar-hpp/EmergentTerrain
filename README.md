@@ -98,7 +98,7 @@ started papers. The independent 350-call cap and 60-call reserve are unchanged
 escrow: optional work can still consume the shared reserve.
 
 Phase 35 literature retrieval deterministically drops generic connective,
-ordinal, measurement-framing, model-prose, and numeric/coefficient fragments before issuing FTS5 queries. Each
+ordinal, measurement-framing, comparative model-prose, and numeric/coefficient fragments before issuing FTS5 queries. Full-text fallback also requires its source title to contain a distinctive query-subject anchor, so a generic body overlap such as “density” cannot issue evidence for an unrelated domain. Each
 enabled lookup logs the retained expressions and its bounded completion
 telemetry, so problematic query shaping can be corrected without exposing
 paper prompts or bypassing the evidence gate. The theorem-record index is

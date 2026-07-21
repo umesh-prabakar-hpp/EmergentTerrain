@@ -2,10 +2,19 @@ package com.emergentterrain.research.literature;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /** A bounded set of safe FTS candidates and the record-evidence rules each must satisfy. */
 record LiteratureQueryPlan(List<Candidate> candidates, String unavailableReason) {
+
+    /**
+     * Broad measurement words are useful only beside a subject term. They cannot by themselves
+     * establish that a returned full-text record is about the claim's research subject.
+     */
+    private static final Set<String> WEAK_SUBJECT_TERMS = Set.of(
+            "density", "fraction", "fractions", "number", "numbers", "range", "interval",
+            "value", "values", "result", "results", "scale", "scales", "deviation", "deviations");
 
     LiteratureQueryPlan {
         candidates = candidates == null ? List.of() : List.copyOf(candidates);
@@ -18,6 +27,10 @@ record LiteratureQueryPlan(List<Candidate> candidates, String unavailableReason)
 
     static LiteratureQueryPlan empty() {
         return new LiteratureQueryPlan(List.of(), "");
+    }
+
+    static boolean isWeakSubjectTerm(String term) {
+        return WEAK_SUBJECT_TERMS.contains(term);
     }
 
     /**

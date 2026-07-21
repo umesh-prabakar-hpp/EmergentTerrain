@@ -84,6 +84,22 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35FullTextFallbackRejectsGenericBodyOverlapWithoutATitleSubjectAnchor() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO papers VALUES ('2601.00001', 'Dark matter density', 'A. Author', 'astro-ph')");
+            sql.execute("INSERT INTO fulltext VALUES ('2601.00001', 'no-problem/2601/2601.00001.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2601.00001', 'Dark matter density', "
+                    + "'An abundant number density can arise in this unrelated physical model.')");
+        }
+
+        assertThat(adapter.search("abundant number density"))
+                .contains("no theorem-index matches")
+                .doesNotContain("EVIDENCE", "HF");
+    }
+
+    @Test
     void phase35NormalizesInstructionsAndKeepsAtLeastTwoAndAnchors() {
         LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
                 "Search the literature for prime gap bounds and prior papers",
@@ -163,6 +179,25 @@ class Phase34SqliteLiteratureTest {
                 .containsExactly("\"twin prime\"", "\"prime density\"", "\"richly divisible\"",
                         "\"divisible density\"")
                 .doesNotContain("\"density 0000\"", "\"0000 richly\"", "\"density 9700\"");
+    }
+
+    @Test
+    void phase35RejectsComparativeProseButRetainsTheAbundantNumberSubjectPair() {
+        LiteratureQueryPlan generic = new DeterministicLiteratureQueryPlanner().plan(
+                "elevated relative local baseline remains below asymptotically like decreases across",
+                java.util.Map.of());
+        assertThat(generic.candidates()).isEmpty();
+
+        LiteratureQueryPlan abundant = new DeterministicLiteratureQueryPlanner().plan(
+                "abundant number density elevated relative to a local baseline", java.util.Map.of());
+        assertThat(abundant.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"abundant number\"")
+                .doesNotContain("\"number density\"", "\"elevated relative\"", "\"local baseline\"");
+
+        LiteratureQueryPlan p77 = new DeterministicLiteratureQueryPlanner().plan(
+                "The density of abundant integers in [120,420) is elevated relative to a local baseline "
+                        + "and its finite-range deviation should be tracked across scales.", java.util.Map.of());
+        assertThat(p77.candidates()).isEmpty();
     }
 
     @Test

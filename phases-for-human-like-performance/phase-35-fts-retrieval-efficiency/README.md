@@ -176,6 +176,17 @@ subject pair; they produced broad expressions such as `density 0000` without
 adding source-identifying meaning. The planner still preserves adjacent lexical
 subject pairs such as `richly divisible`.
 
+The later P76/P77 review found a second relevance gap: full-text fallback
+could issue an `HF...` key solely because an unrelated paper's body contained a
+generic phrase such as `abundant number` or `density`. The planner now drops
+comparative/trajectory prose (`elevated relative`, `local baseline`,
+`asymptotically like`, and similar) and rejects pairs made only of weak
+measurement words such as `number density`. Full-text fallback also requires
+at least one distinctive candidate subject anchor in the indexed source title,
+in addition to all candidate evidence anchors in the full record. This keeps
+the Dirichlet error-term fallback available through its `divisor` title anchor
+while rejecting an unrelated density paper whose title lacks `abundant`.
+
 Every completed lookup logs `outcome`, total elapsed time, candidate and batch
 counts, rows inspected, results issued, the final search surface
 (`theorem`/`fulltext`), final batch duration/limit, and the last FTS expression.

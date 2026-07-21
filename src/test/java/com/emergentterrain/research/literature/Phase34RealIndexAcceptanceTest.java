@@ -48,6 +48,15 @@ class Phase34RealIndexAcceptanceTest {
             "maximum prime gap consecutive high location tracks squared",
             "has wigert max divisor"
     );
+    // P76/P77 emitted these unrelated astrophysics/physics sources merely because their bodies
+    // shared generic density wording. A relevant result is still allowed; these known false positives
+    // must never be issued as evidence again.
+    private static final List<String> ABUNDANT_DENSITY_REVIEW_CLAIMS = List.of(
+            "The abundant-number fraction in the exhaustive interval [350,500) is 0.26000, exceeding a 0.210 baseline as a local deviation rather than an asymptotic claim.",
+            "The density of abundant integers in [120,420) is elevated relative to a local baseline and its finite-range deviation should be tracked across scales."
+    );
+    private static final List<String> KNOWN_IRRELEVANT_ABUNDANT_SOURCE_IDS = List.of(
+            "hep-ph0505025", "0901.1065", "0912.1573", "1607.07094", "1508.06729");
 
     @Test
     void fixedClaimsReturnExpectedFullTextBackedSourcesAndPassages() {
@@ -118,6 +127,18 @@ class Phase34RealIndexAcceptanceTest {
             assertThat(elapsedMs).isLessThanOrEqualTo(15_000);
             assertThat(result).doesNotContain("exceeded its")
                     .doesNotContain("not available");
+        }
+    }
+
+    @Test
+    void abundantDensityReviewClaimsNeverIssueTheKnownUnrelatedSources() {
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(
+                Path.of(System.getenv("PHASE34_REAL_INDEX_DIR")), true, 15_000);
+        for (String claim : ABUNDANT_DENSITY_REVIEW_CLAIMS) {
+            String result = adapter.search(claim);
+            for (String sourceId : KNOWN_IRRELEVANT_ABUNDANT_SOURCE_IDS) {
+                assertThat(result).doesNotContain("(source: " + sourceId + ")");
+            }
         }
     }
 

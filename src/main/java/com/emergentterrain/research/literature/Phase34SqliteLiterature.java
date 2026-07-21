@@ -284,7 +284,8 @@ public final class Phase34SqliteLiterature {
                 )
                 SELECT f.paper_id, COALESCE(p.title, ''), COALESCE(p.authors, ''),
                        COALESCE(p.primary_category, ''),
-                       snippet(fulltext_fts, 2, '', '', '…', 24)
+                       snippet(fulltext_fts, 2, '', '', '…', 24),
+                       COALESCE(fulltext_fts.title, ''), COALESCE(fulltext_fts.text, '')
                   FROM ranked_sources ranked
                   JOIN fulltext_fts ON fulltext_fts.rowid = ranked.rowid
                   JOIN fulltext f ON f.rowid = fulltext_fts.rowid
@@ -308,6 +309,9 @@ public final class Phase34SqliteLiterature {
                             telemetry.rowsInspected++;
                             String paperId = rows.getString(1);
                             if (paperId == null || paperId.isBlank()) continue;
+                            if (!hasSufficientFullTextEvidence(rows.getString(6), rows.getString(7), candidate)) {
+                                continue;
+                            }
                             String key = keyFor(paperId);
                             paperForKey.put(key, paperId);
                             distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
@@ -432,6 +436,20 @@ public final class Phase34SqliteLiterature {
         return corroborated >= candidate.minimumEvidenceMatches();
     }
 
+    /**
+     * Full-text fallback is allowed to recover sources absent from the theorem corpus, but it must
+     * not turn a generic body phrase into evidence. All evidence anchors must occur in the indexed
+     * record and at least one distinctive query anchor must occur in its title.
+     */
+    private static boolean hasSufficientFullTextEvidence(String title, String text, SearchCandidate candidate) {
+        if (candidate.evidenceAnchors().isEmpty()) return true;
+        List<String> titleTerms = tokenTerms(title);
+        if (!candidate.titleHasDistinctiveQueryAnchor(titleTerms)) return false;
+        List<String> recordTerms = new ArrayList<>(titleTerms);
+        recordTerms.addAll(tokenTerms(text));
+        return candidate.evidenceAnchors().stream().allMatch(recordTerms::contains);
+    }
+
     private static List<String> tokenTerms(String value) {
         List<String> terms = new ArrayList<>();
         Matcher matcher = TOKEN.matcher(value == null ? "" : value);
@@ -499,7 +517,13 @@ public final class Phase34SqliteLiterature {
                             String category, String snippet) {}
 
     private record SearchCandidate(String expression, List<String> queryAnchors, List<String> evidenceAnchors,
-                                   int minimumEvidenceMatches, List<String> requiredTitleAnchors) {}
+                                   int minimumEvidenceMatches, List<String> requiredTitleAnchors) {
+        private boolean titleHasDistinctiveQueryAnchor(List<String> titleTerms) {
+            return queryAnchors.stream()
+                    .filter(anchor -> !LiteratureQueryPlan.isWeakSubjectTerm(anchor))
+                    .anyMatch(titleTerms::contains);
+        }
+    }
 
     private static final class SearchTelemetry {
         private final long startedNanos = System.nanoTime();
