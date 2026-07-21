@@ -98,7 +98,7 @@ started papers. The independent 350-call cap and 60-call reserve are unchanged
 escrow: optional work can still consume the shared reserve.
 
 Phase 35 literature retrieval deterministically drops generic connective,
-ordinal, measurement-framing, and model-prose words before issuing FTS5 queries. Each
+ordinal, measurement-framing, model-prose, and numeric/coefficient fragments before issuing FTS5 queries. Each
 enabled lookup logs the retained expressions and its bounded completion
 telemetry, so problematic query shaping can be corrected without exposing
 paper prompts or bypassing the evidence gate. The theorem-record index is
@@ -109,6 +109,11 @@ fallback still issues only a process-scoped `HF...` key and requires
 also capped before it is passed to the model/proxy, so an anomalously large
 indexed record cannot make the next tool turn fail at the operating-system
 argument-size limit.
+
+Only a clean `PUBLISHED` paper may promote tool findings into the conjecture
+pool or cross-run verified-results ledger. `NEEDS_REVISION`, `NULL_RESULT`,
+`PUBLISHED_NO_PROFESSOR`, and `REJECTED` papers retain their local trace for
+revision but cannot seed later hypotheses or evidence.
 
 ### Related-service status
 

@@ -150,6 +150,22 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35RejectsNumericAndRelationProseAnchorsFromThePaperReviewRun() {
+        LiteratureQueryPlan cramer = new DeterministicLiteratureQueryPlanner().plan(
+                "cramer gap ratio requiring density feature", java.util.Map.of());
+        assertThat(cramer.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"cramer gap\"", "\"gap ratio\"")
+                .doesNotContain("\"requiring density\"", "\"density feature\"");
+
+        LiteratureQueryPlan twinPrime = new DeterministicLiteratureQueryPlanner().plan(
+                "twin prime density 0000 richly divisible density 9700 minus", java.util.Map.of());
+        assertThat(twinPrime.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"twin prime\"", "\"prime density\"", "\"richly divisible\"",
+                        "\"divisible density\"")
+                .doesNotContain("\"density 0000\"", "\"0000 richly\"", "\"density 9700\"");
+    }
+
+    @Test
     void phase35BoundsSearchToolOutputBeforeItReachesTheModelProxy() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));

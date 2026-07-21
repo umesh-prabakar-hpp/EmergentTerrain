@@ -169,6 +169,13 @@ domain-neutral filter was extended after the 2026-07-20 logs showed generic
 pairs consuming a full bounded search despite the technical phrases in the
 same claim being available.
 
+The 2026-07-21 review added numeric/coefficient fragments and remaining
+relation prose to that rejection boundary. Tokens containing digits and terms
+such as `requiring`, `feature`, and `minus` cannot form an FTS anchor or a
+subject pair; they produced broad expressions such as `density 0000` without
+adding source-identifying meaning. The planner still preserves adjacent lexical
+subject pairs such as `richly divisible`.
+
 Every completed lookup logs `outcome`, total elapsed time, candidate and batch
 counts, rows inspected, results issued, the final search surface
 (`theorem`/`fulltext`), final batch duration/limit, and the last FTS expression.

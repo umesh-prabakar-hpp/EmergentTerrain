@@ -38,7 +38,8 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             // Generic model-prose connectors observed to consume the full retrieval deadline
             // before a mathematical subject phrase was tried. They are not literature anchors.
             "integer", "integers", "satisfying", "satisfy", "satisfied", "obey", "obeys",
-            "obeying", "mean", "sum", "approximately", "approximate");
+            "obeying", "mean", "sum", "approximately", "approximate", "requiring", "feature",
+            "minus");
 
     @Override
     public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
@@ -90,7 +91,7 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
         Matcher matcher = TOKEN.matcher(input == null ? "" : input);
         while (matcher.find() && anchors.size() < MAX_INPUT_TERMS) {
             String term = matcher.group().toLowerCase(Locale.ROOT);
-            if (!NON_ANCHOR_TERMS.contains(term)) anchors.add(term);
+            if (isEligibleAnchor(term)) anchors.add(term);
         }
         return List.copyOf(anchors);
     }
@@ -106,10 +107,21 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
         for (int index = 0; index + 1 < rawTerms.size(); index++) {
             String first = rawTerms.get(index);
             String second = rawTerms.get(index + 1);
-            if (NON_ANCHOR_TERMS.contains(first) || NON_ANCHOR_TERMS.contains(second)) continue;
+            if (!isEligibleAnchor(first) || !isEligibleAnchor(second)) continue;
             String fingerprint = first + " " + second;
             if (seen.add(fingerprint)) phrases.add(List.of(first, second));
         }
         return List.copyOf(phrases);
+    }
+
+    /**
+     * Query anchors must be lexical subject terms. Coefficient fragments and model relation prose
+     * produce broad FTS phrases (for example {@code density 0000} or {@code requiring density})
+     * without adding subject evidence, so they are deliberately unavailable to both anchor and pair
+     * generation.
+     */
+    private static boolean isEligibleAnchor(String term) {
+        if (NON_ANCHOR_TERMS.contains(term)) return false;
+        return term.codePoints().allMatch(Character::isLetter);
     }
 }

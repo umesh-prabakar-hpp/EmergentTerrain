@@ -1312,40 +1312,6 @@ public class UniversityService {
             log.warn("tool-output-attribution check failed paperId={} mode={} reasons={}",
                     draft.paperId(), toolOutputAttributionMode, toolOutputAttributionFailures);
         }
-        // 2026-06-09 — discovery→pool write-back (step 1): when a
-        // conjecture-investigation professor proved a bound HELD at the failure
-        // region, revive/insert it into the conjecture pool with the tuned (k,c)
-        // so the relation becomes a selectable topic. Flag-gated OFF in the
-        // service; field-injected so PublishPaperTest is untouched.
-        if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
-                && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
-            try {
-                // Lever F — write back over the UNION of every best-of-N candidate's professor trace
-                // (a bound a losing candidate proved HELD would otherwise be lost), not just the
-                // winning narration's. The winner's trace is in the accumulator too, but union +
-                // de-dup in writeBack makes including narration.toolCallTrace() harmless and robust.
-                java.util.List<com.emergentterrain.llm.ToolInvocation> trace = narration.toolCallTrace();
-                java.util.List<com.emergentterrain.llm.ToolInvocation> union =
-                        new java.util.ArrayList<>(trace == null ? java.util.List.of() : trace);
-                int winnerCalls = union.size();
-                int accumulatedCalls = 0;
-                if (investigationTraceAccumulator != null) {
-                    java.util.List<com.emergentterrain.llm.ToolInvocation> drained =
-                            investigationTraceAccumulator.drain(draft.paperId());
-                    accumulatedCalls = drained.size();
-                    union.addAll(drained);
-                }
-                // Lever F observability — name the paper and show winner-trace vs accumulated-candidate
-                // contribution, so a capture miss pinpoints hook-fired-vs-accumulator-empty.
-                log.info("investigation-write-back hook: paperId={} winner-trace={} call(s), "
-                                + "accumulated-candidates={} call(s)",
-                        draft.paperId(), winnerCalls, accumulatedCalls);
-                conjectureWriteBackService.writeBack(union, draft.paperId());
-            } catch (RuntimeException e) {
-                log.warn("investigation-write-back failed paperId={} ({})",
-                        draft.paperId(), e.getMessage());
-            }
-        }
         // 2026-05-21 review §1 rec #4 follow-up — Hypothesis prose cites a
         // baseline value (e.g. "≈ 0.300") that no run_predicate_scan tool
         // call actually used. P-a328-871 wrote "0.300" into prose while
@@ -1854,6 +1820,42 @@ public class UniversityService {
             reviewState = ReviewState.CLEAN;
         }
 
+        // A trace may seed future investigations only after every publication gate has selected a
+        // clean PUBLISHED terminal state. In particular, a confirmatory-only bound that is routed to
+        // NEEDS_REVISION by binding-regime coverage must not enter the conjecture pool merely because
+        // an earlier candidate held it. This also keeps any other revisable/rejected outcome out of the
+        // cross-run hypothesis supply.
+        if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
+                && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace = narration.toolCallTrace();
+            java.util.List<com.emergentterrain.llm.ToolInvocation> union =
+                    new java.util.ArrayList<>(trace == null ? java.util.List.of() : trace);
+            int winnerCalls = union.size();
+            int accumulatedCalls = 0;
+            if (investigationTraceAccumulator != null) {
+                java.util.List<com.emergentterrain.llm.ToolInvocation> drained =
+                        investigationTraceAccumulator.drain(draft.paperId());
+                accumulatedCalls = drained.size();
+                union.addAll(drained);
+            }
+            if (!permitsFindingsPromotion(paperStatus)) {
+                log.info("investigation-write-back blocked: paperId={} status={} winner-trace={} call(s), "
+                                + "accumulated-candidates={} call(s)",
+                        draft.paperId(), paperStatus, winnerCalls, accumulatedCalls);
+            } else {
+                try {
+                    // Lever F — persist the union of best-of-N traces only after the terminal gate.
+                    log.info("investigation-write-back hook: paperId={} winner-trace={} call(s), "
+                                    + "accumulated-candidates={} call(s)",
+                            draft.paperId(), winnerCalls, accumulatedCalls);
+                    conjectureWriteBackService.writeBack(union, draft.paperId());
+                } catch (RuntimeException e) {
+                    log.warn("investigation-write-back failed paperId={} ({})",
+                            draft.paperId(), e.getMessage());
+                }
+            }
+        }
+
         String persistedCallPath = narration.callPath();
         if (physicalMechanismAuditFailed) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
@@ -2302,10 +2304,10 @@ public class UniversityService {
                         draft.paperId(), e.getMessage());
             }
         }
-        // Phase 33 lane C (C1, 2026-07-05) — record gate-surviving numerical results (ladders,
-        // converged constants, tight bounds) to the cross-run ledger. Deterministic trace
-        // extraction, failure-soft, REJECTED skipped.
-        if (resultsLedger != null && !"REJECTED".equals(String.valueOf(paperStatus))) {
+        // Phase 33 lane C (C1, 2026-07-05) — record only cleanly published numerical results
+        // (ladders, converged constants, tight bounds) to the cross-run ledger. A NEEDS_REVISION
+        // trace is useful for its own revision but is not reliable cross-run evidence.
+        if (resultsLedger != null && permitsFindingsPromotion(paperStatus)) {
             resultsLedger.record(draft.paperId(), draft.topicName(), narration.toolCallTrace());
         }
         // rec #9 gate-attribution — one parseable line naming the gate(s) behind a
@@ -3699,6 +3701,11 @@ public class UniversityService {
             case "PUBLISHED", "PUBLISHED_NO_PROFESSOR", "NULL_RESULT" -> true;
             default -> false;
         };
+    }
+
+    /** Only a clean terminal publication may promote tool evidence into cross-run state. */
+    static boolean permitsFindingsPromotion(String paperStatus) {
+        return "PUBLISHED".equals(paperStatus);
     }
 
     /**

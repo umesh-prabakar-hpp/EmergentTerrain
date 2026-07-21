@@ -76,6 +76,15 @@ class UniversityServiceGateAttributionTest {
     }
 
     @Test
+    void onlyCleanPublishedPapersMayPromoteFindingsAcrossRuns() {
+        assertThat(UniversityService.permitsFindingsPromotion("PUBLISHED")).isTrue();
+        assertThat(UniversityService.permitsFindingsPromotion("NEEDS_REVISION")).isFalse();
+        assertThat(UniversityService.permitsFindingsPromotion("PUBLISHED_NO_PROFESSOR")).isFalse();
+        assertThat(UniversityService.permitsFindingsPromotion("NULL_RESULT")).isFalse();
+        assertThat(UniversityService.permitsFindingsPromotion("REJECTED")).isFalse();
+    }
+
+    @Test
     void nullOrBlankPath_empty() {
         assertThat(UniversityService.attributedGates(null)).isEmpty();
         assertThat(UniversityService.attributedGates("")).isEmpty();
