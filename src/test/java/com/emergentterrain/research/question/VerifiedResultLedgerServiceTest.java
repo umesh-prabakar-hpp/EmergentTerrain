@@ -14,6 +14,14 @@ class VerifiedResultLedgerServiceTest {
         return new ToolInvocation(fn, "{}", result, 0);
     }
 
+    private static ToolInvocation verification(double k, double c, long start, long size, int windows,
+                                               String result) {
+        String args = "{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\","
+                + "\"k\":" + k + ",\"c\":" + c + ",\"window_start\":" + start
+                + ",\"window_size\":" + size + ",\"num_windows\":" + windows + "}";
+        return new ToolInvocation("verify_conjecture", args, result, 0);
+    }
+
     @Test
     void extractsLadderConstantAndTightBound_p783Shapes() {
         List<ToolInvocation> trace = List.of(
@@ -23,12 +31,15 @@ class VerifiedResultLedgerServiceTest {
                 call("verify_constant", "verify_constant: mean_divisor_excess ~ 1.15436 over 20 "
                         + "window(s). CONVERGED to target 1.15440: mean rel-dev 0.0000."
                         + "\ndefinitions (exact instrument formulas): x = y"),
-                call("verify_conjecture", "verify_conjecture: max_prime_gap <= +0.6490 * "
+                verification(0.6490, 0.0000, 1_500_000L, 10_000L, 10,
+                        "verify_conjecture: max_prime_gap <= +0.6490 * "
                         + "log_sq_window_start + +0.0000 HELD across 10 window(s) of size 10000 "
-                        + "starting at 1500000. worst margin: -0.03547. relative slack: 0.0003 "
+                        + "starting at 1500000. worst margin: -0.03547 at window starting 1500000. relative slack: 0.0003 "
                         + "(smaller = tighter). verdict legend: margin = lhs - bound"),
-                call("verify_conjecture", "verify_conjecture: x <= y REFUTED across 10 window(s). "
-                        + "worst margin: +3.657"));
+                verification(0.6480, 0.0000, 1_500_000L, 10_000L, 10,
+                        "verify_conjecture: max_prime_gap <= +0.6480 * log_sq_window_start + +0.0000 "
+                                + "REFUTED across 10 window(s) of size 10000 starting at 1500000. "
+                                + "worst margin: +0.03547"));
         List<VerifiedResult> out =
                 VerifiedResultLedgerService.extract(trace, "P-1", "max_prime_gap");
         assertThat(out).hasSize(3);
@@ -39,8 +50,34 @@ class VerifiedResultLedgerServiceTest {
         assertThat(out.get(2).kind()).isEqualTo("TIGHT_BOUND");
         assertThat(out.get(2).statement())
                 .contains("0.6490").contains("relative slack: 0.0003")
-                .contains("refuting counterpart present")
+                .contains("nearby same-grid refutation present")
                 .doesNotContain("verdict legend");
+    }
+
+    @Test
+    void unpairedTightHold_cannotEnterTheLedger() {
+        ToolInvocation held = verification(0.6490, 0.0000, 1_500_000L, 10_000L, 10,
+                "verify_conjecture: max_prime_gap <= +0.6490 * log_sq_window_start + +0.0000 "
+                        + "HELD across 10 window(s) of size 10000 starting at 1500000. "
+                        + "worst margin: -0.03547 at window starting 1500000. relative slack: 0.0003");
+
+        assertThat(VerifiedResultLedgerService.extract(List.of(held), "P-unpaired", "max_prime_gap"))
+                .isEmpty();
+    }
+
+    @Test
+    void refutationOnAnotherGrid_cannotAuthorizeATightBound() {
+        ToolInvocation held = verification(0.6490, 0.0000, 1_500_000L, 10_000L, 10,
+                "verify_conjecture: max_prime_gap <= +0.6490 * log_sq_window_start + +0.0000 "
+                        + "HELD across 10 window(s) of size 10000 starting at 1500000. "
+                        + "worst margin: -0.03547 at window starting 1500000. relative slack: 0.0003");
+        ToolInvocation wrongGridRefute = verification(0.6480, 0.0000, 1_600_000L, 10_000L, 10,
+                "verify_conjecture: max_prime_gap <= +0.6480 * log_sq_window_start + +0.0000 "
+                        + "REFUTED across 10 window(s) of size 10000 starting at 1600000. "
+                        + "worst margin: +0.03547");
+
+        assertThat(VerifiedResultLedgerService.extract(
+                List.of(held, wrongGridRefute), "P-wrong-grid", "max_prime_gap")).isEmpty();
     }
 
     @Test

@@ -118,11 +118,12 @@ argument-size limit.
 Only a clean `PUBLISHED` paper may promote tool findings into the conjecture
 pool or cross-run verified-results ledger. `NEEDS_REVISION`, `NULL_RESULT`,
 `PUBLISHED_NO_PROFESSOR`, and `REJECTED` papers retain their local trace for
-revision but cannot seed later hypotheses or evidence. Conjecture-pool
-write-back uses only the final selected paper trace—the same evidence preserved
-in its artifact—and never a losing best-of-N candidate or a side-channel run
-log. A bound additionally needs a tight HELD verification and a nearby REFUTED
-variant on the identical window grid before it can seed later work.
+revision but cannot seed later hypotheses or evidence. Both the conjecture-pool
+write-back and the verified-results ledger use only the final selected paper
+trace—the same evidence preserved in its artifact—and never a losing best-of-N
+candidate or a side-channel run log. A bound additionally needs a tight HELD
+verification and a nearby REFUTED variant on the identical window grid before
+it can seed later work.
 
 ### Related-service status
 

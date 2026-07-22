@@ -1,6 +1,7 @@
 package com.emergentterrain.research.question;
 
 import com.emergentterrain.llm.ToolInvocation;
+import com.emergentterrain.research.conjecture.ConjectureInvestigationWriteBackService;
 import com.emergentterrain.repo.VerifiedResultRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,8 +25,8 @@ import java.util.List;
  *   <li><b>CONSTANT</b> — a {@code verify_constant} verdict line carrying a converged/estimated
  *       limit.</li>
  *   <li><b>TIGHT_BOUND</b> — a {@code verify_conjecture} HELD verdict at relative slack
- *       &lt; 0.05, with a note when the trace also carries the refuting counterpart (the
- *       demonstrated-binding pair).</li>
+ *       &lt; 0.05 only when the selected trace also carries its nearby, same-grid REFUTED
+ *       counterpart (the demonstrated-binding pair).</li>
  * </ul>
  */
 @Component
@@ -67,8 +68,6 @@ public class VerifiedResultLedgerService {
         if (trace == null) {
             return out;
         }
-        boolean traceHasRefuted = trace.stream().anyMatch(c -> c != null && c.resultJson() != null
-                && c.resultJson().contains(" REFUTED across"));
         for (ToolInvocation call : trace) {
             if (out.size() >= MAX_RESULTS_PER_PAPER) {
                 break;
@@ -84,13 +83,20 @@ public class VerifiedResultLedgerService {
                 out.add(new VerifiedResult(paperId, family, "CONSTANT", verdictLine(result)));
             } else if ("verify_conjecture".equals(call.functionName())
                     && result.contains(" HELD across")
-                    && relSlackBelow(result, TIGHT_BOUND_MAX_REL_SLACK)) {
-                String stmt = verdictLine(result)
-                        + (traceHasRefuted ? " [refuting counterpart present in the same trace]" : "");
-                out.add(new VerifiedResult(paperId, family, "TIGHT_BOUND", stmt));
+                    && documentedTightBound(call, trace)) {
+                out.add(new VerifiedResult(paperId, family, "TIGHT_BOUND", verdictLine(result)
+                        + " [nearby same-grid refutation present in the selected trace]"));
             }
         }
         return out;
+    }
+
+    /** A ledger tight bound must satisfy the same artifact-auditable binding-pair rule as pool write-back. */
+    private static boolean documentedTightBound(ToolInvocation heldCall, List<ToolInvocation> selectedTrace) {
+        return ConjectureInvestigationWriteBackService.parseHeldBounds(List.of(heldCall)).stream()
+                .anyMatch(bound -> bound.relSlack() != null
+                        && bound.relSlack() < TIGHT_BOUND_MAX_REL_SLACK
+                        && ConjectureInvestigationWriteBackService.hasDocumentedBindingPair(bound, selectedTrace));
     }
 
     /** The verdict line: everything before the per-window dump / legend, capped for the column. */
@@ -107,21 +113,4 @@ public class VerifiedResultLedgerService {
         return line.length() > 1400 ? line.substring(0, 1400) + "…" : line;
     }
 
-    private static boolean relSlackBelow(String result, double threshold) {
-        int i = result.indexOf("relative slack: ");
-        if (i < 0) {
-            return false;
-        }
-        int start = i + "relative slack: ".length();
-        int end = start;
-        while (end < result.length()
-                && (Character.isDigit(result.charAt(end)) || result.charAt(end) == '.')) {
-            end++;
-        }
-        try {
-            return end > start && Double.parseDouble(result.substring(start, end)) < threshold;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
 }

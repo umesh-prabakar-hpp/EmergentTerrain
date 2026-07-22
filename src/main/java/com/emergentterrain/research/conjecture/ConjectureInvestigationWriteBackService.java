@@ -259,6 +259,16 @@ public class ConjectureInvestigationWriteBackService {
         return heldInSelectedTrace ? "missing-nearby-refute-same-grid" : "not-in-selected-trace";
     }
 
+    /**
+     * True only when the selected artifact trace documents this exact HELD verification together
+     * with a nearby REFUTED variant on the identical relation and grid. This is the shared
+     * cross-run evidence rule: the verified-results ledger must not accept a bound that the
+     * conjecture pool would reject.
+     */
+    public static boolean hasDocumentedBindingPair(HeldBound bound, List<ToolInvocation> selectedTrace) {
+        return bindingPairRejectReason(bound, selectedTrace).isEmpty();
+    }
+
     private static VerificationCall parseVerificationCall(ToolInvocation invocation) {
         if (invocation == null || !"verify_conjecture".equals(invocation.functionName())
                 || invocation.argsJson() == null || invocation.resultJson() == null) {
