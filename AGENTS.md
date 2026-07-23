@@ -137,14 +137,18 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ## Runtime ports
 - Web app: `http://127.0.0.1:8081/`
 - GPU engine gRPC: `127.0.0.1:50051` by default
-- Related-service health: `./scripts/status-related-apps.sh` reports the
-  Spring app (`8081`), local AI gateway (`8788`), optional legacy AI gateway (`8787`),
-  Julia math sidecar (`8088`), PyCall/grounding sidecar (`8089`), and GPU gRPC
-  listener (`50051`) without changing any process. It prints each listener's
-  PID and active `ps` command, plus its start command when absent. The disabled
-  legacy AI gateway is `DORMANT`; other unavailable services make it exit nonzero.
-  It uses color when attached to a terminal; `NO_COLOR=1` disables it. Both
-  proxies are lifecycle-managed by `./scripts/start.sh`: Codex starts by
+- Related-service health: `./scripts/status-related-apps.sh` first runs an
+  authenticated `SELECT 1` against the configured PostgreSQL datasource, then
+  reports the Spring app (`8081`), local AI gateway (`8788`), optional legacy AI gateway
+  (`8787`), Julia math sidecar (`8088`), PyCall/grounding sidecar (`8089`), and
+  GPU gRPC listener (`50051`) without changing any process. PostgreSQL uses the
+  app's `PG_URL`, `PG_USER`, and `PG_PASSWORD` values by default; override only
+  the status check with `ET_POSTGRES_URL`, `ET_POSTGRES_USER`, and
+  `ET_POSTGRES_PASSWORD`. It prints each listener's PID and active `ps`
+  command, plus its start command when absent. The disabled legacy AI gateway is
+  `DORMANT`; PostgreSQL or other unavailable required services make it exit
+  nonzero. It uses color when attached to a terminal; `NO_COLOR=1` disables it.
+  Both proxies are lifecycle-managed by `./scripts/start.sh`: Codex starts by
   default and Claude only with `ET_ENABLE_LEGACY_AI_GATEWAY=1`. `/login` redirects
   are ready-but-protected, and `ET_STATUS_COMMAND_CHARS` controls abbreviation
   of long active `ps` commands.

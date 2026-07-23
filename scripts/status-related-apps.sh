@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Print health for the Spring app, the two local subscription proxies, Julia
-# math sidecars, and Rust GPU engine. This script is read-only: it never
-# starts, stops, or restarts a process. For a listening service, it resolves
-# the listener PID and prints that process's exact active command line from
-# `ps`.
+# Print health for the PostgreSQL datasource, Spring app, the two local
+# subscription proxies, Julia math sidecars, and Rust GPU engine. This script
+# is read-only: it never starts, stops, or restarts a process. PostgreSQL is
+# checked with an authenticated `SELECT 1` using the app's PG_* configuration.
+# For a listening service, it resolves the listener PID and prints that
+# process's exact active command line from `ps`.
 #
 # Usage:
 #   ./scripts/status-related-apps.sh
 #
 # Optional overrides are useful when a service was deliberately moved:
+#   ET_POSTGRES_URL=jdbc:postgresql://127.0.0.1:5433/emergentterrain \
 #   ET_APP_URL=http://127.0.0.1:9081 \
 #   ET_JULIA_URL=http://127.0.0.1:9088 \
 #   ET_PY_SIDECAR_URL=http://127.0.0.1:9089 \
@@ -36,6 +38,9 @@ PY_SIDECAR_PORT="${ET_PY_SIDECAR_PORT:-8089}"
 GPU_ENGINE_PORT="${ET_GPU_ENGINE_PORT:-50051}"
 TIMEOUT_SECONDS="${ET_STATUS_TIMEOUT_SECONDS:-3}"
 COMMAND_DISPLAY_CHARS="${ET_STATUS_COMMAND_CHARS:-360}"
+POSTGRES_URL="${ET_POSTGRES_URL:-${PG_URL:-jdbc:postgresql://localhost:5432/emergentterrain}}"
+POSTGRES_USER="${ET_POSTGRES_USER:-${PG_USER:-postgres}}"
+POSTGRES_PASSWORD="${ET_POSTGRES_PASSWORD:-${PG_PASSWORD:-NewStrongPasswordHere}}"
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     GREEN=$'\033[32m'
@@ -56,10 +61,44 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v psql >/dev/null 2>&1 || ! command -v pg_isready >/dev/null 2>&1; then
+    echo "ERROR: psql and pg_isready are required to check PostgreSQL health." >&2
+    exit 1
+fi
+
 overall_status=0
 
 colored() {
     printf '%s%s%s' "$1" "$2" "$RESET"
+}
+
+check_postgres() {
+    local psql_url output
+
+    # Spring uses a JDBC URL while libpq expects the corresponding PostgreSQL
+    # URI. The app config only supports PostgreSQL here, so dropping `jdbc:`
+    # preserves host, port, database, and query parameters without logging a
+    # credential.
+    psql_url="${POSTGRES_URL#jdbc:}"
+    if ! output="$(PGCONNECT_TIMEOUT="$TIMEOUT_SECONDS" \
+            pg_isready --timeout="$TIMEOUT_SECONDS" --username="$POSTGRES_USER" \
+                --dbname="$psql_url" 2>&1)"; then
+        printf '├── PostgreSQL datasource — %s: %s\n' \
+            "$(colored "$RED" "DOWN")" "${output//$'\n'/ }"
+        printf '│   └── %s\n' "$(colored "$CYAN" "start if needed: sudo systemctl start postgresql")"
+        overall_status=1
+    elif output="$(PGPASSWORD="$POSTGRES_PASSWORD" PGCONNECT_TIMEOUT="$TIMEOUT_SECONDS" \
+            psql --no-psqlrc --no-password --quiet --tuples-only --no-align \
+                --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$psql_url" \
+                --command='SELECT 1' 2>&1)"; then
+        printf '├── PostgreSQL datasource — %s (authenticated SELECT 1 against %s)\n' \
+            "$(colored "$GREEN" "READY")" "${psql_url##*/}"
+    else
+        printf '├── PostgreSQL datasource — %s: %s\n' \
+            "$(colored "$RED" "ERROR")" "${output//$'\n'/ }"
+        printf '│   └── %s\n' "$(colored "$CYAN" "start if needed: sudo systemctl start postgresql")"
+        overall_status=1
+    fi
 }
 
 command_for_listener() {
@@ -153,7 +192,8 @@ check_gpu_engine() {
     printf '%s└── %s\n' "$child_indent" "$(colored "$CYAN" "start if needed: $start_command")"
 }
 
-echo "EmergentTerrain related-service status (HTTP timeout: ${TIMEOUT_SECONDS}s)"
+echo "EmergentTerrain related-service status (timeout: ${TIMEOUT_SECONDS}s)"
+check_postgres
 check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
 check_service "local-ai-gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "required" "started with app"
 check_service "legacy-ai-gateway" "$LEGACY_AI_GATEWAY_URL" "cd $REPO_ROOT && ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh" "├── " "│   " "$LEGACY_AI_GATEWAY_PORT" "optional" "started with app when enabled"

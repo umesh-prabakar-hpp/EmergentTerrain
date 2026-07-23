@@ -128,19 +128,23 @@ it can seed later work.
 
 ### Related-service status
 
-Use the read-only status helper to check the Spring app (`8081`), local AI gateway
-(`8788`), optional/dormant legacy AI gateway (`8787`), Julia math sidecar (`8088`),
-isolated PyCall/grounding sidecar (`8089`), and Rust GPU engine (`50051`). For
-each listener it prints the owning PID and exact active command from `ps`, then
-the copy-pasteable command to start it when absent. It exits nonzero if a
-required service is not healthy (or, for the gRPC GPU engine, not listening);
-the disabled legacy AI gateway is reported as `DORMANT`. It accepts matching
-`ET_*_URL` / `ET_*_PORT` overrides and `ET_STATUS_TIMEOUT_SECONDS`. Its terminal
-output uses color; pipe it or set `NO_COLOR=1` for plain text. The proxy entries
-are lifecycle-managed by `./scripts/start.sh`: Codex starts by default, while
-Claude starts only with `ET_ENABLE_LEGACY_AI_GATEWAY=1`. A redirect to `/login` is
-reported as ready-but-protected; set `ET_STATUS_COMMAND_CHARS` to adjust the
-abbreviated long `ps` command display.
+Use the read-only status helper to check the configured PostgreSQL datasource
+with an authenticated `SELECT 1`, the Spring app (`8081`), local AI gateway (`8788`),
+optional/dormant legacy AI gateway (`8787`), Julia math sidecar (`8088`), isolated
+PyCall/grounding sidecar (`8089`), and Rust GPU engine (`50051`). For each
+listener it prints the owning PID and exact active command from `ps`, then the
+copy-pasteable command to start it when absent. It exits nonzero if PostgreSQL
+or a required service is not healthy (or, for the gRPC GPU engine, not
+listening); the disabled legacy AI gateway is reported as `DORMANT`. PostgreSQL
+defaults to the app's `PG_URL`, `PG_USER`, and `PG_PASSWORD` settings; use
+`ET_POSTGRES_URL`, `ET_POSTGRES_USER`, and `ET_POSTGRES_PASSWORD` to check an
+explicit alternate datasource. It accepts matching `ET_*_URL` / `ET_*_PORT`
+overrides and `ET_STATUS_TIMEOUT_SECONDS`. Its terminal output uses color; pipe
+it or set `NO_COLOR=1` for plain text. The proxy entries are lifecycle-managed
+by `./scripts/start.sh`: Codex starts by default, while Claude starts only with
+`ET_ENABLE_LEGACY_AI_GATEWAY=1`. A redirect to `/login` is reported as
+ready-but-protected; set `ET_STATUS_COMMAND_CHARS` to adjust the abbreviated
+long `ps` command display.
 
 ```bash
 ./scripts/status-related-apps.sh
