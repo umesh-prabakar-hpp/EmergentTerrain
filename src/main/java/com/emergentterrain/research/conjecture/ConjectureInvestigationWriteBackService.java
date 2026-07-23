@@ -66,11 +66,11 @@ public class ConjectureInvestigationWriteBackService {
     // TWO-TERM summary form `lhs <= k*rhs + k2*rhs2 + c HELD` as well as the one-term form. Without it the
     // tightened two-term bounds G2 was built to produce never parsed and were silently dropped from the
     // pool. Groups: 1 lhs, 2 k, 3 rhs, 4 k2 (null if one-term), 5 rhs2 (null if one-term), 6 c,
-    // 7 numWindows, 8 windowStart, 9 worstMargin, 10 relSlack (optional).
+    // 7 numWindows, 8 windowSize, 9 windowStart, 10 worstMargin, 11 relSlack (optional).
     private static final Pattern HELD = Pattern.compile(
             "verify_conjecture: ([a-zA-Z_]+) <= ([+-][0-9.]+) \\* ([a-zA-Z_]+) "
                     + "(?:\\+ ([+-][0-9.]+) \\* ([a-zA-Z_]+) )?\\+ "
-                    + "([+-][0-9.]+) HELD across ([0-9]+) window\\(s\\) of size [0-9]+ "
+                    + "([+-][0-9.]+) HELD across ([0-9]+) window\\(s\\) of size ([0-9]+) "
                     + "starting at ([0-9]+)\\. worst margin: ([+-][0-9.]+)"
                     + "(?: at window starting [0-9]+\\. relative slack: ([0-9.]+))?");
 
@@ -119,12 +119,13 @@ public class ConjectureInvestigationWriteBackService {
      *  second affine term ({@code rhs2==null}, {@code k2==0} for a one-term bound). {@code relSlack} is the
      *  binding-window relative slack ({@code |margin|/|bound|}) if the line carried it, else {@code null}. */
     public record HeldBound(String lhs, String rhs, String rhs2, double k, double k2, double c,
-                            int numWindows, long windowStart, double worstMargin, Double relSlack) {
+                            int numWindows, long windowStart, long windowSize,
+                            double worstMargin, Double relSlack) {
         /** One-term convenience constructor (rhs2=null, k2=0) — backward-compatible with the pre-G2
          *  call sites and tests that predate two-term capture. */
         public HeldBound(String lhs, String rhs, double k, double c,
                          int numWindows, long windowStart, double worstMargin, Double relSlack) {
-            this(lhs, rhs, null, k, 0.0, c, numWindows, windowStart, worstMargin, relSlack);
+            this(lhs, rhs, null, k, 0.0, c, numWindows, windowStart, 0L, worstMargin, relSlack);
         }
 
         /** G2 — true iff this carries a second affine term. */
@@ -198,13 +199,14 @@ public class ConjectureInvestigationWriteBackService {
                     double k2 = m.group(4) == null ? 0.0 : Double.parseDouble(m.group(4));
                     double c = Double.parseDouble(m.group(6));
                     int nw = Integer.parseInt(m.group(7));
-                    long start = Long.parseLong(m.group(8));
-                    double margin = Double.parseDouble(m.group(9));
-                    Double relSlack = m.group(10) == null ? null : Double.valueOf(m.group(10));
+                    long size = Long.parseLong(m.group(8));
+                    long start = Long.parseLong(m.group(9));
+                    double margin = Double.parseDouble(m.group(10));
+                    Double relSlack = m.group(11) == null ? null : Double.valueOf(m.group(11));
                     String key = lhs + "|" + rhs + "|" + (rhs2 == null ? "" : rhs2)
-                            + "|" + k + "|" + k2 + "|" + c + "|" + start;
+                            + "|" + k + "|" + k2 + "|" + c + "|" + start + "|" + size + "|" + nw;
                     if (seen.add(key)) {
-                        out.add(new HeldBound(lhs, rhs, rhs2, k, k2, c, nw, start, margin, relSlack));
+                        out.add(new HeldBound(lhs, rhs, rhs2, k, k2, c, nw, start, size, margin, relSlack));
                     }
                 } catch (NumberFormatException ignore) { /* skip malformed */ }
             }
@@ -306,7 +308,8 @@ public class ConjectureInvestigationWriteBackService {
             return lhs.equals(bound.lhs()) && rhs.equals(bound.rhs())
                     && java.util.Objects.equals(rhs2, bound.rhs2())
                     && same(k, bound.k()) && same(k2, bound.k2()) && same(c, bound.c())
-                    && windowStart == bound.windowStart() && numWindows == bound.numWindows();
+                    && windowStart == bound.windowStart() && windowSize == bound.windowSize()
+                    && numWindows == bound.numWindows();
         }
 
         boolean sameRelationAndGrid(VerificationCall other) {

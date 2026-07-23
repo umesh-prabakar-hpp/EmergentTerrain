@@ -1815,29 +1815,6 @@ public class UniversityService {
             reviewState = ReviewState.CLEAN;
         }
 
-        // A trace may seed future investigations only after every publication gate has selected a
-        // clean PUBLISHED terminal state. The selected narration trace is also the trace persisted in
-        // the paper's artifact evidence, so write-back must use it exclusively: a losing best-of-N
-        // candidate is not documented evidence for the selected paper and cannot seed later work.
-        if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
-                && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
-            java.util.List<com.emergentterrain.llm.ToolInvocation> winnerTrace =
-                    narration.toolCallTrace() == null ? java.util.List.of() : narration.toolCallTrace();
-            if (!permitsFindingsPromotion(paperStatus)) {
-                log.info("investigation-write-back blocked: paperId={} status={} selected-trace={} call(s)",
-                        draft.paperId(), paperStatus, winnerTrace.size());
-            } else {
-                try {
-                    log.info("investigation-write-back hook: paperId={} selected-trace={} call(s)",
-                            draft.paperId(), winnerTrace.size());
-                    conjectureWriteBackService.writeBack(winnerTrace, draft.paperId());
-                } catch (RuntimeException e) {
-                    log.warn("investigation-write-back failed paperId={} ({})",
-                            draft.paperId(), e.getMessage());
-                }
-            }
-        }
-
         String persistedCallPath = narration.callPath();
         if (physicalMechanismAuditFailed) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
@@ -2171,6 +2148,7 @@ public class UniversityService {
                 com.emergentterrain.research.publication.ComputationalPublicationPhase.assess(
                         draft.preRegistration(), narration.toolCallTrace(), paper.relatedWork(), paper.status());
         paper.setPublicationLabel(publicationAssessment.label());
+        boolean artifactWritten = false;
         try {
             String roomPrefix = draft.roomId().toString().substring(0, 8);
             java.nio.file.Path artifactDir =
@@ -2178,6 +2156,7 @@ public class UniversityService {
                             researchOutputDir, roomPrefix, paper, draft.preRegistration(),
                             narration.toolCallTrace(), publicationAssessment,
                             formatPaperAsMarkdown(draft.roomId(), paper), objectMapper);
+            artifactWritten = true;
             log.info("publication-artifact: paperId={} label={} missing={} dir={}",
                     paper.paperId(), publicationAssessment.label(),
                     publicationAssessment.missingRequirements().size(), artifactDir);
@@ -2190,7 +2169,34 @@ public class UniversityService {
             }
             log.warn("publication-artifact write failed paperId={}: {}", paper.paperId(), e.getMessage());
         }
-        addPaper(draft.roomId(), paper);
+        boolean sourcePersisted = addPaper(draft.roomId(), paper);
+
+        // A trace may seed cross-run state only after the final paper was accepted, its selected
+        // trace was written into the artifact, and its source record persisted. This deliberately
+        // sits after the rework-improvement return above: a losing rework candidate, a failed
+        // artifact write, or a DB fallback must never promote evidence that a reader cannot audit.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> winnerTrace =
+                narration.toolCallTrace() == null ? java.util.List.of() : narration.toolCallTrace();
+        if (permitsFindingsPromotion(paperStatus, artifactWritten, sourcePersisted)) {
+            if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
+                    && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+                try {
+                    log.info("investigation-write-back hook: paperId={} selected-trace={} call(s)",
+                            draft.paperId(), winnerTrace.size());
+                    conjectureWriteBackService.writeBack(winnerTrace, draft.paperId());
+                } catch (RuntimeException e) {
+                    log.warn("investigation-write-back failed paperId={} ({})",
+                            draft.paperId(), e.getMessage());
+                }
+            }
+            if (resultsLedger != null) {
+                resultsLedger.record(draft.paperId(), draft.topicName(), winnerTrace);
+            }
+        } else if (permitsFindingsPromotion(paperStatus)) {
+            log.info("cross-run promotion blocked: paperId={} artifact-written={} source-persisted={} "
+                            + "selected-trace={} call(s)",
+                    draft.paperId(), artifactWritten, sourcePersisted, winnerTrace.size());
+        }
         // Phase 31 §31.1 — one outcome FACT per published paper (write-only,
         // hash-deduped, best-effort). The acceptance bar's "every published
         // artifact has >=1 memory row with resolvable sourceRefs".
@@ -2285,12 +2291,6 @@ public class UniversityService {
                 log.warn("question confirm failed paperId={} (publication unaffected): {}",
                         draft.paperId(), e.getMessage());
             }
-        }
-        // Phase 33 lane C (C1, 2026-07-05) — record only cleanly published numerical results
-        // (ladders, converged constants, tight bounds) to the cross-run ledger. A NEEDS_REVISION
-        // trace is useful for its own revision but is not reliable cross-run evidence.
-        if (resultsLedger != null && permitsFindingsPromotion(paperStatus)) {
-            resultsLedger.record(draft.paperId(), draft.topicName(), narration.toolCallTrace());
         }
         // rec #9 gate-attribution — one parseable line naming the gate(s) behind a
         // non-clean terminal status, so a refresh can quantify which of the
@@ -2858,14 +2858,21 @@ public class UniversityService {
 
     private record RunCreatedPaper(String paperId, String title, String status) {}
 
-    private void addPaper(UUID roomId, ResearchPaper paper) {
+    /**
+     * Persist the source paper before mirroring it to the transient cache and markdown fallback.
+     * The return value is intentionally strict: callers that create durable cross-run evidence must
+     * not treat a cache/disk-only fallback as an auditable persisted source record.
+     */
+    private boolean addPaper(UUID roomId, ResearchPaper paper) {
         // DB is source of truth. Persist first, then mirror to in-memory cache and disk.
+        boolean sourcePersisted = false;
         if (shuttingDown) {
             log.warn("shutdown in progress — DB persist skipped for {} (paper file on disk; "
                     + "downstream ledger/harvest deferred; reservation self-heals)", paper.paperId());
         } else {
             try {
                 papersRepository.save(paper);
+                sourcePersisted = true;
             } catch (Exception e) {
                 log.error("university failed to persist paper paperId={}: {}", paper.paperId(), e.getMessage(), e);
                 // Continue — cache+disk fallback keeps the simulation running even if DB is unavailable.
@@ -2880,6 +2887,7 @@ public class UniversityService {
         runCreatedPapers.putIfAbsent(paper.paperId(), new RunCreatedPaper(
                 paper.paperId(), paper.title() == null || paper.title().isBlank() ? "(untitled)" : paper.title(),
                 paper.status() == null || paper.status().isBlank() ? "UNKNOWN" : paper.status()));
+        return sourcePersisted;
     }
 
     String nextPaperId(UUID roomId) {
@@ -3711,6 +3719,15 @@ public class UniversityService {
     /** Only a clean terminal publication may promote tool evidence into cross-run state. */
     static boolean permitsFindingsPromotion(String paperStatus) {
         return "PUBLISHED".equals(paperStatus);
+    }
+
+    /**
+     * Cross-run evidence needs both a clean terminal status and an artifact-auditable source paper.
+     * A cache/disk fallback keeps gameplay alive but is not sufficient to promote a research finding.
+     */
+    static boolean permitsFindingsPromotion(String paperStatus, boolean artifactWritten,
+                                            boolean sourcePersisted) {
+        return permitsFindingsPromotion(paperStatus) && artifactWritten && sourcePersisted;
     }
 
     /**

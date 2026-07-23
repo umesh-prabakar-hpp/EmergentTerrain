@@ -85,6 +85,14 @@ class UniversityServiceGateAttributionTest {
     }
 
     @Test
+    void crossRunPromotionAlsoRequiresAnArtifactAndPersistedSourcePaper() {
+        assertThat(UniversityService.permitsFindingsPromotion("PUBLISHED", true, true)).isTrue();
+        assertThat(UniversityService.permitsFindingsPromotion("PUBLISHED", false, true)).isFalse();
+        assertThat(UniversityService.permitsFindingsPromotion("PUBLISHED", true, false)).isFalse();
+        assertThat(UniversityService.permitsFindingsPromotion("NEEDS_REVISION", true, true)).isFalse();
+    }
+
+    @Test
     void nullOrBlankPath_empty() {
         assertThat(UniversityService.attributedGates(null)).isEmpty();
         assertThat(UniversityService.attributedGates("")).isEmpty();

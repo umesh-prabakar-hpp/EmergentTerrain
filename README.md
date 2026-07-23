@@ -115,8 +115,9 @@ also capped before it is passed to the model/proxy, so an anomalously large
 indexed record cannot make the next tool turn fail at the operating-system
 argument-size limit.
 
-Only a clean `PUBLISHED` paper may promote tool findings into the conjecture
-pool or cross-run verified-results ledger. `NEEDS_REVISION`, `NULL_RESULT`,
+Only a clean `PUBLISHED` paper whose selected trace was written into its artifact
+and whose source paper record persisted may promote tool findings into the
+conjecture pool or cross-run verified-results ledger. `NEEDS_REVISION`, `NULL_RESULT`,
 `PUBLISHED_NO_PROFESSOR`, and `REJECTED` papers retain their local trace for
 revision but cannot seed later hypotheses or evidence. Both the conjecture-pool
 write-back and the verified-results ledger use only the final selected paper

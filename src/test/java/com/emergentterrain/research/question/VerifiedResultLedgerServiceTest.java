@@ -81,6 +81,32 @@ class VerifiedResultLedgerServiceTest {
     }
 
     @Test
+    void bindingPairOnAnotherWindowSize_cannotAuthorizeATightBound() {
+        ToolInvocation held = verification(0.6490, 0.0000, 1_500_000L, 10_000L, 10,
+                "verify_conjecture: max_prime_gap <= +0.6490 * log_sq_window_start + +0.0000 "
+                        + "HELD across 10 window(s) of size 10000 starting at 1500000. "
+                        + "worst margin: -0.03547 at window starting 1500000. relative slack: 0.0003");
+        // These calls form a valid pair with each other, but not with the held result above:
+        // their window size differs while all fields previously matched by HeldBound do not.
+        ToolInvocation otherSizeHeld = verification(0.6490, 0.0000, 1_500_000L, 5_000L, 10,
+                "verify_conjecture: max_prime_gap <= +0.6490 * log_sq_window_start + +0.0000 "
+                        + "HELD across 10 window(s) of size 5000 starting at 1500000. "
+                        + "worst margin: -0.03547 at window starting 1500000. relative slack: 0.0003");
+        ToolInvocation otherSizeRefute = verification(0.6480, 0.0000, 1_500_000L, 5_000L, 10,
+                "verify_conjecture: max_prime_gap <= +0.6480 * log_sq_window_start + +0.0000 "
+                        + "REFUTED across 10 window(s) of size 5000 starting at 1500000. "
+                        + "worst margin: +0.03547");
+
+        List<VerifiedResult> results = VerifiedResultLedgerService.extract(
+                List.of(held, otherSizeHeld, otherSizeRefute), "P-wrong-size", "max_prime_gap");
+
+        // The 5,000-size pair is legitimate; only it may enter the ledger. Before the fix the
+        // 10,000-size HELD call incorrectly borrowed that pair and produced a second result.
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().statement()).contains("size 5000").doesNotContain("size 10000");
+    }
+
+    @Test
     void looseHoldsAndUnsettledConstants_areNotRecorded() {
         List<ToolInvocation> trace = List.of(
                 call("verify_conjecture", "verify_conjecture: a <= b HELD across 10 window(s). "
