@@ -956,10 +956,19 @@ public class ConjectureMinerService implements ConjectureQueue {
                     if (promotionRefuted.contains(key)) continue;   // structural refutation stands
 
                     Inequality ineq = mapper.toInequality(entity);
-                    AnomalyPromotionGate.Verdict v = AnomalyPromotionGate.replicate(
-                            ineq, verifier::verify,
-                            PROMOTION_HOLD_START, PROMOTION_WINDOW_SIZE,
-                            promotionRefutationAttempts);
+                    AnomalyPromotionGate.Verdict v;
+                    try {
+                        v = AnomalyPromotionGate.replicate(
+                                ineq, verifier::verify,
+                                PROMOTION_HOLD_START, PROMOTION_WINDOW_SIZE,
+                                promotionRefutationAttempts);
+                    } catch (RuntimeException e) {
+                        // Background mining must defer a temporarily busy or unavailable sidecar,
+                        // never turn that operational failure into a refutation or scheduler error.
+                        log.warn("anomaly promotion gate — {} <= k*{} deferred: {}",
+                                cand.lhs(), cand.rhs(), e.getMessage());
+                        break;
+                    }
                     if (v.survived()) {
                         repo.stampPromotedAnomaly(entity.id(), Instant.now());
                         log.info("ANOMALY PROMOTED — {} <= {}*{} + {} survived {} adversarial "

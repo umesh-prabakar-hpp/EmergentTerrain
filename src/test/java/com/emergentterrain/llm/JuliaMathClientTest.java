@@ -49,7 +49,11 @@ class JuliaMathClientTest {
     /** Next canned response — set by tests before invoking the client. */
     private final AtomicReference<CannedResponse> nextResponse = new AtomicReference<>();
 
-    private record CannedResponse(int status, String body) {}
+    private record CannedResponse(int status, String body, long delayMs) {
+        private CannedResponse(int status, String body) {
+            this(status, body, 0);
+        }
+    }
 
     @BeforeEach
     void setUp() throws IOException {
@@ -77,6 +81,14 @@ class JuliaMathClientTest {
         if (cr == null) {
             // Default to a generic ok response — most tests set their own.
             cr = new CannedResponse(200, "{\"ok\":true,\"elapsed_ms\":1}");
+        }
+        if (cr.delayMs() > 0) {
+            try {
+                Thread.sleep(cr.delayMs());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
         byte[] body = cr.body().getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", "application/json");
@@ -662,10 +674,14 @@ class JuliaMathClientTest {
 
     /** Build a conjecture-enabled client pointing at the stub. */
     private JuliaMathClient buildConjectureClient() {
+        return buildConjectureClient(2_000, 3_000);
+    }
+
+    private JuliaMathClient buildConjectureClient(long generalTimeoutMs, long conjectureTimeoutMs) {
         JuliaMathClient client = new JuliaMathClient(
                 /*enabled*/ true,
                 "http://127.0.0.1:" + port,
-                /*timeoutMs*/ 2_000,
+                /*timeoutMs*/ generalTimeoutMs,
                 /*healthProbeTimeoutMs*/ 1_000,
                 /*pysrEnabled*/ false,
                 /*pysrTimeoutMs*/ 20_000,
@@ -673,7 +689,7 @@ class JuliaMathClientTest {
                 /*pysrIterations*/ 40,
                 /*pysrComplexityCeiling*/ 30,
                 /*conjectureEnabled*/ true,
-                /*conjectureTimeoutMs*/ 3_000,
+                /*conjectureTimeoutMs*/ conjectureTimeoutMs,
                 mapper);
         client.probeHealth();
         return client;
@@ -784,6 +800,29 @@ class JuliaMathClientTest {
                 .isInstanceOf(JuliaMathException.class)
                 .satisfies(e -> assertThat(((JuliaMathException) e).errorCode())
                         .isEqualTo("bad_request"));
+    }
+
+    @Test
+    void numberTheoryWindow_usesConjectureDeadlineInsteadOfGeneralJuliaDeadline() {
+        // The old client used generalTimeoutMs + 1 s (1,001 ms) for this request. The dedicated
+        // conjecture deadline gives this 1,250 ms response enough time without slowing other tools.
+        JuliaMathClient client = buildConjectureClient(1, 1_000);
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"result\":[],\"start\":100,\"size\":50,\"elapsed_ms\":1250}",
+                1_250));
+
+        assertThat(client.numberTheoryWindow(100, 50).elapsedMs()).isEqualTo(1_250);
+    }
+
+    @Test
+    void numberTheoryWindow_requestTimeoutDoesNotMarkHealthySidecarUnavailable() {
+        JuliaMathClient client = buildConjectureClient(1, 100);
+        nextResponse.set(new CannedResponse(200, "{\"ok\":true,\"result\":[]}", 1_500));
+
+        assertThatThrownBy(() -> client.numberTheoryWindow(100, 50))
+                .isInstanceOf(JuliaMathException.class)
+                .satisfies(e -> assertThat(((JuliaMathException) e).errorCode()).isEqualTo("transport"));
+        assertThat(client.isConjectureAvailable()).isTrue();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

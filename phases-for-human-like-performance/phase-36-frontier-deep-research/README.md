@@ -40,7 +40,10 @@ and therefore records zero; `compute_ms` and `transport_ms` remain separate.
 
 The toggle is `app.research.experiments.range-chunking.enabled`; set it to `false` for a quick
 rollback to the previous one-shot behavior. Keep `app.julia.conjecture.timeoutMs` at 15 seconds
-while timing evidence is collected. The focused acceptance tests are
+while timing evidence is collected. Number-theory-window and conjecture-verification HTTP requests
+use that operation deadline instead of the general Julia timeout. A single response timeout is
+reported for that operation but does not mark a previously healthy sidecar globally unavailable;
+the scheduled miner defers a failed anomaly-promotion hearing to its next pass. The focused acceptance tests are
 `RangePreservingChunkExecutorTest`: they pin exact coverage of
 `[1_000_000_000, 1_000_500_000)`, count-weighted reduction, and resume-after-failure semantics.
 
@@ -53,7 +56,7 @@ context creation. Keep the annotation if another test-oriented constructor is ad
 
 The current professor loop is deliberately bounded: `GenericOpenAICompatPool` normally permits
 five tool rounds and only adds two rounds for a narrowly defined near-binding result. The global
-run budget is currently `$3.50` and 350 calls. Those limits protect the service, but a research
+run budget is currently `$5.00` and 350 calls. Those limits protect the service, but a research
 cycle can exhaust them before trying a genuinely different algorithm or completing a useful
 counterexample search.
 

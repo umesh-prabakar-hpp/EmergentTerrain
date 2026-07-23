@@ -10,9 +10,11 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Scheduled;
 import java.net.URI;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -705,8 +707,12 @@ public class JuliaMathClient {
         if (size <= 0) {
             throw new IllegalArgumentException("size must be > 0; got " + size);
         }
+        // This endpoint has a separately configured 15-second fail-soft deadline. Do not route it
+        // through the general Julia timeout (normally 5 seconds), which would cut off a valid
+        // queued number-theory window before the operation's own deadline.
         JsonNode resp = post("/numbertheory/window",
-                Map.of("start", start, "size", size, "timeoutMs", conjectureTimeoutMs));
+                Map.of("start", start, "size", size, "timeoutMs", conjectureTimeoutMs),
+                conjectureTimeoutMs, true);
         // Preserve the wire order. The sidecar emits each entry as a
         // single-key JSON object — `[{"abundant_density":0.24},
         // {"deficient_density":0.76}, ...]` — because Julia's JSON3
@@ -912,7 +918,7 @@ public class JuliaMathClient {
         body.put("k",       k);
         body.put("c",       c);
         body.put("windows", windowDicts);
-        JsonNode resp = post("/conjecture/verify", body);
+        JsonNode resp = post("/conjecture/verify", body, conjectureTimeoutMs, true);
 
         java.util.List<com.emergentterrain.research.conjecture.ConjectureVerifier.WindowReport> reports =
                 new java.util.ArrayList<>();
@@ -1116,12 +1122,23 @@ public class JuliaMathClient {
      * into {@link JuliaMathException} so callers don't have to switch
      * on multiple exception types.
      *
-     * <p>Mutates {@link #reachable} on transport failure — sets it
-     * false so subsequent {@link #isAvailable()} calls return false
-     * without making another round-trip. Recovery requires a manual
-     * {@link #probeHealth()} call.
+     * <p>Ordinary transport failures set {@link #reachable} false so
+     * subsequent {@link #isAvailable()} calls return false without
+     * making another round-trip. Conjecture response timeouts are the
+     * narrow exception: a busy single-threaded sidecar is still live.
      */
     private JsonNode post(String path, Map<String, Object> body) {
+        return post(path, body, timeoutMs, false);
+    }
+
+    /**
+     * Send one sidecar request with its operation-specific deadline.
+     *
+     * @param preserveReachabilityOnRequestTimeout true for conjecture operations: a response
+     *        timeout can mean a busy single-threaded sidecar rather than a failed sidecar process.
+     */
+    private JsonNode post(String path, Map<String, Object> body, long operationTimeoutMs,
+                          boolean preserveReachabilityOnRequestTimeout) {
         totalCalls.incrementAndGet();
         if (!enabled) {
             throw new JuliaMathException("not_enabled",
@@ -1169,7 +1186,7 @@ public class JuliaMathClient {
         }
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
-                .timeout(Duration.ofMillis(timeoutMs + 1_000))  // HTTP timeout > sidecar timeout
+                .timeout(Duration.ofMillis(operationTimeoutMs + 1_000))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                 .build();
@@ -1178,13 +1195,17 @@ public class JuliaMathClient {
         try {
             resp = http.send(req, HttpResponse.BodyHandlers.ofString());
         } catch (Exception e) {
-            // Transport failure — sidecar unreachable, timeout at HTTP
-            // layer, etc. Mark sticky-unreachable so callers stop
-            // retrying without a probe.
-            reachable.set(false);
+            // A connect failure means the sidecar is unavailable. A conjecture operation's HTTP
+            // response timeout can instead mean its single-threaded worker is busy; preserve the
+            // last successful health state and let the caller handle this one failed operation.
+            boolean requestTimedOut = e instanceof HttpTimeoutException
+                    && !(e instanceof HttpConnectTimeoutException);
+            if (!preserveReachabilityOnRequestTimeout || !requestTimedOut) {
+                reachable.set(false);
+            }
             transportFailCalls.incrementAndGet();
             throw new JuliaMathException("transport",
-                    "Sidecar unreachable at " + baseUrl + path + ": " + e.getMessage(), e);
+                    "Sidecar request failed at " + baseUrl + path + ": " + e.getMessage(), e);
         }
         long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
         // Record latency for any call that actually made it onto the

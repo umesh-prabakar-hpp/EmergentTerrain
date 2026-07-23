@@ -413,7 +413,9 @@ See `src/main/resources/application.yml` for app settings:
   execution; it preserves every count-weighted density metric's full logical window and journals
   chunks under `simulation-history/research-experiments/` (enabled at 50,000 integers per chunk).
   A ladder checks Julia readiness before it schedules a wide request, and each chunk records
-  actual queue wait, Julia compute, and transport time separately.
+  actual queue wait, Julia compute, and transport time separately. Its number-theory requests use
+  `app.julia.conjecture.timeoutMs` (15 seconds), not the general Julia timeout; one request timeout
+  is returned as a failed operation without marking a previously healthy sidecar globally down.
 - `app.world.flushIntervalMs`
 - `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`
@@ -439,10 +441,10 @@ See `src/main/resources/application.yml` for app settings:
   - `courts`
   - `legislation`
 - Phase 36 range-chunk journals are separate mutable execution state under
-  `simulation-history/research-experiments/`. The enabled first slice applies only to the safely
-  count-weighted `abundant_density` CONSTANT scale-ladder metric: a 500,000-wide requested window
-  remains the same logical interval, but runs as resumable 50,000-integer chunks. It records
-  queue, Julia compute, and transport timings; a partial job cannot support a full-range claim.
+  `simulation-history/research-experiments/`. The enabled first slice applies to every safely
+  count-weighted density CONSTANT scale-ladder metric: a 500,000-wide requested window remains the
+  same logical interval, but runs as resumable 50,000-integer chunks. It records queue, Julia
+  compute, and transport timings; a partial job cannot support a full-range claim.
 - The current runtime slice now includes:
   - deterministic federal and state party / budget / election / bill simulation
   - executive order issuance when services or trust degrade
