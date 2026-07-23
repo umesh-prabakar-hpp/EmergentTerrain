@@ -10,7 +10,8 @@
 # By default this script:
 #   - gracefully stops a previous app/proxy set before starting a fresh one
 #   - exports JAVA_HOME to the dnf-installed JDK 25 path
-#   - launches `mvn spring-boot:run` in the background via nohup
+#   - launches `mvn clean spring-boot:run` in the background via nohup so the
+#     JVM cannot inherit stale compiled classes from an earlier worktree state
 #   - redirects Maven/JVM stdout to logs/maven-stdout.log
 #     (the Spring app's own log lives in logs/et-app.log via logback;
 #      maven-stdout.log only captures startup banner + compile errors)
@@ -154,8 +155,8 @@ fi
 
 # Background launch. nohup so the process survives shell exit; & to
 # detach. stdout merges with stderr into the log.
-echo "EmergentTerrain: starting in background, stdout → $STDOUT_LOG"
-nohup mvn spring-boot:run > "$STDOUT_LOG" 2>&1 &
+echo "EmergentTerrain: clean-building and starting in background, stdout → $STDOUT_LOG"
+nohup mvn clean spring-boot:run > "$STDOUT_LOG" 2>&1 &
 LAUNCHER_PID=$!
 echo "EmergentTerrain: launcher PID $LAUNCHER_PID (the actual JVM spawns ~30s later)"
 echo

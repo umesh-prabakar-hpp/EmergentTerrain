@@ -42,8 +42,9 @@ mvn spring-boot:run
 
 For the configured primary LLM, prefer `./scripts/start.sh`: it starts the
 local `local-ai-gateway` on `127.0.0.1:8788` before launching the JVM.
-It first performs the graceful `./scripts/stop.sh` sweep so each start reloads
-the app and its managed proxies instead of retaining a stale process.
+It first performs the graceful `./scripts/stop.sh` sweep and a clean Maven
+build, so each start reloads the app and its managed proxies without retaining
+stale compiled classes.
 The proxy uses the machine's `codex login` session with an ephemeral read-only
 turn in `/tmp`; it pins the locally validated `gpt-5.6-terra`, and reports its
 token usage for API-equivalent budget accounting at Terra's $2.50 input / $15
@@ -196,7 +197,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - The formulation prompt includes anomalous papers from adjacent topics in the same domain (z ≥ 1.5) to enable cross-topic reasoning; this section is empty when no anomalies exist and costs no extra LLM call.
 - **Novelty check (Gap 1):** A fast Ollama call runs inside the formulation slot before the main formulation call whenever ≥3 prior papers exist in the topic. It returns a `novelty_score` (0=saturated, 1=fresh) plus a coverage note and unexplored-hint. Score < 0.30 injects a NOVELTY WARNING into the formulation prompt redirecting the LLM toward the unexplored angle; scores 0.30–0.59 inject a softer NOVELTY NOTE. Fewer than 3 papers → score assumed 1.0, no extra call.
 - **Statistical framing (Gaps 4 & 5):** After refinement and before narration, a fast Ollama call rewrites `rawFindings` with appropriate significant figures (3 sig figs max), uncertainty qualifiers ("approximately", "within ~X%", "±"), and scientific notation for extreme values. Skipped for dynamic papers. Falls back to raw findings on failure. The framed text replaces `rawFindings` in the draft passed to narration.
-- **Professor-student critique + revision (tool-calling path):** After first-pass narration, the professor (Groq) is given a tool suite — `run_param_sweep`, `run_predicate_scan`, `evaluate_symbolic`, `run_sandboxed_code` — and can call any combination before writing a synthesis. Sandboxed code is reviewed by the fast 4b model before execution; the interpreter itself enforces safety (no I/O, no imports, 5 000-iteration cap). After the professor's synthesis, a student (second Groq call) revises the paper incorporating the experimental evidence. Falls back to the JSON-based ExperimentalGap path when Groq is not configured. Total narration cost: 1 primary (tool-calling) + 1 primary (revision) per paper.
+- **Professor-student critique + revision (tool-calling path):** After first-pass narration, the professor (Groq) is given a tool suite — `run_param_sweep`, `run_predicate_scan`, `evaluate_symbolic`, `run_sandboxed_code`. Its first evidence-bearing turn sends `tool_choice: required`, preventing an empty trace; later turns retain the model's normal choice to synthesize or continue investigating. Sandboxed code is reviewed by the fast 4b model before execution; the interpreter itself enforces safety (no I/O, no imports, 5 000-iteration cap). After the professor's synthesis, a student (second Groq call) revises the paper incorporating the experimental evidence. Falls back to the JSON-based ExperimentalGap path when Groq is not configured. Total narration cost: 1 primary (tool-calling) + 1 primary (revision) per paper.
 - **Trace-grounded revision fallback (2026-07-20):** If a tool-bearing student revision has no
   parseable content, `ResearchNarrationService` uses `traceGroundedRevisionFallback`, stamped
   `rev:parse_failed→trace_fallback`, rather than returning first-pass prose. It writes only the

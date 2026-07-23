@@ -1,5 +1,6 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.LlmCallContext;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +15,25 @@ import static org.assertj.core.api.Assertions.assertThat;
  * prose that discusses rate limits — does not trip it.
  */
 class GenericOpenAICompatPoolUsageLimitTest {
+
+    @Test
+    void professorInitialRound_requiresAToolWhenTheSchemaIsPresent() {
+        boolean required = LlmCallContext.withRole("professor-tools", () ->
+                GenericOpenAICompatPool.requiresProfessorInitialToolCall(true, true));
+
+        assertThat(required).isTrue();
+    }
+
+    @Test
+    void professorContinuationAndOtherRoles_keepOptionalToolChoice() {
+        boolean continuation = LlmCallContext.withRole("professor-tools", () ->
+                GenericOpenAICompatPool.requiresProfessorInitialToolCall(true, false));
+        boolean ordinary = LlmCallContext.withRole("panel-review", () ->
+                GenericOpenAICompatPool.requiresProfessorInitialToolCall(true, true));
+
+        assertThat(continuation).isFalse();
+        assertThat(ordinary).isFalse();
+    }
 
     @Test
     void realClaudeSubscriptionCapMessage_isDetected() {

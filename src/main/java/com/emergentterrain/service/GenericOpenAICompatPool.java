@@ -895,8 +895,19 @@ public class GenericOpenAICompatPool implements LlmPool {
                 if (conversationCompactor != null) {
                     conversationCompactor.compact(messages);
                 }
+                // A professor turn is evidence-bearing: the pipeline rejects a
+                // synthesis with no successful tool output. Leaving its first
+                // round at "auto" let an otherwise healthy model decline every
+                // advertised tool, then spend the bounded empty-trace resamples
+                // producing the same unusable answer. Require exactly the first
+                // tool-bearing round; after a result is in the trace the model
+                // may choose to synthesize or continue investigating normally.
+                boolean requireInitialProfessorTool = requiresProfessorInitialToolCall(
+                        sendTools && tools != null && tools.isArray() && !tools.isEmpty(),
+                        trace.isEmpty());
                 String payload = buildConversationPayload(
-                        modelId, messages, sendTools ? tools : null, TOOL_MAX_TOKENS);
+                        modelId, messages, sendTools ? tools : null, TOOL_MAX_TOKENS,
+                        requireInitialProfessorTool);
                 long estimate = estimateTokens(payload, TOOL_MAX_TOKENS);
                 boolean reserved = false;
                 if (budgetGate != null) {
@@ -1102,7 +1113,8 @@ public class GenericOpenAICompatPool implements LlmPool {
     }
 
     private String buildConversationPayload(String modelId, JsonNode messages,
-                                             JsonNode tools, int tokenLimit) {
+                                             JsonNode tools, int tokenLimit,
+                                             boolean requireToolCall) {
         try {
             ObjectNode node = mapper.createObjectNode();
             node.put("model", modelId);
@@ -1114,12 +1126,23 @@ public class GenericOpenAICompatPool implements LlmPool {
             node.set("messages", messages);
             if (tools != null && tools.isArray() && !tools.isEmpty()) {
                 node.set("tools", tools);
-                node.put("tool_choice", "auto");
+                node.put("tool_choice", requireToolCall ? "required" : "auto");
             }
             return mapper.writeValueAsString(node);
         } catch (Exception e) {
             throw new RuntimeException("Failed to build conversation payload", e);
         }
+    }
+
+    /**
+     * The professor stage cannot publish an ungrounded synthesis, whereas
+     * ordinary tool-capable callers may legitimately answer without a tool.
+     * Keep this role-specific so selection probes and non-research callers
+     * retain their existing {@code tool_choice:auto} behaviour.
+     */
+    static boolean requiresProfessorInitialToolCall(boolean toolsPresent, boolean traceEmpty) {
+        return toolsPresent && traceEmpty
+                && "professor-tools".equals(LlmCallContext.currentRole());
     }
 
     private String buildPayload(String modelId, String prompt, int tokenLimit) {

@@ -70,9 +70,10 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/start.sh
 ```
 
-`start.sh` first runs the graceful `stop.sh` sweep, so invoking it always
-reloads the Spring app and its managed subscription proxies rather than reusing
-a stale process. Use `stop.sh` directly when you only intend to shut down.
+`start.sh` first runs the graceful `stop.sh` sweep and then performs a clean
+Maven build, so invoking it reloads the Spring app and its managed subscription
+proxies without reusing stale compiled classes. Use `stop.sh` directly when you
+only intend to shut down.
 
 Run `codex login` first if this machine has not been authenticated. The proxy
 pins the locally validated `gpt-5.6-terra`, and returns Codex token usage for
@@ -226,7 +227,7 @@ or no-match lookup to be reproduced manually without logging full paper text.
 **Quality pipeline (additional LLM calls):**
 8. **Novelty check** — before formulation, when ≥3 papers exist in the topic, a fast Ollama call assesses saturation (0=fully covered, 1=fresh). Score < 0.30 injects a NOVELTY WARNING redirecting the LLM to unexplored parameter regions; 0.30–0.59 injects a softer hint.
 9. **Statistical framing** — after refinement and before narration, a fast Ollama call rewrites `rawFindings` with ≤3 significant figures, uncertainty qualifiers ("approximately", "within ~X%", "±"), and scientific notation for extreme values. Addresses fabricated-precision and uncertainty-quantification gaps.
-10. **Professor tool-calling + revision** — after first-pass Groq narration, the Groq professor is given a tool suite (`run_param_sweep`, `run_predicate_scan`, `evaluate_symbolic`, `run_sandboxed_code`) and can call any combination to gather evidence before writing a synthesis. Sandboxed code is reviewed by the fast 4b model, then executed in `SandboxEngine` (JavaScript-like mini-language; 5 000-iteration cap; whitelisted builtins only). A student (second Groq call) revises the paper incorporating the experimental evidence. Falls back to the legacy JSON-ExperimentalGap path when Groq is not configured.
+10. **Professor tool-calling + revision** — after first-pass Groq narration, the Groq professor is given a tool suite (`run_param_sweep`, `run_predicate_scan`, `evaluate_symbolic`, `run_sandboxed_code`). Its initial evidence-bearing turn requires one tool call; later turns may synthesize or continue investigating. Sandboxed code is reviewed by the fast 4b model, then executed in `SandboxEngine` (JavaScript-like mini-language; 5 000-iteration cap; whitelisted builtins only). A student (second Groq call) revises the paper incorporating the experimental evidence. Falls back to the legacy JSON-ExperimentalGap path when Groq is not configured.
 
 When a tool-bearing student revision is malformed, the pipeline now emits a trace-grounded fallback
 instead of reusing first-pass prose. It renders only the completed tool results and, when any result
