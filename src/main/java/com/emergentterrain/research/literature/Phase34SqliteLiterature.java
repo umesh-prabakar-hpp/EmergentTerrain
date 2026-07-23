@@ -13,6 +13,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -285,7 +286,8 @@ public final class Phase34SqliteLiterature {
                 SELECT f.paper_id, COALESCE(p.title, ''), COALESCE(p.authors, ''),
                        COALESCE(p.primary_category, ''),
                        snippet(fulltext_fts, 2, '', '', '…', 24),
-                       COALESCE(fulltext_fts.title, ''), COALESCE(fulltext_fts.text, '')
+                       COALESCE(p.title, ''), COALESCE(fulltext_fts.title, ''),
+                       COALESCE(fulltext_fts.text, '')
                   FROM ranked_sources ranked
                   JOIN fulltext_fts ON fulltext_fts.rowid = ranked.rowid
                   JOIN fulltext f ON f.rowid = fulltext_fts.rowid
@@ -309,7 +311,8 @@ public final class Phase34SqliteLiterature {
                             telemetry.rowsInspected++;
                             String paperId = rows.getString(1);
                             if (paperId == null || paperId.isBlank()) continue;
-                            if (!hasSufficientFullTextEvidence(rows.getString(6), rows.getString(7), candidate)) {
+                            if (!hasSufficientFullTextEvidence(rows.getString(6), rows.getString(7),
+                                    rows.getString(8), candidate)) {
                                 continue;
                             }
                             String key = keyFor(paperId);
@@ -382,7 +385,14 @@ public final class Phase34SqliteLiterature {
 
     private Connection open() throws Exception {
         Connection connection = DriverManager.getConnection("jdbc:sqlite:file:" + database + "?mode=ro");
-        connection.createStatement().execute("PRAGMA query_only=ON");
+        // These are connection-local read settings: they keep FTS ranking/sorting off the shared
+        // filesystem and retain enough hot pages for the 64-then-512 bounded search without
+        // mutating the immutable index.
+        try (Statement settings = connection.createStatement()) {
+            settings.execute("PRAGMA query_only=ON");
+            settings.execute("PRAGMA temp_store=MEMORY");
+            settings.execute("PRAGMA cache_size=-65536");
+        }
         return connection;
     }
 
@@ -439,12 +449,18 @@ public final class Phase34SqliteLiterature {
     /**
      * Full-text fallback is allowed to recover sources absent from the theorem corpus, but it must
      * not turn a generic body phrase into evidence. All evidence anchors must occur in the indexed
-     * record and at least one distinctive query anchor must occur in its title.
+     * record and at least one distinctive query anchor must occur in its title. Some full-text
+     * companion rows have no title in either the companion or the optional metadata layer. Such
+     * a row can only pass when a three-anchor exact subject phrase is fully corroborated and both
+     * phrase terms are distinctive; this admits a specific title-less source without reopening
+     * generic body-only matches.
      */
-    private static boolean hasSufficientFullTextEvidence(String title, String text, SearchCandidate candidate) {
+    private static boolean hasSufficientFullTextEvidence(String metadataTitle, String indexedTitle, String text,
+                                                         SearchCandidate candidate) {
         if (candidate.evidenceAnchors().isEmpty()) return true;
-        List<String> titleTerms = tokenTerms(title);
-        if (!candidate.titleHasDistinctiveQueryAnchor(titleTerms)) return false;
+        List<String> titleTerms = new ArrayList<>(tokenTerms(metadataTitle));
+        titleTerms.addAll(tokenTerms(indexedTitle));
+        if (!candidate.titleHasDistinctiveQueryAnchor(titleTerms) && !candidate.allowsTitlelessFullText()) return false;
         List<String> recordTerms = new ArrayList<>(titleTerms);
         recordTerms.addAll(tokenTerms(text));
         return candidate.evidenceAnchors().stream().allMatch(recordTerms::contains);
@@ -522,6 +538,12 @@ public final class Phase34SqliteLiterature {
             return queryAnchors.stream()
                     .filter(anchor -> !LiteratureQueryPlan.isWeakSubjectTerm(anchor))
                     .anyMatch(titleTerms::contains);
+        }
+
+        private boolean allowsTitlelessFullText() {
+            return expression.startsWith("\"")
+                    && evidenceAnchors.size() >= 3
+                    && queryAnchors.stream().noneMatch(LiteratureQueryPlan::isWeakSubjectTerm);
         }
     }
 

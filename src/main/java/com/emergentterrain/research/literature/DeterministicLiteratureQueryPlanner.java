@@ -43,8 +43,8 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             // Comparative and trajectory prose from P76/P77. These describe a claimed state but
             // do not identify a literature subject; letting them form phrases admitted unrelated
             // full-text records that happened to discuss a generic density or baseline.
-            "above", "across", "asymptotically", "baseline", "below", "decreases",
-            "elevated", "elevation", "exhaustive", "like", "limiting", "local", "known", "relative",
+            "above", "across", "asymptotically", "baseline", "below", "between", "decreases",
+            "discriminate", "elevated", "elevation", "exhaustive", "like", "limiting", "local", "known", "relative",
             "remains", "remain", "should", "track", "tracked");
 
     @Override

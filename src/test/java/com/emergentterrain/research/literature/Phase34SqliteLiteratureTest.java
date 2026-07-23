@@ -84,6 +84,21 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35FullTextFallbackAcceptsATitlelessRecordOnlyWithAThreeAnchorExactSubjectMatch() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO fulltext VALUES ('1508.06394', 'no-problem/1508/1508.06394.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('1508.06394', '', "
+                    + "'The error term in the classical Dirichlet divisor problem is studied here.')");
+        }
+
+        String search = adapter.search("Dirichlet divisor error");
+
+        assertThat(search).contains("EVIDENCE").contains("1508.06394");
+    }
+
+    @Test
     void phase35FullTextFallbackRejectsGenericBodyOverlapWithoutATitleSubjectAnchor() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
@@ -91,6 +106,21 @@ class Phase34SqliteLiteratureTest {
             sql.execute("INSERT INTO papers VALUES ('2601.00001', 'Dark matter density', 'A. Author', 'astro-ph')");
             sql.execute("INSERT INTO fulltext VALUES ('2601.00001', 'no-problem/2601/2601.00001.html')");
             sql.execute("INSERT INTO fulltext_fts VALUES ('2601.00001', 'Dark matter density', "
+                    + "'An abundant number density can arise in this unrelated physical model.')");
+        }
+
+        assertThat(adapter.search("abundant number density"))
+                .contains("no theorem-index matches")
+                .doesNotContain("EVIDENCE", "HF");
+    }
+
+    @Test
+    void phase35FullTextFallbackRejectsATitlelessGenericBodyOverlap() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO fulltext VALUES ('2601.00001', 'no-problem/2601/2601.00001.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2601.00001', '', "
                     + "'An abundant number density can arise in this unrelated physical model.')");
         }
 
@@ -130,6 +160,16 @@ class Phase34SqliteLiteratureTest {
                 .contains("\"twin prime\"")
                 .doesNotContain("\"two term\"", "\"term empirical\"", "\"inequality twin\"",
                         "\"prime statistic\"", "\"prime sq\"");
+    }
+
+    @Test
+    void phase35SuppressesDiscriminationFramingThatCouldMatchAnUnrelatedFullTextBody() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "prime gaps may not discriminate between alternative asymptotic laws", java.util.Map.of());
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("\"prime gaps\"")
+                .doesNotContain("\"discriminate between\"");
     }
 
     @Test

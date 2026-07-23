@@ -57,3 +57,21 @@ After the ledger gate repair, `ConjectureInvestigationWriteBackServiceTest` and
 first exercises the selected-trace binding-pair gate; the latter verifies that
 an eligible same-grid pair is retained while an unpaired or different-grid
 refutation cannot enter the verified-results ledger.
+
+## Phase 35 resolution — 2026-07-23
+
+The completed real index contains full-text-only records with neither a
+companion title nor a `papers` metadata row. The expected Dirichlet error-term
+source (`1508.06394`) is one of them. The adapter now accepts this narrow case
+only for a fully corroborated three-anchor exact subject phrase whose two phrase
+terms are non-weak; ordinary full-text fallback still needs a metadata or
+indexed-title subject anchor. A title-less generic body overlap remains
+rejected.
+
+The read-only connection now uses connection-local memory temp storage and a
+64 MiB page cache, with no index mutation. Comparative framing such as
+`discriminate between` is discarded by the deterministic planner before FTS,
+which prevented an unrelated title-less astronomy record from being issued.
+With the completed local index, `Phase34SqliteLiteratureTest` passed 22/22 and
+the opt-in `Phase34RealIndexAcceptanceTest` passed 7/7, including the
+concurrent search and strict 15-second checks.

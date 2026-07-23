@@ -206,7 +206,12 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 Phase 35 relevance safety needs no additional index stage. The enabled adapter
 uses only validated adjacent subject phrases, fails closed rather than issuing
 an irrelevant `HF...` key, and enforces record/title corroboration before a
-key is issued. Its deterministic `LiteratureQueryPlanner` and validated
+key is issued. A title-less full-text companion record is accepted only when a
+three-anchor exact phrase with two non-weak subject terms is fully corroborated
+by its indexed text; this narrowly recovers incomplete metadata without
+allowing generic body overlap. Comparative framing such as “discriminate
+between” is not a subject phrase and is dropped before FTS. Its deterministic
+`LiteratureQueryPlanner` and validated
 `LiteratureQueryPlan` are the future boundary for an AI-assisted query-planning
 tool: an AI may propose one bounded query kind and two safe anchors, but cannot
 bypass record-evidence or title-anchor validation.
