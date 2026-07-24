@@ -450,6 +450,11 @@ public class UniversityService {
             "${app.research.predicate-study-preregistration-gate.enabled:false}")
     private boolean predicateStudyPreRegistrationGateEnabled;
 
+    /** A max-prime-gap fit must retain its pre-registered scale-separated holdouts unchanged. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.max-prime-gap-multiscale-preregistration-gate.enabled:false}")
+    private boolean maxPrimeGapMultiScalePreRegistrationGateEnabled;
+
     /**
      * Phase 32 Wave 0 (32.1) — verified-values manifest capture. When on,
      * every published paper gets a {@code .manifest.json} sidecar beside its
@@ -1301,6 +1306,16 @@ public class UniversityService {
             log.warn("predicate-study pre-registration check failed paperId={} "
                             + "(selected trace lacks one or more registered scans)", draft.paperId());
         }
+        boolean maxPrimeGapTopic = "conjecture/max_prime_gap".equals(draft.topicName());
+        boolean maxPrimeGapMultiScalePreRegistrationUncovered = maxPrimeGapMultiScalePreRegistrationGateEnabled
+                && maxPrimeGapTopic && (!MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
+                || !MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(
+                        draft.preRegistration(), narration.toolCallTrace()));
+        if (maxPrimeGapMultiScalePreRegistrationUncovered) {
+            log.warn("max-prime-gap multi-scale pre-registration check failed paperId={} "
+                            + "(registration or selected trace lacks the locked fit/refutation/holdout protocol)",
+                    draft.paperId());
+        }
         boolean affineBindingClaimUncovered = affineBindingClaimGateEnabled
                 && AffineBindingClaimValidator.claimWithoutDocumentedPair(
                         hypothesis, findings, conclusion, narration.toolCallTrace());
@@ -1809,6 +1824,9 @@ public class UniversityService {
         } else if (predicateStudyPreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (maxPrimeGapMultiScalePreRegistrationUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (affineBindingClaimUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -1983,6 +2001,12 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:predicate_study_preregistration_uncovered→needs_revision"
                     : persistedCallPath + " → publish:predicate_study_preregistration_uncovered→needs_revision";
+        }
+        if (maxPrimeGapMultiScalePreRegistrationUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:max_prime_gap_multiscale_preregistration_uncovered→needs_revision"
+                    : persistedCallPath
+                            + " → publish:max_prime_gap_multiscale_preregistration_uncovered→needs_revision";
         }
         if (predicateBaselineSensitivityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

@@ -5,6 +5,7 @@ import com.emergentterrain.research.ConjecturePreRegistration;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
+import com.emergentterrain.research.MaxPrimeGapMultiScalePreRegistration;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PredicateBaselineSensitivityValidator;
@@ -554,6 +555,18 @@ public class ResearchNarrationService {
                 + "width. Execute every registered run_predicate_scan call exactly: " + directive + ". "
                 + "Additional scans are exploratory and cannot replace these calls. Report only exact "
                 + "finite-window comparisons; do not infer persistence or asymptotic behavior.";
+    }
+
+    static String buildMaxPrimeGapMultiScalePreRegistrationNote(PreRegistration registration,
+            List<com.emergentterrain.llm.ToolInvocation> trace) {
+        String directive = MaxPrimeGapMultiScalePreRegistration.completionDirective(registration, trace);
+        if (directive.isBlank()) return "";
+        return "\n\nMAX-PRIME-GAP MULTI-SCALE PRE-REGISTRATION NOTE — this study has one fixed "
+                + "fit grid and four fixed holdout checks. Estimate k and c only on the fit grid, then "
+                + "keep both values unchanged before reading any holdout. The fit needs a same-grid "
+                + "REFUTED changed-intercept counterpart; each holdout needs HELD evidence with relative "
+                + "slack no greater than 0.05. A common loose envelope or a holdout refit is exploratory "
+                + "and cannot support the registered result. " + directive;
     }
 
     static List<com.emergentterrain.llm.ToolInvocation> appendTrace(
@@ -2542,6 +2555,8 @@ public class ResearchNarrationService {
                             ? buildExactPreRegistrationNote(draft.preRegistration()) : "")
                     + (PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                             ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
+                    + (MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
+                            ? buildMaxPrimeGapMultiScalePreRegistrationNote(draft.preRegistration(), null) : "")
                     + buildPredicateBaselineSensitivityNote(draft);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
@@ -2689,7 +2704,12 @@ public class ResearchNarrationService {
                 String topic = draft.topicName();
                 boolean exactPreRegistrationMissing = ConjecturePreRegistration.isLocked(draft.preRegistration())
                         && !ConjecturePreRegistration.hasExactEvidence(draft.preRegistration(), profTrace);
-                boolean offTarget = !exactPreRegistrationMissing && pivotEnabled
+                boolean maxPrimeGapMultiScalePreRegistrationMissing =
+                        MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
+                                && !MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(
+                                        draft.preRegistration(), profTrace);
+                boolean offTarget = !exactPreRegistrationMissing && !maxPrimeGapMultiScalePreRegistrationMissing
+                        && pivotEnabled
                         && com.emergentterrain.research.ScoreCalibration
                                 .hypothesisLhsUncovered(topic, triggerTrace);
                 boolean secondOrderSkipped = !offTarget && secondOrderGateEnabled
@@ -2716,7 +2736,8 @@ public class ResearchNarrationService {
                         ? com.emergentterrain.research.ScoreCalibration
                                 .heldTwoTermNoBindingRegion(topic, triggerTrace)
                         : null;
-                if (!exactPreRegistrationMissing && !offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
+                if (!exactPreRegistrationMissing && !maxPrimeGapMultiScalePreRegistrationMissing
+                        && !offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
                         && sharpnessProbe == null) {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
                 }
@@ -2734,6 +2755,13 @@ public class ResearchNarrationService {
                     log.info("LLM professor tools: exact pre-registration relation missing — corrective re-run {}/{} paperId={}",
                             pivotReruns, pivotMaxRefinements, draft.paperId());
                     pivotPrompt = userPrompt + buildExactPreRegistrationNote(draft.preRegistration());
+                } else if (maxPrimeGapMultiScalePreRegistrationMissing) {
+                    callPath.add("prereg:pivot:max_prime_gap_multiscale_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: max-prime-gap multi-scale protocol incomplete — "
+                                    + "corrective re-run {}/{} paperId={}",
+                            pivotReruns, pivotMaxRefinements, draft.paperId());
+                    pivotPrompt = userPrompt + buildMaxPrimeGapMultiScalePreRegistrationNote(
+                            draft.preRegistration(), profTrace);
                 } else if (offTarget) {
                     callPath.add("prereg:pivot:offtarget_rerun:n=" + pivotReruns);
                     log.info("LLM professor tools: off-target trace (preregistered lhs '{}' "
@@ -2786,6 +2814,10 @@ public class ResearchNarrationService {
                     boolean stillOff = pivotEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .hypothesisLhsUncovered(topic, triggerTrace);
+                    boolean stillMaxPrimeGapMultiScale = MaxPrimeGapMultiScalePreRegistration
+                            .isLocked(draft.preRegistration())
+                            && !MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(
+                                    draft.preRegistration(), profTrace);
                     boolean stillSkipped = secondOrderGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .secondOrderEngagementSkipped(topic, triggerTrace);
@@ -2801,7 +2833,9 @@ public class ResearchNarrationService {
                     boolean stillSharpness = sharpnessProbeGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .heldTwoTermNoBindingRegion(topic, triggerTrace) != null;
-                    callPath.add(stillOff
+                    callPath.add(stillMaxPrimeGapMultiScale
+                            ? "prereg:pivot:still_max_prime_gap_multiscale_uncovered"
+                            : stillOff
                             ? "prereg:pivot:still_offtarget"
                             : stillSkipped
                                     ? "prereg:pivot:still_leadingorder"

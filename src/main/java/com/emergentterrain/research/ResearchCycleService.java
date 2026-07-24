@@ -825,9 +825,10 @@ public class ResearchCycleService {
                 null, null,
                 ctx.getPublishedPapers(roomId, 5),
                 author.getState().getResearchHypothesis(),
-                // A measurement investigation has a different registered object; do not
-                // mislabel the miner's scaffold bound as its confirmatory test.
-                measurementSpec == null ? ConjecturePreRegistration.from(conjecture) : null,
+                // A measurement investigation normally has a different registered object; max_prime_gap
+                // is the explicit exception because its growth-bound investigation now owns a locked
+                // fit/holdout design rather than the miner's affine scaffold.
+                preRegistrationFor(conjecture, measurementSpec),
                 ResultClassification.SUPPORTED,
                 null,
                 PaperKind.CONJECTURE_INVESTIGATION,
@@ -849,6 +850,19 @@ public class ResearchCycleService {
                 frontier == null ? "in-range" : "frontier:" + frontier.boundKey,
                 conjecture.lhs() + " <= " + formatBoundBody(conjecture),
                 conjecture.confirmedRuns());
+    }
+
+    /**
+     * Most affine conjectures retain the exact miner relation as their confirmatory object.  The
+     * max-prime-gap family instead has a separately registered fit/holdout design: its coefficient
+     * is estimated on the fit grid and then locked before fixed multi-scale holdouts are read.
+     */
+    private static PreRegistration preRegistrationFor(
+            com.emergentterrain.research.conjecture.Conjecture conjecture,
+            com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec measurementSpec) {
+        PreRegistration multiScale = MaxPrimeGapMultiScalePreRegistration.from(conjecture);
+        return multiScale != null ? multiScale
+                : measurementSpec == null ? ConjecturePreRegistration.from(conjecture) : null;
     }
 
     /**
