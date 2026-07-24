@@ -1912,12 +1912,18 @@ public class UniversityService {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (callPath != null && callPath.contains(":demoted_to_needs_revision")) {
-            // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) — stamp
-            // is `panel:n=N:degraded:demoted_to_needs_revision`.
+            // Phase 12 D4 / paper-review 2026-07-24 — degraded panels carry
+            // `panel:n=N:degraded:demoted_to_needs_revision`; N=0 means no
+            // independent review occurred and is retryable, while N>0 has the
+            // dedicated DEGRADED_PANEL state.
             //
             // Phase 17 panel-grade-floor — full panel but grade-floor +
             // contradictions fired — stamp is
             // `panel:grade_floor=N.NN:demoted_to_needs_revision`.
+            //
+            // Related-work evidence gate — a no-evidence literature trace plus
+            // an external-support assertion is stamped
+            // `related_work:no_evidence_external_claim:demoted_to_needs_revision`.
             //
             // Both gates share the `:demoted_to_needs_revision` suffix so a
             // single contains() check catches either. The narration service

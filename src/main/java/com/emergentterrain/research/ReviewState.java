@@ -101,12 +101,17 @@ public enum ReviewState {
      * reviewState for a paper demoted to {@code NEEDS_REVISION} by the review
      * panel. Both the degraded-panel gate and the grade-floor gate share the
      * {@code :demoted_to_needs_revision} callPath suffix, but they mean different
-     * things: a <em>degraded</em> panel (fewer reviewers than configured ran) is
-     * {@link #DEGRADED_PANEL} (reviewed, just under-staffed — not a re-work
-     * candidate), while a full panel that hit the <em>grade floor</em> is a
-     * {@link #REVISABLE_DEFECT} (the reviewers graded the content low).
+     * things: a zero-reviewer panel is {@link #INCOMPLETE} (no independent
+     * review occurred, so it can be retried), a <em>degraded</em> panel with at
+     * least one reviewer is {@link #DEGRADED_PANEL} (reviewed, just under-staffed
+     * — not a re-work candidate), while a full panel that hit the <em>grade
+     * floor</em> is a {@link #REVISABLE_DEFECT} (the reviewers graded the content
+     * low).
      */
     public static ReviewState forPanelDemotion(String callPath) {
+        if (callPath != null && callPath.contains("panel:n=0:degraded:unavailable:")) {
+            return INCOMPLETE;
+        }
         if (callPath != null && callPath.contains(":degraded:")) return DEGRADED_PANEL;
         return REVISABLE_DEFECT;   // grade_floor (or any other full-panel demotion)
     }

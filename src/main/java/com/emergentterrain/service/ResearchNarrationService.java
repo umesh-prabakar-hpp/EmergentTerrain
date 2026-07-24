@@ -14,6 +14,7 @@ import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.PromptSanitizer;
 import com.emergentterrain.research.PromptTemplateIds;
 import com.emergentterrain.research.PromptTemplateRegistry;
+import com.emergentterrain.research.RelatedWorkEvidenceValidator;
 import com.emergentterrain.research.ResultClassification;
 import com.emergentterrain.research.ResearchCycleService;
 import com.emergentterrain.research.UniversityService;
@@ -1003,6 +1004,16 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.citation-tool.enabled:false}")
     private boolean citationToolEnabled;
+
+    /**
+     * Paper-review 2026-07-24 — when a paper's recorded literature searches
+     * issue no relevance-safe evidence, Related Work may report that absence
+     * but may not assert that external theory or prior work establishes a
+     * claim. The publish path stamps such a contradiction as revisable.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.related-work-evidence-gate.enabled:false}")
+    private boolean relatedWorkEvidenceGateEnabled;
 
     /**
      * Lever 2 — revision self-check tools. When on, the prof→student revision
@@ -2248,6 +2259,17 @@ public class ResearchNarrationService {
         boolean firstPassFailed = fp.firstPassFailed();
         List<String> auditGapDimensions = new java.util.ArrayList<>();
         NarrationResult finalResult = maybeCritiqueAndRevise(draft, fp.firstPass(), callPath, auditGapDimensions);
+
+        if (relatedWorkEvidenceGateEnabled && finalResult != null) {
+            List<String> relatedWorkFailures = RelatedWorkEvidenceValidator.validate(
+                    finalResult.relatedWork(), finalResult.toolCallTrace());
+            if (!relatedWorkFailures.isEmpty()) {
+                callPath.add("related_work:no_evidence_external_claim:demoted_to_needs_revision");
+                log.warn("related-work-evidence-gate failed paperId={} reasons={} — "
+                                + "demoting PUBLISHED → NEEDS_REVISION",
+                        draft.paperId(), relatedWorkFailures);
+            }
+        }
 
         String pathStr = String.join(" → ", callPath);
         log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
@@ -3682,12 +3704,15 @@ public class ResearchNarrationService {
                     reviewPanelService.runPanel(draft, narration);
             int got = outcome.reviewerCount();
             if (got == 0) {
-                // Phase 7 F7.4 — no reviewers responded (all quota-blocked, all dropped
-                // on parse fail, or all RPC-errored). Stamp `panel:skip:unavailable`
-                // and continue — the paper still publishes, just without the panel
-                // signal. No new failure mode.
-                callPath.add("panel:skip:unavailable");
-                return narration;
+                // Paper-review 2026-07-24 — no independent review is an incomplete
+                // pipeline, not a clean publication. Preserve the computation and
+                // trace for rework, but route it to NEEDS_REVISION until a panel can
+                // be reacquired after quota/provider recovery.
+                callPath.add("panel:n=0:degraded:unavailable:demoted_to_needs_revision");
+                log.warn("ReviewPanelService: paperId={} panel n=0 of configured {} — "
+                                + "demoting PUBLISHED → NEEDS_REVISION pending panel retry.",
+                        draft != null ? draft.paperId() : "?", configuredSize);
+                return narration.withPanelOutcome(outcome);
             }
             callPath.add(buildPanelCallPathStamp(got, configuredSize, outcome.agreementScore()));
             // Phase 7 F7.3 — cherry-picked-evidence audit gap when consensus exists.
@@ -4847,7 +4872,9 @@ public class ResearchNarrationService {
             "\n\nCITATION GROUNDING: To cite prior work, you MUST first call the "
             + "search_literature tool and cite ONLY the exact citation strings it "
             + "returns. Never invent author-year references. If search_literature "
-            + "returns no references for this topic, make no prior-work citations.";
+            + "returns no relevance-safe evidence, Related Work may report that "
+            + "absence but MUST NOT assert that external theory, prior work, or "
+            + "the literature establishes any claim.";
 
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry,
                                               String auditSummary, String literatureContext) {

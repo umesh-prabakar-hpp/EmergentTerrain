@@ -1766,6 +1766,34 @@ class PublishPaperTest {
     }
 
     @Test
+    void zeroReviewerPanelDemotionMarkerRoutesToNeedsRevision() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Findings are complete.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of(),
+                "rev:llama-70b:ok → panel:n=0:degraded:unavailable:demoted_to_needs_revision");
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().reviewState()).isEqualTo("INCOMPLETE");
+    }
+
+    @Test
+    void relatedWorkNoEvidenceDemotionMarkerRoutesToNeedsRevision() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Findings are complete.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of(),
+                "rev:llama-70b:ok → related_work:no_evidence_external_claim:demoted_to_needs_revision");
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().reviewState()).isEqualTo("REVISABLE_DEFECT");
+    }
+
+    @Test
     void d4_fullPanelNotDemoted() {
         // n=4 of 4 — full panel. No demotion marker on the callPath. Status PUBLISHED.
         PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);

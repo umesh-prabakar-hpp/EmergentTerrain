@@ -118,6 +118,13 @@ also capped before it is passed to the model/proxy, so an anomalously large
 indexed record cannot make the next tool turn fail at the operating-system
 argument-size limit.
 
+A paper whose recorded literature searches return no relevance-safe evidence may
+say so in Related Work, but cannot publish a claim that outside theory, prior
+work, or the literature establishes a result. That contradiction is persisted as
+`NEEDS_REVISION`. Likewise, an active review panel that returns zero reviewers
+now persists the trace as `NEEDS_REVISION` rather than `PUBLISHED`; reacquire an
+independent panel after repairing the affected provider or quota.
+
 Only a clean `PUBLISHED` paper whose selected trace was written into its artifact
 and whose source paper record persisted may promote tool findings into the
 conjecture pool or cross-run verified-results ledger. `NEEDS_REVISION`, `NULL_RESULT`,

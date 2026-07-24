@@ -37,12 +37,18 @@ class ReviewStateTest {
         assertThat(ReviewState.forNull(true)).isEqualTo(ReviewState.GATE_FLAGGED);
     }
 
-    // ---- forPanelDemotion: degraded panel is INCOMPLETE, grade-floor is a defect ----
+    // ---- forPanelDemotion: zero panel is retryable; reduced panel is distinct ----
 
     @Test
-    void degradedPanelDemotionIsIncomplete() {
-        // Fewer reviewers ran than configured — the review didn't fully happen.
+    void degradedPanelDemotionUsesDedicatedState() {
+        // Some independent review occurred, but the configured panel was short-staffed.
         String callPath = "narr → panel:n=2:degraded:demoted_to_needs_revision";
+        assertThat(ReviewState.forPanelDemotion(callPath)).isEqualTo(ReviewState.DEGRADED_PANEL);
+    }
+
+    @Test
+    void zeroReviewerPanelDemotionIsIncompleteForRetry() {
+        String callPath = "narr → panel:n=0:degraded:unavailable:demoted_to_needs_revision";
         assertThat(ReviewState.forPanelDemotion(callPath)).isEqualTo(ReviewState.INCOMPLETE);
     }
 
@@ -68,6 +74,7 @@ class ReviewStateTest {
         }
         assertThat(ReviewState.values())
                 .containsExactly(ReviewState.CLEAN, ReviewState.INCOMPLETE,
-                        ReviewState.REVISABLE_DEFECT, ReviewState.GATE_FLAGGED);
+                        ReviewState.REVISABLE_DEFECT, ReviewState.DEGRADED_PANEL,
+                        ReviewState.GATE_FLAGGED);
     }
 }
