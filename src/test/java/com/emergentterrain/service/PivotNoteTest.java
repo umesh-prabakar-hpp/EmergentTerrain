@@ -2,6 +2,10 @@ package com.emergentterrain.service;
 
 import org.junit.jupiter.api.Test;
 
+import com.emergentterrain.llm.ToolInvocation;
+
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -12,6 +16,29 @@ import static org.assertj.core.api.Assertions.assertThat;
  * NOT forbid extra exploration (P-b72c-222's regime probing stays welcome).
  */
 class PivotNoteTest {
+
+    @Test
+    void twoTermTightenIsExplicitlyASensitivityAndKeepsTheRegisteredTest() {
+        String note = ResearchNarrationService.buildTwoTermTightenNote("twin_prime_density",
+                new com.emergentterrain.research.ScoreCalibration.TwoTermTightenSuggestion(
+                        "mean_divisor_excess", "max_divisor_count", "1.997", "2", "-386.2461",
+                        "1500123", "5000", "20"));
+
+        assertThat(note).contains("SENSITIVITY ANALYSIS")
+                .contains("not a replacement for the registered hypothesis")
+                .contains("window_start=1500123");
+    }
+
+    @Test
+    void correctiveTraceIsAppendedRatherThanReplacingInitialEvidence() {
+        ToolInvocation initial = new ToolInvocation("verify_conjecture", "{}", "HELD", 0, "call_1");
+        ToolInvocation corrective = new ToolInvocation("verify_conjecture", "{}", "REFUTED", 1, "call_2");
+
+        assertThat(ResearchNarrationService.appendTrace(List.of(initial), List.of(corrective)))
+                .containsExactly(initial, corrective);
+        assertThat(ResearchNarrationService.shiftCallMarkers("Result [call_1]", 1))
+                .isEqualTo("Result [call_2]");
+    }
 
     @Test
     void noteNamesLhsAndMandatesOnTargetCall() {

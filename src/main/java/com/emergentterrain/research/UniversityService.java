@@ -1239,6 +1239,18 @@ public class UniversityService {
                     + "(conjecture topic '{}' has no verify_* call with its LHS)",
                     draft.paperId(), draft.topicName());
         }
+        // A locked conjecture relation is stronger than an LHS-only check: a paper may
+        // verify the right scalar while silently substituting a fitted intercept or slope.
+        // Sensitivity calls remain useful evidence, but they cannot stand in for the
+        // pre-registered relation selected before the investigation began.
+        boolean exactPreRegistrationUncovered = ConjecturePreRegistration.isLocked(draft.preRegistration())
+                && !ConjecturePreRegistration.hasExactEvidence(
+                        draft.preRegistration(), narration.toolCallTrace());
+        if (exactPreRegistrationUncovered) {
+            log.warn("pre-registration-evidence check failed paperId={} "
+                            + "(selected trace lacks the exact locked conjecture relation)",
+                    draft.paperId());
+        }
         // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.
         // Warn-only: stamps the call path + logs, never routes the paper.
         // Sibling check to SinglePointSweep but operates on the hypothesis
@@ -1705,6 +1717,11 @@ public class UniversityService {
             // 2026-06-06 rec #1 — conjecture paper that never ran verify_conjecture
             // with its own hypothesis LHS. Same tier: revision fixes it by re-running
             // the professor stage against the preregistered pair.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (exactPreRegistrationUncovered) {
+            // The exact registered parameters were never executed. A substituted
+            // sensitivity or binding probe is not confirmatory evidence.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (manifestMissRoutes) {

@@ -1,6 +1,7 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.research.FollowUpParams;
+import com.emergentterrain.research.ConjecturePreRegistration;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
@@ -491,10 +492,12 @@ public class ResearchNarrationService {
         String k = s.k();
         String k2 = s.k2();
         StringBuilder b = new StringBuilder();
-        b.append("\n\nTWO-TERM TIGHTEN NOTE — your two-term composite on '").append(lhs).append("' HELD, ")
+        b.append("\n\nTWO-TERM SENSITIVITY NOTE — the pre-registered relation must remain a distinct ")
+                .append("executed test in the evidence. Your two-term composite on '").append(lhs).append("' HELD, ")
                 .append("but only LOOSELY, and you never showed where it BINDS (no REFUTED call) — so it is ")
                 .append("DOWNGRADED (binding-regime-uncovered) however strong the residual evidence. KEEP the ")
-                .append("structure k and k2 (they are the relation); tighten the INTERCEPT c. The verify tool ")
+                .append("structure k and k2 (they are the relation); this is a SENSITIVITY ANALYSIS that changes ")
+                .append("the INTERCEPT c, not a replacement for the registered hypothesis. The verify tool ")
                 .append("named the tightest intercept that still holds your windows as c≈").append(s.suggestedC())
                 .append(". Re-verify the composite at THAT c — verify_conjecture lhs=\"").append(lhs).append("\"")
                 .append(rhs != null ? ", rhs=\"" + rhs + "\"" : "")
@@ -514,6 +517,39 @@ public class ResearchNarrationService {
                 .append("worst-margin at the binding region — a composite left at the loose auto-fit c is not ")
                 .append("retained.");
         return b.toString();
+    }
+
+    static String buildExactPreRegistrationNote(PreRegistration registration) {
+        String directive = ConjecturePreRegistration.exactTestDirective(registration);
+        return "\n\nPRE-REGISTRATION EVIDENCE NOTE — the selected trace has not yet executed the exact "
+                + "registered relation. Before any exploratory or sensitivity work, make at least one "
+                + "held-out call using exactly: " + directive + ". Do not substitute a tool-suggested "
+                + "coefficient or intercept. Any different relation is a separately labelled sensitivity "
+                + "analysis and cannot replace this confirmatory call.";
+    }
+
+    static List<com.emergentterrain.llm.ToolInvocation> appendTrace(
+            List<com.emergentterrain.llm.ToolInvocation> prior,
+            List<com.emergentterrain.llm.ToolInvocation> corrective) {
+        List<com.emergentterrain.llm.ToolInvocation> combined = new ArrayList<>();
+        if (prior != null) combined.addAll(prior);
+        if (corrective != null) combined.addAll(corrective);
+        List<com.emergentterrain.llm.ToolInvocation> numbered = new ArrayList<>(combined.size());
+        for (int i = 0; i < combined.size(); i++) {
+            com.emergentterrain.llm.ToolInvocation invocation = combined.get(i);
+            if (invocation != null) {
+                numbered.add(new com.emergentterrain.llm.ToolInvocation(
+                        invocation.functionName(), invocation.argsJson(), invocation.resultJson(),
+                        invocation.round(), "call_" + (i + 1)));
+            }
+        }
+        return List.copyOf(numbered);
+    }
+
+    static String shiftCallMarkers(String prose, int offset) {
+        if (prose == null || prose.isBlank() || offset == 0) return prose;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\[call_(\\d+)]").matcher(prose);
+        return matcher.replaceAll(match -> "[call_" + (Integer.parseInt(match.group(1)) + offset) + "]");
     }
 
     /**
@@ -2455,7 +2491,9 @@ public class ResearchNarrationService {
                     ? memoryRecallService.recallBlock(draft.topicName()) : "";
             String userPrompt   = buildProfessorUserPrompt(
                     promptRegistry, draft, firstPass, literatureContext) + recallBlock
-                    + establishedConstantNote(draft);   // survivor-aware fallback guard (cite, don't re-measure)
+                    + establishedConstantNote(draft)   // survivor-aware fallback guard (cite, don't re-measure)
+                    + (ConjecturePreRegistration.isLocked(draft.preRegistration())
+                            ? buildExactPreRegistrationNote(draft.preRegistration()) : "");
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
             // the persisted LLM Call Path. Reviewers can then tell whether a Findings
@@ -2589,28 +2627,34 @@ public class ResearchNarrationService {
             // names the pair to verify; the second-order note demands engagement but
             // leaves the choice of object to the model (the directive holds the menu).
             int pivotReruns = 0;
+            // Keep all executed calls in the selected artifact. Corrective triggers, however,
+            // inspect only the newest pass so an earlier loose hold cannot retrigger after a
+            // later sensitivity probe has resolved it.
+            java.util.List<com.emergentterrain.llm.ToolInvocation> triggerTrace = profTrace;
             while (pivotReruns < pivotMaxRefinements
                     && draft.topicName() != null
                     && draft.topicName().startsWith("conjecture/")
                     && pivotRerunAllowed()) {
                 String topic = draft.topicName();
-                boolean offTarget = pivotEnabled
+                boolean exactPreRegistrationMissing = ConjecturePreRegistration.isLocked(draft.preRegistration())
+                        && !ConjecturePreRegistration.hasExactEvidence(draft.preRegistration(), profTrace);
+                boolean offTarget = !exactPreRegistrationMissing && pivotEnabled
                         && com.emergentterrain.research.ScoreCalibration
-                                .hypothesisLhsUncovered(topic, profTrace);
+                                .hypothesisLhsUncovered(topic, triggerTrace);
                 boolean secondOrderSkipped = !offTarget && secondOrderGateEnabled
                         && com.emergentterrain.research.ScoreCalibration
-                                .secondOrderEngagementSkipped(topic, profTrace);
+                                .secondOrderEngagementSkipped(topic, triggerTrace);
                 com.emergentterrain.research.ScoreCalibration.TightenSuggestion tighten =
                         (!offTarget && !secondOrderSkipped && tightenGateEnabled)
                         ? com.emergentterrain.research.ScoreCalibration
-                                .looseGrowthAnchorUntightened(topic, profTrace)
+                                .looseGrowthAnchorUntightened(topic, triggerTrace)
                         : null;
                 // Lowest-priority trigger (Phase 30 G2): a two-term composite held only loosely — tighten
                 // the intercept c toward the binding region. Only when no one-term trigger fired.
                 com.emergentterrain.research.ScoreCalibration.TwoTermTightenSuggestion twoTermTighten =
                         (!offTarget && !secondOrderSkipped && tighten == null && twoTermTightenGateEnabled)
                         ? com.emergentterrain.research.ScoreCalibration
-                                .looseTwoTermUntightened(topic, profTrace)
+                                .looseTwoTermUntightened(topic, triggerTrace)
                         : null;
                 // Lowest-priority trigger (Phase 30 G2 follow-on): a two-term composite that held TIGHTLY
                 // but never bound (no REFUTED call) — step c down to the binding region. Only when no loose
@@ -2619,9 +2663,9 @@ public class ResearchNarrationService {
                         (!offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
                                 && sharpnessProbeGateEnabled)
                         ? com.emergentterrain.research.ScoreCalibration
-                                .heldTwoTermNoBindingRegion(topic, profTrace)
+                                .heldTwoTermNoBindingRegion(topic, triggerTrace)
                         : null;
-                if (!offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
+                if (!exactPreRegistrationMissing && !offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
                         && sharpnessProbe == null) {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
                 }
@@ -2634,7 +2678,12 @@ public class ResearchNarrationService {
                 }
                 String preregLhs = topic.substring("conjecture/".length()).trim();
                 String pivotPrompt;
-                if (offTarget) {
+                if (exactPreRegistrationMissing) {
+                    callPath.add("prereg:pivot:exact_relation_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: exact pre-registration relation missing — corrective re-run {}/{} paperId={}",
+                            pivotReruns, pivotMaxRefinements, draft.paperId());
+                    pivotPrompt = userPrompt + buildExactPreRegistrationNote(draft.preRegistration());
+                } else if (offTarget) {
                     callPath.add("prereg:pivot:offtarget_rerun:n=" + pivotReruns);
                     log.info("LLM professor tools: off-target trace (preregistered lhs '{}' "
                                     + "never verified) — corrective re-run {}/{} paperId={}",
@@ -2679,26 +2728,28 @@ public class ResearchNarrationService {
                 if (pivotResponse.synthesis() != null && !pivotResponse.synthesis().isBlank()
                         && pivotResponse.trace() != null && !pivotResponse.trace().isEmpty()
                         && pivotMetrics.totalSuccesses() > 0) {
-                    professorSynthesis = pivotResponse.synthesis();
-                    profTrace = pivotResponse.trace();
+                    int priorTraceSize = profTrace == null ? 0 : profTrace.size();
+                    professorSynthesis = shiftCallMarkers(pivotResponse.synthesis(), priorTraceSize);
+                    profTrace = appendTrace(profTrace, pivotResponse.trace());
+                    triggerTrace = pivotResponse.trace();
                     boolean stillOff = pivotEnabled
                             && com.emergentterrain.research.ScoreCalibration
-                                    .hypothesisLhsUncovered(topic, profTrace);
+                                    .hypothesisLhsUncovered(topic, triggerTrace);
                     boolean stillSkipped = secondOrderGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
-                                    .secondOrderEngagementSkipped(topic, profTrace);
+                                    .secondOrderEngagementSkipped(topic, triggerTrace);
                     boolean stillLoose = tightenGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
-                                    .looseGrowthAnchorUntightened(topic, profTrace) != null;
+                                    .looseGrowthAnchorUntightened(topic, triggerTrace) != null;
                     boolean stillTwoTermLoose = twoTermTightenGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
-                                    .looseTwoTermUntightened(topic, profTrace) != null;
+                                    .looseTwoTermUntightened(topic, triggerTrace) != null;
                     // 2026-06-18 — without this, a sharpness re-run that did NOT add the binding region
                     // fell through to "on_target" (falsely "resolved") while the while-loop re-fired to
                     // the cap — masking churn. Stamp it so a still-uncovered probe is visible.
                     boolean stillSharpness = sharpnessProbeGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
-                                    .heldTwoTermNoBindingRegion(topic, profTrace) != null;
+                                    .heldTwoTermNoBindingRegion(topic, triggerTrace) != null;
                     callPath.add(stillOff
                             ? "prereg:pivot:still_offtarget"
                             : stillSkipped
@@ -2755,8 +2806,9 @@ public class ResearchNarrationService {
                 if (scopeResponse.synthesis() != null && !scopeResponse.synthesis().isBlank()
                         && scopeResponse.trace() != null && !scopeResponse.trace().isEmpty()
                         && scopeMetrics.totalSuccesses() > 0) {
-                    professorSynthesis = scopeResponse.synthesis();
-                    profTrace = scopeResponse.trace();
+                    int priorTraceSize = profTrace == null ? 0 : profTrace.size();
+                    professorSynthesis = shiftCallMarkers(scopeResponse.synthesis(), priorTraceSize);
+                    profTrace = appendTrace(profTrace, scopeResponse.trace());
                     boolean stillOverreach = !com.emergentterrain.research
                             .NumericalConsistencyValidator
                             .uncoveredProseRanges(professorSynthesis, profTrace).isEmpty();

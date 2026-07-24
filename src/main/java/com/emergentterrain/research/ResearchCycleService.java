@@ -794,7 +794,9 @@ public class ResearchCycleService {
                 null, null,
                 ctx.getPublishedPapers(roomId, 5),
                 author.getState().getResearchHypothesis(),
-                null,
+                // A measurement investigation has a different registered object; do not
+                // mislabel the miner's scaffold bound as its confirmatory test.
+                measurementSpec == null ? ConjecturePreRegistration.from(conjecture) : null,
                 ResultClassification.SUPPORTED,
                 null,
                 PaperKind.CONJECTURE_INVESTIGATION,
