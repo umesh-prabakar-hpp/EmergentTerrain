@@ -186,10 +186,40 @@ class SynthesisPaperServiceTest {
                 SynthesisPaperService.fullPaperLiterature(phase34, null, null, "prime gap bound");
 
         assertThat(literature.source()).isEqualTo("phase34-sqlite");
-        assertThat(literature.groundingBlock()).contains("Phase 34 SQLite theorem index")
+        assertThat(literature.groundingBlock()).contains("Phase 34 SQLite index")
                 .contains("[HF");
         assertThat(literature.reads()).contains("read_reference HF")
                 .contains("confirmed range");
+        assertThat(literature.relevanceSafeKeys()).isNotEmpty();
+        assertThat(literature.readKeys()).containsExactlyElementsOf(literature.relevanceSafeKeys());
+    }
+
+    @Test
+    void fullPaperPromotionRequiresRetrievedReadKeyAndMatchingCitation() {
+        SynthesisPaperService.FullPaperLiterature literature =
+                new SynthesisPaperService.FullPaperLiterature("[HF123] relevant", "read_reference HF123 — text",
+                        "phase34-sqlite", List.of("HF123"), List.of("HF123"));
+
+        assertThat(SynthesisPaperService.assessFullPaperPromotion(literature, null))
+                .extracting(SynthesisPaperService.FullPaperPromotionAssessment::retrievalAndReadReady,
+                        SynthesisPaperService.FullPaperPromotionAssessment::eligible)
+                .containsExactly(true, false);
+        assertThat(SynthesisPaperService.assessFullPaperPromotion(literature,
+                "This is adjacent work [HF999].").reason())
+                .isEqualTo("no_matching_related_work_citation_for_read_key");
+        assertThat(SynthesisPaperService.assessFullPaperPromotion(literature,
+                "This is related work [HF123].").eligible()).isTrue();
+    }
+
+    @Test
+    void fullPaperPromotionRejectsLegacyReadableSourceWithoutRelevanceSafeKey() {
+        SynthesisPaperService.FullPaperLiterature legacy =
+                new SynthesisPaperService.FullPaperLiterature("[W123] unrelated", "read_reference W123 — text",
+                        "legacy-grounding", List.of(), List.of());
+
+        assertThat(SynthesisPaperService.assessFullPaperPromotion(legacy,
+                "Unrelated readable work [W123].").reason())
+                .isEqualTo("no_relevance_safe_retrieval_key");
     }
 
     private Phase34SqliteLiterature indexedPhase34Adapter() throws Exception {

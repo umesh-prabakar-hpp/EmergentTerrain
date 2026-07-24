@@ -2292,6 +2292,21 @@ class PublishPaperTest {
     }
 
     @Test
+    void suppressedNarrationIsRecordedForTheEndOfRunSummary() {
+        PaperDraft draft = draftForTopic("MATHEMATICS", "conjecture/omega_Omega_gap",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft, NarrationResult.suppressed(NarrationResult.OutcomeStatus.ERROR,
+                Instant.now(), Instant.now(), 123L, 45L));
+
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, ?> suppressed = (java.util.Map<String, ?>)
+                ReflectionTestUtils.getField(service, "runSuppressedDrafts");
+        assertThat(suppressed).containsKey(draft.paperId());
+        assertThat(suppressed.get(draft.paperId()).toString())
+                .contains("conjecture/omega_Omega_gap").contains("narration_error");
+    }
+
+    @Test
     void equalWidthAdjacentPredicateBaselineScansRouteToNeedsRevision() {
         ReflectionTestUtils.setField(service, "predicateBaselineSensitivityGateEnabled", true);
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(

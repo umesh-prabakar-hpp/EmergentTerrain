@@ -98,6 +98,14 @@ public class SynthesisPaperService {
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.synthesis.full-paper.enabled:false}")
     private boolean fullPaperEnabled;
+    /**
+     * A full paper may use only relevance-safe Phase 35 evidence: a validated
+     * retrieval key, a successful read of that exact key, and an intro citation
+     * to that same key. Legacy grounding readability alone is not evidence.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.synthesis.full-paper.relevance-safe-promotion-gate.enabled:false}")
+    private boolean fullPaperRelevanceSafePromotionGateEnabled;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.literature.GroundingClient groundingClient;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -274,13 +282,30 @@ public class SynthesisPaperService {
             String headline = FullPaperComposer.class != null ? headlineOf(r) : null;
             FullPaperLiterature literature = fullPaperLiterature(phase34SqliteLiterature,
                     groundingClient, referenceReader, headline);
+            FullPaperPromotionAssessment retrievedEvidence =
+                    assessFullPaperPromotion(literature, null);
+            if (fullPaperRelevanceSafePromotionGateEnabled && !retrievedEvidence.retrievalAndReadReady()) {
+                log.warn("full-paper promotion blocked family={} reason={} (synthesis remains available for revision)",
+                        w.family(), retrievedEvidence.reason());
+                return;
+            }
             String intro = synthesizer.apply(FullPaperComposer.buildIntroRelatedWorkPrompt(
                     w.family(), headline, literature.groundingBlock(), literature.reads()));
+            if (intro == null || intro.isBlank() || SynthesisComposer.looksLikeLeakedReasoning(intro)) {
+                log.warn("full-paper: intro/abstract compose unusable family={} — skipped",
+                        w.family());
+                return;
+            }
+            FullPaperPromotionAssessment citedEvidence =
+                    assessFullPaperPromotion(literature, intro);
+            if (fullPaperRelevanceSafePromotionGateEnabled && !citedEvidence.eligible()) {
+                log.warn("full-paper promotion blocked family={} reason={} (synthesis remains available for revision)",
+                        w.family(), citedEvidence.reason());
+                return;
+            }
             String abstractText = synthesizer.apply(FullPaperComposer.buildAbstractPrompt(
                     r.title(), r.bodyMarkdown()));
-            if (intro == null || intro.isBlank() || abstractText == null
-                    || abstractText.isBlank()
-                    || SynthesisComposer.looksLikeLeakedReasoning(intro)) {
+            if (abstractText == null || abstractText.isBlank()) {
                 log.warn("full-paper: intro/abstract compose unusable family={} — skipped",
                         w.family());
                 return;
@@ -324,18 +349,21 @@ public class SynthesisPaperService {
             List<String> keys = phase34Keys(search);
             if (!keys.isEmpty()) {
                 StringBuilder reads = new StringBuilder();
+                List<String> readKeys = new ArrayList<>();
                 for (String key : keys.stream().limit(2).toList()) {
                     String passage = phase34.read(key, headline);
-                    if (passage != null && passage.startsWith("read_reference ")) {
+                    if (passage != null && passage.startsWith("read_reference " + key)) {
                         reads.append(passage, 0, Math.min(passage.length(),
                                 FullPaperComposer.MAX_READ_PASSAGE_CHARS)).append("\n---\n");
+                        readKeys.add(key);
                     }
                 }
-                return new FullPaperLiterature(search, reads.toString(), "phase34-sqlite");
+                return new FullPaperLiterature(search, reads.toString(), "phase34-sqlite",
+                        keys, List.copyOf(readKeys));
             }
         }
         if (grounding == null) {
-            return new FullPaperLiterature("", "", "none");
+            return new FullPaperLiterature("", "", "none", List.of(), List.of());
         }
         var result = grounding.ground(headline, 5);
         String groundingBlock = FullPaperComposer.renderGroundingBlock(result);
@@ -353,7 +381,8 @@ public class SynthesisPaperService {
                 }
             }
         }
-        return new FullPaperLiterature(groundingBlock, reads.toString(), "legacy-grounding");
+        return new FullPaperLiterature(groundingBlock, reads.toString(), "legacy-grounding",
+                List.of(), List.of());
     }
 
     private static List<String> phase34Keys(String searchResult) {
@@ -366,7 +395,42 @@ public class SynthesisPaperService {
         return List.copyOf(keys);
     }
 
-    record FullPaperLiterature(String groundingBlock, String reads, String source) {
+    record FullPaperLiterature(String groundingBlock, String reads, String source,
+                               List<String> relevanceSafeKeys, List<String> readKeys) {
+        FullPaperLiterature {
+            relevanceSafeKeys = relevanceSafeKeys == null ? List.of() : List.copyOf(relevanceSafeKeys);
+            readKeys = readKeys == null ? List.of() : List.copyOf(readKeys);
+        }
+    }
+
+    /** Pure eligibility check for the full-paper literature gate. */
+    static FullPaperPromotionAssessment assessFullPaperPromotion(FullPaperLiterature literature,
+                                                                   String introRelatedWork) {
+        if (literature == null || literature.relevanceSafeKeys().isEmpty()) {
+            return new FullPaperPromotionAssessment(false, false, null,
+                    "no_relevance_safe_retrieval_key");
+        }
+        List<String> readKeys = literature.relevanceSafeKeys().stream()
+                .filter(literature.readKeys()::contains)
+                .toList();
+        if (readKeys.isEmpty()) {
+            return new FullPaperPromotionAssessment(false, false, null,
+                    "no_successful_read_reference_for_retrieval_key");
+        }
+        if (introRelatedWork == null) {
+            return new FullPaperPromotionAssessment(true, false, null, "citation_pending");
+        }
+        for (String key : readKeys) {
+            if (introRelatedWork.contains("[" + key + "]")) {
+                return new FullPaperPromotionAssessment(true, true, key, "eligible");
+            }
+        }
+        return new FullPaperPromotionAssessment(true, false, null,
+                "no_matching_related_work_citation_for_read_key");
+    }
+
+    record FullPaperPromotionAssessment(boolean retrievalAndReadReady, boolean eligible,
+                                        String citedKey, String reason) {
     }
 
     /** Render-1 polish — strip a leading "**Heading**" bold echo from a composed section. */

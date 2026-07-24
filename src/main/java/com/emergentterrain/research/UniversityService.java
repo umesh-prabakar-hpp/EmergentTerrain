@@ -302,6 +302,8 @@ public class UniversityService {
     /** Papers emitted by this JVM only. This deliberately does not reuse {@link #published}, whose
      * per-room cache may be seeded from prior database rows at startup. */
     private final ConcurrentHashMap<String, RunCreatedPaper> runCreatedPapers = new ConcurrentHashMap<>();
+    /** Drafts intentionally suppressed by this JVM only; printed beside the durable run summary. */
+    private final ConcurrentHashMap<String, RunSuppressedDraft> runSuppressedDrafts = new ConcurrentHashMap<>();
     private static final Pattern CITED_PAPER_PATTERN = Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
 
     // (Replication threshold + queue moved to ReplicationService in Phase 0 Task 0.3b.)
@@ -993,9 +995,12 @@ public class UniversityService {
         if (narration == null || narration.isSuppressed()) {
             researchCycleService.decrementDraftQueue(draft.paperId());
             if (narration == null) {
+                recordRunSuppressedDraft(draft, "blank_narration");
                 log.warn("university draft suppressed (blank professor synthesis) paperId={} domain={} topic={}",
                         draft.paperId(), draft.domain(), draft.topicName());
             } else {
+                recordRunSuppressedDraft(draft, "narration_"
+                        + String.valueOf(narration.status()).toLowerCase(Locale.ROOT));
                 long durationMs = narration.startedAt() != null && narration.completedAt() != null
                         ? java.time.Duration.between(narration.startedAt(), narration.completedAt()).toMillis()
                         : -1L;
@@ -1686,6 +1691,7 @@ public class UniversityService {
         // missing) on its next refresh.
         if (numericallyInconsistent
                 && "suppress".equals(numericalConsistencyMode)) {
+            recordRunSuppressedDraft(draft, "numeric_inconsistent");
             log.warn("numeric_inconsistent→suppressed paperId={} reasons={} (Phase 12 D2)",
                     draft.paperId(), consistencyFailures);
             researchCycleService.decrementDraftQueue(draft.paperId());
@@ -1698,6 +1704,7 @@ public class UniversityService {
         // NEEDS_REVISION stamp (no Methods section to revise). Default mode
         // is `downgrade`, preserving the prior status-precedence behaviour.
         if (noMethods && "suppress".equals(missingMethodsGateMode)) {
+            recordRunSuppressedDraft(draft, "missing_methods");
             log.warn("missing-methods→suppressed paperId={} (toolCallTrace null/empty)",
                     draft.paperId());
             researchCycleService.decrementDraftQueue(draft.paperId());
@@ -2977,16 +2984,39 @@ public class UniversityService {
         created.sort(Comparator.comparing(RunCreatedPaper::paperId));
         if (created.isEmpty()) {
             log.info("Run paper summary: no papers were created in this application run.");
-            return;
+        } else {
+            String list = created.stream()
+                    .map(p -> "  - " + p.paperId() + " — " + p.title() + " [" + p.status() + "]")
+                    .collect(Collectors.joining(System.lineSeparator()));
+            log.info("Run paper summary: {} paper(s) created in this application run:{}{}",
+                    created.size(), System.lineSeparator(), list);
         }
-        String list = created.stream()
-                .map(p -> "  - " + p.paperId() + " — " + p.title() + " [" + p.status() + "]")
-                .collect(Collectors.joining(System.lineSeparator()));
-        log.info("Run paper summary: {} paper(s) created in this application run:{}{}",
-                created.size(), System.lineSeparator(), list);
+
+        List<RunSuppressedDraft> suppressed = new ArrayList<>(runSuppressedDrafts.values());
+        suppressed.sort(Comparator.comparing(RunSuppressedDraft::paperId));
+        if (!suppressed.isEmpty()) {
+            String list = suppressed.stream()
+                    .map(d -> "  - " + d.paperId() + " — " + d.domain() + " / " + d.topic()
+                            + " [suppressed: " + d.reason() + "]")
+                    .collect(Collectors.joining(System.lineSeparator()));
+            log.info("Run suppressed draft summary: {} draft(s) intentionally suppressed in this application run:{}{}",
+                    suppressed.size(), System.lineSeparator(), list);
+        }
     }
 
     private record RunCreatedPaper(String paperId, String title, String status) {}
+    private record RunSuppressedDraft(String paperId, String domain, String topic, String reason) {}
+
+    private void recordRunSuppressedDraft(PaperDraft draft, String reason) {
+        if (draft == null || draft.paperId() == null || draft.paperId().isBlank()) {
+            return;
+        }
+        runSuppressedDrafts.putIfAbsent(draft.paperId(), new RunSuppressedDraft(
+                draft.paperId(),
+                draft.domain() == null || draft.domain().isBlank() ? "UNKNOWN" : draft.domain(),
+                draft.topicName() == null || draft.topicName().isBlank() ? "UNKNOWN" : draft.topicName(),
+                reason == null || reason.isBlank() ? "unknown" : reason));
+    }
 
     /**
      * Persist the source paper before mirroring it to the transient cache and markdown fallback.
