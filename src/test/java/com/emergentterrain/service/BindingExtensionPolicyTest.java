@@ -17,6 +17,10 @@ class BindingExtensionPolicyTest {
         return new ToolInvocation("verify_conjecture", "{}", result, 0);
     }
 
+    private static ToolInvocation verify(String args, String result) {
+        return new ToolInvocation("verify_conjecture", args, result, 0);
+    }
+
     private final BindingExtensionPolicy policy = new BindingExtensionPolicy();
 
     @Test
@@ -59,5 +63,30 @@ class BindingExtensionPolicyTest {
         assertThat(BindingExtensionPolicy.hasRelSlackBelow("relative slack: 0.0100", 0.01)).isFalse();
         assertThat(BindingExtensionPolicy.hasRelSlackBelow("no slack here", 0.01)).isFalse();
         assertThat(BindingExtensionPolicy.hasRelSlackBelow("relative slack: garbage", 0.01)).isFalse();
+    }
+
+    @Test
+    void toolNamedRefutation_preservesTheHeldGridAndUsesTheExactIntercept() {
+        String args = "{\"lhs\":\"cramer_gap_ratio\",\"rhs\":\"deficient_density\","
+                + "\"rhs2\":\"omega_excess_density\",\"k\":2,\"k2\":2,"
+                + "\"c\":-1.4005,\"window_start\":1200007,\"window_size\":5000,"
+                + "\"num_windows\":10}";
+        var completion = policy.forcedBindingRefutation(List.of(verify(args,
+                "verify_conjecture: x <= y HELD across 10 window(s). TIGHT HOLD — one call "
+                        + "from the demonstrated binding pair: re-verify with c=-1.48048 "
+                        + "(same k/k2; it should REFUTE).")));
+
+        assertThat(completion).isPresent();
+        assertThat(completion.orElseThrow().functionName()).isEqualTo("verify_conjecture");
+        assertThat(completion.orElseThrow().argumentsJson()).isEqualTo(args);
+        assertThat(completion.orElseThrow().intercept()).isEqualTo("-1.48048");
+    }
+
+    @Test
+    void toolNamedRefutation_doesNotRunAfterAnyRefutedVerification() {
+        assertThat(policy.forcedBindingRefutation(List.of(
+                verify("verify_conjecture: x <= y HELD across 10 window(s). TIGHT HOLD — "
+                        + "re-verify with c=-1.48048."),
+                verify("verify_conjecture: x <= y REFUTED across 10 window(s).")))).isEmpty();
     }
 }

@@ -6,6 +6,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Phase 33 lane D (D1, 2026-07-05) — adaptive round extension on a live result. The tool loop's
@@ -27,6 +30,13 @@ import java.util.List;
 @ConditionalOnProperty(value = "app.research.professor.extra-rounds-on-binding.enabled",
         havingValue = "true")
 public class BindingExtensionPolicy {
+
+    private static final Pattern TOOL_NAMED_REFUTATION = Pattern.compile(
+            "TIGHT HOLD[^\\n]*?re-verify with c=([+-]?[0-9]+(?:\\.[0-9]+)?)",
+            Pattern.CASE_INSENSITIVE);
+
+    /** A verification call selected by the instrument itself to complete a binding pair. */
+    public record ForcedToolCall(String functionName, String argumentsJson, String intercept) {}
 
     /** Relative slack below which a held bound counts as tight enough to be worth completing. */
     static final double NEAR_BINDING_REL_SLACK = 0.01;
@@ -74,6 +84,35 @@ public class BindingExtensionPolicy {
                 + "Your tight-hold tool result names the exact refuting intercept (\"TIGHT HOLD — "
                 + "… re-verify with c=…\"): make THAT call verbatim. Do NOT verify more holds. "
                 + "Then write your synthesis reporting the hold+refute pair.";
+    }
+
+    /**
+     * Return the exact same-grid refutation call named by a {@code TIGHT HOLD} result, but only
+     * while the trace has no actual refutation. The verifier supplies the intercept, so this
+     * policy never estimates or invents a counterexample parameter itself.
+     */
+    public Optional<ForcedToolCall> forcedBindingRefutation(List<ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) {
+            return Optional.empty();
+        }
+        for (ToolInvocation call : trace) {
+            String result = call == null ? null : call.resultJson();
+            if (result != null && result.contains(" REFUTED across")) {
+                return Optional.empty();
+            }
+        }
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())
+                    || call.argsJson() == null || call.resultJson() == null
+                    || !call.resultJson().contains(" HELD across")) {
+                continue;
+            }
+            Matcher m = TOOL_NAMED_REFUTATION.matcher(call.resultJson());
+            if (m.find()) {
+                return Optional.of(new ForcedToolCall(call.functionName(), call.argsJson(), m.group(1)));
+            }
+        }
+        return Optional.empty();
     }
 
     /** Parse "relative slack: X" from a verification result; true iff present and X < threshold. */
