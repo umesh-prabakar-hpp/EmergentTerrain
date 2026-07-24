@@ -429,6 +429,11 @@ public class UniversityService {
             "${app.research.predicate-baseline-sensitivity-gate.enabled:false}")
     private boolean predicateBaselineSensitivityGateEnabled;
 
+    /** A dynamic predicate study must execute its pre-computation baseline/window plan. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.predicate-study-preregistration-gate.enabled:false}")
+    private boolean predicateStudyPreRegistrationGateEnabled;
+
     /**
      * Phase 32 Wave 0 (32.1) — verified-values manifest capture. When on,
      * every published paper gets a {@code .manifest.json} sidecar beside its
@@ -1261,6 +1266,14 @@ public class UniversityService {
                             + "(selected trace lacks the exact locked conjecture relation)",
                     draft.paperId());
         }
+        boolean predicateStudyPreRegistrationUncovered = predicateStudyPreRegistrationGateEnabled
+                && PredicateStudyPreRegistration.isLocked(draft.preRegistration())
+                && !PredicateStudyPreRegistration.hasExactEvidence(
+                        draft.preRegistration(), narration.toolCallTrace());
+        if (predicateStudyPreRegistrationUncovered) {
+            log.warn("predicate-study pre-registration check failed paperId={} "
+                            + "(selected trace lacks one or more registered scans)", draft.paperId());
+        }
         boolean affineBindingClaimUncovered = affineBindingClaimGateEnabled
                 && AffineBindingClaimValidator.claimWithoutDocumentedPair(
                         hypothesis, findings, conclusion, narration.toolCallTrace());
@@ -1751,6 +1764,9 @@ public class UniversityService {
             // sensitivity or binding probe is not confirmatory evidence.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (predicateStudyPreRegistrationUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (affineBindingClaimUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -1906,6 +1922,11 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:affine_binding_pair_uncovered→needs_revision"
                     : persistedCallPath + " → publish:affine_binding_pair_uncovered→needs_revision";
+        }
+        if (predicateStudyPreRegistrationUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:predicate_study_preregistration_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:predicate_study_preregistration_uncovered→needs_revision";
         }
         if (predicateBaselineSensitivityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

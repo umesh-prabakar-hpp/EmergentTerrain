@@ -2247,11 +2247,27 @@ class PublishPaperTest {
                 .contains("publish:predicate_baseline_sensitivity_uncovered→needs_revision");
     }
 
+    @Test
+    void missingPredicateStudyPreRegistrationScanRoutesToNeedsRevision() {
+        ReflectionTestUtils.setField(service, "predicateStudyPreRegistrationGateEnabled", true);
+        PreRegistration registration = PredicateStudyPreRegistration.from(new DynamicProblem(
+                "d-1", "abundant finite density", 350, 850,
+                "isAbundant", "fraction_satisfying", 0.22, "Finite comparison."));
+        service.publishPaper(draftWithTemplate(ResultClassification.SUPPORTED,
+                        "Finite comparison.", "Finite conclusion.", 0.5, registration),
+                new NarrationResult("Finite comparison.", "Exact finite result.", "Finite conclusion.",
+                        null, null, 0.8, List.of()).withToolCallTrace(List.of(predicateScan(350, 850))));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:predicate_study_preregistration_uncovered→needs_revision");
+    }
+
     private static com.emergentterrain.llm.ToolInvocation predicateScan(long start, long end) {
         return new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
                 "{\"predicate\":\"isAbundant\",\"range_start\":" + start
                         + ",\"range_end\":" + end + ",\"metric\":\"fraction_satisfying\","
-                        + "\"baseline\":0.22,\"hypothesis\":\"finite comparison\"}", "exact", 0);
+                        + "\"baseline\":0.22,\"hypothesis\":\"finite comparison\"}", "Predicate scan: exact", 0);
     }
 
     // ---- Helper factories ----

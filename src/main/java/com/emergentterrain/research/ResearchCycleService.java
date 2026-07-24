@@ -1379,6 +1379,10 @@ public class ResearchCycleService {
     private void runDynamicCycle(UUID roomId, Researcher author, List<Researcher> pool,
                                  DynamicProblem directive, Random rng, long gameTick,
                                  boolean peerReviewEnabled, Context ctx) {
+        // Lock the finite comparison design before the first census runs. The professor later
+        // receives the same three ranges as required trace evidence; it cannot choose them after
+        // seeing this initial result.
+        PreRegistration predicateStudyPreReg = PredicateStudyPreRegistration.from(directive);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(author.getState().getGenome());
         MathPhysicsEngine.ResearchResult result = DynamicComputeEngine.compute(directive);
 
@@ -1447,7 +1451,7 @@ public class ResearchCycleService {
                     author.getGeneration(), paperId, null, null, false,
                     null, null,
                     ctx.getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
-                    null, dynClassification, null);
+                    predicateStudyPreReg, dynClassification, null);
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {

@@ -8,6 +8,7 @@ import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PredicateBaselineSensitivityValidator;
+import com.emergentterrain.research.PredicateStudyPreRegistration;
 import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.PromptSanitizer;
 import com.emergentterrain.research.PromptTemplateIds;
@@ -538,6 +539,16 @@ public class ResearchNarrationService {
                 + "run_predicate_scan calls with the same baseline: use two distinct window widths and "
                 + "one overlapping offset window. Report exact finite-window values and do not claim "
                 + "persistence or an asymptotic density unless the trace supports it.";
+    }
+
+    static String buildPredicateStudyPreRegistrationNote(PreRegistration registration) {
+        String directive = PredicateStudyPreRegistration.exactTestDirective(registration);
+        if (directive.isBlank()) return "";
+        return "\n\nPREDICATE-STUDY PRE-REGISTRATION NOTE — before the initial census, the study "
+                + "locked its predicate, metric, baseline, primary range, offset range, and second "
+                + "width. Execute every registered run_predicate_scan call exactly: " + directive + ". "
+                + "Additional scans are exploratory and cannot replace these calls. Report only exact "
+                + "finite-window comparisons; do not infer persistence or asymptotic behavior.";
     }
 
     static List<com.emergentterrain.llm.ToolInvocation> appendTrace(
@@ -2506,6 +2517,8 @@ public class ResearchNarrationService {
                     + establishedConstantNote(draft)   // survivor-aware fallback guard (cite, don't re-measure)
                     + (ConjecturePreRegistration.isLocked(draft.preRegistration())
                             ? buildExactPreRegistrationNote(draft.preRegistration()) : "")
+                    + (PredicateStudyPreRegistration.isLocked(draft.preRegistration())
+                            ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
                     + buildPredicateBaselineSensitivityNote(draft);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on

@@ -3,7 +3,9 @@ package com.emergentterrain.service;
 import org.junit.jupiter.api.Test;
 
 import com.emergentterrain.llm.ToolInvocation;
+import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.PaperDraft;
+import com.emergentterrain.research.PredicateStudyPreRegistration;
 
 import java.util.List;
 
@@ -59,6 +61,17 @@ class PivotNoteTest {
                 com.emergentterrain.research.ResultClassification.SUPPORTED, null);
         assertThat(ResearchNarrationService.buildPredicateBaselineSensitivityNote(draft))
                 .contains("two distinct window widths").contains("overlapping offset window");
+    }
+
+    @Test
+    void predicateStudyPreRegistrationNoteNamesTheLockedWindows() {
+        var registration = PredicateStudyPreRegistration.from(new DynamicProblem(
+                "d-1", "abundant finite density", 350, 850,
+                "isAbundant", "fraction_satisfying", 0.22, "Finite comparison."));
+
+        assertThat(ResearchNarrationService.buildPredicateStudyPreRegistrationNote(registration))
+                .contains("PREDICATE-STUDY PRE-REGISTRATION NOTE")
+                .contains("baseline=0.22").contains("[350,850)").contains("[475,975)");
     }
 
     @Test
