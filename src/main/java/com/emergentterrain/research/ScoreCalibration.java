@@ -194,6 +194,55 @@ public final class ScoreCalibration {
             "cramer_gap_ratio", "a Cramér-type constant");
 
     /**
+     * True when a constant-framed conjecture was tested as an affine bound but
+     * never measured with its direct, two-sided {@code verify_constant} frame.
+     * A one-sided ceiling on a settling quantity is not sufficient evidence for
+     * publication: it can hold with a nearly invariant covariate while saying
+     * nothing about the quantity's limiting behavior.
+     *
+     * <p>The check is deliberately topic- and LHS-specific. An unrelated
+     * {@code verify_constant} call cannot satisfy it, and a failed/unavailable
+     * direct measurement does not count as executed evidence. A measurement may
+     * report either convergence or non-convergence; both are valid direct
+     * observations and belong in a revisable paper.
+     */
+    public static boolean constantFrameDirectMeasurementMissing(String topic,
+                                                                  List<ToolInvocation> trace) {
+        if (topic == null || !topic.startsWith("conjecture/") || trace == null || trace.isEmpty()) {
+            return false;
+        }
+        String lhs = topic.substring("conjecture/".length()).trim();
+        if (!CONSTANT_FRAMED_LHS.containsKey(lhs)) {
+            return false;
+        }
+        boolean affineBoundTested = false;
+        for (ToolInvocation call : trace) {
+            if (call == null || !lhs.equals(extractLhsArg(call.argsJson()))) {
+                continue;
+            }
+            if ("verify_constant".equals(call.functionName()) && usableMeasurement(call.resultJson())) {
+                return false;
+            }
+            if ("verify_conjecture".equals(call.functionName())) {
+                affineBoundTested = true;
+            }
+        }
+        return affineBoundTested;
+    }
+
+    private static boolean usableMeasurement(String result) {
+        if (result == null || result.isBlank()) {
+            return false;
+        }
+        String normalized = result.toLowerCase(java.util.Locale.ROOT);
+        return !normalized.contains("unavailable")
+                && !normalized.startsWith("invalid ")
+                && !normalized.contains(" evaluation error")
+                && !normalized.contains(" transport failure")
+                && !normalized.contains(" failed:");
+    }
+
+    /**
      * The result-frame tools that engage second-order structure (a converged
      * constant, an oscillation envelope, a growth law) — as opposed to
      * {@code verify_conjecture}, which only tests a bound on the raw quantity.

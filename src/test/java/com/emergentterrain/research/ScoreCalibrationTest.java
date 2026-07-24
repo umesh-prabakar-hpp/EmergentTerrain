@@ -474,6 +474,35 @@ class ScoreCalibrationTest {
     }
 
     @Test
+    void constantFramedAffineTraceRequiresUsableDirectMeasurement() {
+        List<ToolInvocation> affineOnly = List.of(verify(
+                "{\"lhs\":\"cramer_gap_ratio\",\"rhs\":\"deficient_density\"}",
+                "verify_conjecture: cramer_gap_ratio <= ... HELD across 20 window(s)."));
+        assertTrue(ScoreCalibration.constantFrameDirectMeasurementMissing(
+                "conjecture/cramer_gap_ratio", affineOnly));
+
+        List<ToolInvocation> direct = List.of(
+                affineOnly.getFirst(),
+                new ToolInvocation("verify_constant", "{\"lhs\":\"cramer_gap_ratio\"}",
+                        "verify_constant: cramer_gap_ratio ~ 0.41 over 20 window(s). NOT converged.",
+                        0, "call_2"));
+        assertFalse(ScoreCalibration.constantFrameDirectMeasurementMissing(
+                "conjecture/cramer_gap_ratio", direct));
+    }
+
+    @Test
+    void constantFramedGateRejectsUnavailableOrOffTargetMeasurement() {
+        ToolInvocation affine = verify("{\"lhs\":\"cramer_gap_ratio\"}",
+                "verify_conjecture: cramer_gap_ratio <= ... HELD across 20 window(s).");
+        assertTrue(ScoreCalibration.constantFrameDirectMeasurementMissing("conjecture/cramer_gap_ratio",
+                List.of(affine, new ToolInvocation("verify_constant", "{\"lhs\":\"omega_ek_ratio\"}",
+                        "verify_constant: omega_ek_ratio ~ 1 CONVERGED", 0, "call_2"))));
+        assertTrue(ScoreCalibration.constantFrameDirectMeasurementMissing("conjecture/cramer_gap_ratio",
+                List.of(affine, new ToolInvocation("verify_constant", "{\"lhs\":\"cramer_gap_ratio\"}",
+                        "verify_constant unavailable: Julia sidecar down", 0, "call_3"))));
+    }
+
+    @Test
     void sharpnessProbe_nullWhenConstantOrOscillationFramed() {
         // 2026-06-18 churn fix: a converged-constant paper (verify_constant present, e.g.
         // omega_Omega_gap → 0.77316) has no binding region — the probe must NOT fire, else the

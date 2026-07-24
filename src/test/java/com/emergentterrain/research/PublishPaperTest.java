@@ -2257,6 +2257,41 @@ class PublishPaperTest {
     }
 
     @Test
+    void constantFramedAffineProxyWithoutDirectMeasurementRoutesToNeedsRevision() {
+        ReflectionTestUtils.setField(service, "constantFrameDirectMeasurementGateEnabled", true);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"lhs\":\"cramer_gap_ratio\",\"rhs\":\"deficient_density\","
+                                + "\"k\":2,\"c\":-1.0478}",
+                        "verify_conjecture: cramer_gap_ratio <= +2.0 * deficient_density - 1.0478 "
+                                + "HELD across 20 window(s).", 0));
+        PaperDraft draft = draftForTopic("MATHEMATICS", "conjecture/cramer_gap_ratio",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft, narration(0.8).withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:constant_frame_direct_measurement_missing→needs_revision");
+    }
+
+    @Test
+    void constantFramedDirectMeasurementAllowsPublication() {
+        ReflectionTestUtils.setField(service, "constantFrameDirectMeasurementGateEnabled", true);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"lhs\":\"cramer_gap_ratio\",\"rhs\":\"deficient_density\"}",
+                        "verify_conjecture: cramer_gap_ratio <= ... HELD across 20 window(s).", 0),
+                new com.emergentterrain.llm.ToolInvocation("verify_constant",
+                        "{\"lhs\":\"cramer_gap_ratio\",\"target\":0.36}",
+                        "verify_constant: cramer_gap_ratio ~ 0.41 over 20 window(s). NOT converged.", 0));
+        PaperDraft draft = draftForTopic("MATHEMATICS", "conjecture/cramer_gap_ratio",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft, narration(0.8).withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
     void equalWidthAdjacentPredicateBaselineScansRouteToNeedsRevision() {
         ReflectionTestUtils.setField(service, "predicateBaselineSensitivityGateEnabled", true);
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(

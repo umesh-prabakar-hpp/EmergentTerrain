@@ -419,6 +419,15 @@ public class UniversityService {
             "${app.research.hypothesis-lhs-coverage-gate.enabled:false}")
     private boolean hypothesisLhsCoverageGateEnabled;
 
+    /**
+     * Publication backstop for constant-framed conjectures. A selected trace
+     * that tested only an affine ceiling must also contain a usable direct
+     * {@code verify_constant} measurement for the topic LHS.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.constant-frame-direct-measurement-gate.enabled:false}")
+    private boolean constantFrameDirectMeasurementGateEnabled;
+
     /** A binding claim needs its exact same-grid HOLD/REFUTED pair, even in a measurement paper. */
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.affine-binding-claim-gate.enabled:false}")
@@ -1259,6 +1268,14 @@ public class UniversityService {
                     + "(conjecture topic '{}' has no verify_* call with its LHS)",
                     draft.paperId(), draft.topicName());
         }
+        boolean constantFrameDirectMeasurementMissing = constantFrameDirectMeasurementGateEnabled
+                && ScoreCalibration.constantFrameDirectMeasurementMissing(
+                        draft.topicName(), narration.toolCallTrace());
+        if (constantFrameDirectMeasurementMissing) {
+            log.warn("constant-frame direct-measurement check failed paperId={} "
+                            + "(affine verification of '{}' lacks usable verify_constant evidence)",
+                    draft.paperId(), draft.topicName());
+        }
         // A locked conjecture relation is stronger than an LHS-only check: a paper may
         // verify the right scalar while silently substituting a fitted intercept or slope.
         // Sensitivity calls remain useful evidence, but they cannot stand in for the
@@ -1772,6 +1789,11 @@ public class UniversityService {
             // the professor stage against the preregistered pair.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (constantFrameDirectMeasurementMissing) {
+            // A constant-framed scalar's direct two-sided measurement is the
+            // result; an affine ceiling alone is only exploratory evidence.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (exactPreRegistrationUncovered) {
             // The exact registered parameters were never executed. A substituted
             // sensitivity or binding probe is not confirmatory evidence.
@@ -1933,6 +1955,12 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:hypothesis_lhs_uncovered→needs_revision"
                     : persistedCallPath + " → publish:hypothesis_lhs_uncovered→needs_revision";
+        }
+        if (constantFrameDirectMeasurementMissing) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:constant_frame_direct_measurement_missing→needs_revision"
+                    : persistedCallPath
+                            + " → publish:constant_frame_direct_measurement_missing→needs_revision";
         }
         if (affineBindingClaimUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
