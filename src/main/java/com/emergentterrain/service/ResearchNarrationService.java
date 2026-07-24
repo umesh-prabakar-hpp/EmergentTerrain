@@ -7,6 +7,7 @@ import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
+import com.emergentterrain.research.PredicateBaselineSensitivityValidator;
 import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.PromptSanitizer;
 import com.emergentterrain.research.PromptTemplateIds;
@@ -526,6 +527,17 @@ public class ResearchNarrationService {
                 + "held-out call using exactly: " + directive + ". Do not substitute a tool-suggested "
                 + "coefficient or intercept. Any different relation is a separately labelled sensitivity "
                 + "analysis and cannot replace this confirmatory call.";
+    }
+
+    static String buildPredicateBaselineSensitivityNote(PaperDraft draft) {
+        String seed = (draft.templateHypothesis() == null ? "" : draft.templateHypothesis())
+                + "\n" + (draft.rawFindings() == null ? "" : draft.rawFindings());
+        if (!PredicateBaselineSensitivityValidator.mentionsBaseline(seed)) return "";
+        return "\n\nBASELINE-SENSITIVITY NOTE — a finite predicate census compared with a baseline is "
+                + "not established by adjacent equal-width intervals alone. Retain at least three "
+                + "run_predicate_scan calls with the same baseline: use two distinct window widths and "
+                + "one overlapping offset window. Report exact finite-window values and do not claim "
+                + "persistence or an asymptotic density unless the trace supports it.";
     }
 
     static List<com.emergentterrain.llm.ToolInvocation> appendTrace(
@@ -2493,7 +2505,8 @@ public class ResearchNarrationService {
                     promptRegistry, draft, firstPass, literatureContext) + recallBlock
                     + establishedConstantNote(draft)   // survivor-aware fallback guard (cite, don't re-measure)
                     + (ConjecturePreRegistration.isLocked(draft.preRegistration())
-                            ? buildExactPreRegistrationNote(draft.preRegistration()) : "");
+                            ? buildExactPreRegistrationNote(draft.preRegistration()) : "")
+                    + buildPredicateBaselineSensitivityNote(draft);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
             // the persisted LLM Call Path. Reviewers can then tell whether a Findings

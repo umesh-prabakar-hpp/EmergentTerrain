@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -2208,6 +2209,49 @@ class PublishPaperTest {
         NarrationResult narration = narrationWithAuditGaps(0.8, List.of("uncertainty", "boundary_answer"));
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- 2026-07-23: binding-pair and predicate-baseline-sensitivity publication gates ----
+
+    @Test
+    void affineBindingClaimWithoutDocumentedPairRoutesToNeedsRevision() {
+        ReflectionTestUtils.setField(service, "affineBindingClaimGateEnabled", true);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":0,"
+                                + "\"window_start\":1000000,\"window_size\":5000,\"num_windows\":10}",
+                        "verify_conjecture: x <= +1.0 * y + +0.0 HELD across 10 window(s) of size 5000 "
+                                + "starting at 1000000. worst margin: -0.02000 at window starting 1000000. "
+                                + "relative slack: 0.0005", 0));
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5),
+                new NarrationResult("This is a demonstrated binding regime.", "Finite result.",
+                        "The binding regime is established.", null, null, 0.8, List.of())
+                        .withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath()).contains("publish:affine_binding_pair_uncovered→needs_revision");
+    }
+
+    @Test
+    void equalWidthAdjacentPredicateBaselineScansRouteToNeedsRevision() {
+        ReflectionTestUtils.setField(service, "predicateBaselineSensitivityGateEnabled", true);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                predicateScan(350, 850), predicateScan(850, 1350), predicateScan(1350, 1850));
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5),
+                new NarrationResult("Finite comparison.", "The exact baseline is 0.220.",
+                        "The finite baseline comparison is reported.", null, null, 0.8, List.of())
+                        .withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:predicate_baseline_sensitivity_uncovered→needs_revision");
+    }
+
+    private static com.emergentterrain.llm.ToolInvocation predicateScan(long start, long end) {
+        return new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
+                "{\"predicate\":\"isAbundant\",\"range_start\":" + start
+                        + ",\"range_end\":" + end + ",\"metric\":\"fraction_satisfying\","
+                        + "\"baseline\":0.22,\"hypothesis\":\"finite comparison\"}", "exact", 0);
     }
 
     // ---- Helper factories ----

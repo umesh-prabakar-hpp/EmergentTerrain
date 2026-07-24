@@ -1,6 +1,8 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.llm.ToolInvocation;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -17,7 +19,7 @@ import java.util.regex.Pattern;
  * completes the binding demonstration, and P-774/783 posed follow-ups their own trace had no
  * rounds to run. When the loop is about to end and the accumulated trace shows an INCOMPLETE
  * high-value verification state — a tightly-held bound (small relative slack) with no refuting
- * counterpart anywhere in the trace — grant {@link #extraRounds()} more rounds, once, with an
+ * counterpart for the same relation and grid — grant {@link #extraRounds()} more rounds, once, with an
  * explicit hint injected so the extension is spent on completing the pair.
  *
  * <p>Detection reads the tool RESULT text the verification tools own (the same stable fragments
@@ -34,6 +36,7 @@ public class BindingExtensionPolicy {
     private static final Pattern TOOL_NAMED_REFUTATION = Pattern.compile(
             "TIGHT HOLD[^\\n]*?re-verify with c=([+-]?[0-9]+(?:\\.[0-9]+)?)",
             Pattern.CASE_INSENSITIVE);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     /** A verification call selected by the instrument itself to complete a binding pair. */
     public record ForcedToolCall(String functionName, String argumentsJson, String intercept) {}
@@ -50,28 +53,24 @@ public class BindingExtensionPolicy {
 
     /**
      * True when the trace holds a tightly-held verification (relative slack <
-     * {@link #NEAR_BINDING_REL_SLACK}) and NO refuted verdict anywhere — the half-finished
-     * binding pair. A trace with a REFUTED already has its demonstration half; a trace with only
-     * loose holds has nothing worth extending for.
+     * {@link #NEAR_BINDING_REL_SLACK}) and no refuted verdict for that same relation and grid —
+     * the half-finished binding pair. A completed same-grid pair or a trace with only loose holds
+     * has nothing worth extending for.
      */
     public boolean needsBindingCompletion(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return false;
         }
-        boolean nearBindingHold = false;
         for (ToolInvocation call : trace) {
             String result = call == null ? null : call.resultJson();
             if (result == null) {
                 continue;
             }
-            if (result.contains(" REFUTED across")) {
-                return false;   // the pair's refute half exists — nothing to complete
-            }
             if (result.contains(" HELD across") && hasRelSlackBelow(result, NEAR_BINDING_REL_SLACK)) {
-                nearBindingHold = true;
+                if (!hasSameRelationGridRefutation(call, trace)) return true;
             }
         }
-        return nearBindingHold;
+        return false;
     }
 
     /** The hint injected as a user message when the extension is granted. */
@@ -88,18 +87,12 @@ public class BindingExtensionPolicy {
 
     /**
      * Return the exact same-grid refutation call named by a {@code TIGHT HOLD} result, but only
-     * while the trace has no actual refutation. The verifier supplies the intercept, so this
+     * while the trace has no matching same-grid refutation. The verifier supplies the intercept, so this
      * policy never estimates or invents a counterexample parameter itself.
      */
     public Optional<ForcedToolCall> forcedBindingRefutation(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return Optional.empty();
-        }
-        for (ToolInvocation call : trace) {
-            String result = call == null ? null : call.resultJson();
-            if (result != null && result.contains(" REFUTED across")) {
-                return Optional.empty();
-            }
         }
         for (ToolInvocation call : trace) {
             if (call == null || !"verify_conjecture".equals(call.functionName())
@@ -108,11 +101,56 @@ public class BindingExtensionPolicy {
                 continue;
             }
             Matcher m = TOOL_NAMED_REFUTATION.matcher(call.resultJson());
-            if (m.find()) {
+            if (m.find() && !hasSameRelationGridRefutation(call, trace)) {
                 return Optional.of(new ForcedToolCall(call.functionName(), call.argsJson(), m.group(1)));
             }
         }
         return Optional.empty();
+    }
+
+    private static boolean hasSameRelationGridRefutation(ToolInvocation held, List<ToolInvocation> trace) {
+        for (ToolInvocation candidate : trace) {
+            if (candidate != null && "verify_conjecture".equals(candidate.functionName())
+                    && candidate.resultJson() != null && candidate.resultJson().contains(" REFUTED across")
+                    && sameRelationAndGrid(held.argsJson(), candidate.argsJson())) return true;
+        }
+        return false;
+    }
+
+    /** Same bound terms and tested grid; c intentionally may differ. */
+    private static boolean sameRelationAndGrid(String heldArgs, String refutedArgs) {
+        if (heldArgs == null || refutedArgs == null) return false;
+        try {
+            JsonNode held = JSON.readTree(heldArgs);
+            JsonNode refuted = JSON.readTree(refutedArgs);
+            return sameText(held, refuted, "lhs") && sameText(held, refuted, "rhs")
+                    && sameOptionalText(held, refuted, "rhs2")
+                    && sameNumber(held, refuted, "k") && sameOptionalNumber(held, refuted, "k2")
+                    && sameNumber(held, refuted, "window_start")
+                    && sameNumber(held, refuted, "window_size")
+                    && sameNumber(held, refuted, "num_windows");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean sameText(JsonNode a, JsonNode b, String key) {
+        return a.path(key).isTextual() && a.path(key).textValue().equals(b.path(key).textValue());
+    }
+
+    private static boolean sameOptionalText(JsonNode a, JsonNode b, String key) {
+        return a.path(key).isMissingNode() || a.path(key).isNull()
+                ? b.path(key).isMissingNode() || b.path(key).isNull() : sameText(a, b, key);
+    }
+
+    private static boolean sameNumber(JsonNode a, JsonNode b, String key) {
+        return a.path(key).isNumber() && b.path(key).isNumber()
+                && Double.compare(a.path(key).doubleValue(), b.path(key).doubleValue()) == 0;
+    }
+
+    private static boolean sameOptionalNumber(JsonNode a, JsonNode b, String key) {
+        return a.path(key).isMissingNode() || a.path(key).isNull()
+                ? b.path(key).isMissingNode() || b.path(key).isNull() : sameNumber(a, b, key);
     }
 
     /** Parse "relative slack: X" from a verification result; true iff present and X < threshold. */

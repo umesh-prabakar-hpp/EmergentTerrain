@@ -34,10 +34,14 @@ class BindingExtensionPolicyTest {
 
     @Test
     void completedPair_doesNotFire() {
-        // A REFUTED anywhere means the demonstration half exists — no extension.
+        // Only the same relation/grid refutation completes the demonstration.
+        String heldArgs = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":0,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
+        String refutedArgs = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":-1,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
         List<ToolInvocation> trace = List.of(
-                verify("verify_conjecture: x <= y HELD across 10 window(s). relative slack: 0.0018."),
-                verify("verify_conjecture: x <= y REFUTED across 10 window(s). worst margin: +3.657"));
+                verify(heldArgs, "verify_conjecture: x <= y HELD across 10 window(s). relative slack: 0.0018."),
+                verify(refutedArgs, "verify_conjecture: x <= y REFUTED across 10 window(s). worst margin: +3.657"));
         assertThat(policy.needsBindingCompletion(trace)).isFalse();
     }
 
@@ -83,10 +87,26 @@ class BindingExtensionPolicyTest {
     }
 
     @Test
-    void toolNamedRefutation_doesNotRunAfterAnyRefutedVerification() {
+    void toolNamedRefutation_doesNotRunAfterSameGridRefutation() {
+        String heldArgs = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":0,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
+        String refutedArgs = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":-1,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
         assertThat(policy.forcedBindingRefutation(List.of(
-                verify("verify_conjecture: x <= y HELD across 10 window(s). TIGHT HOLD — "
+                verify(heldArgs, "verify_conjecture: x <= y HELD across 10 window(s). TIGHT HOLD — "
                         + "re-verify with c=-1.48048."),
-                verify("verify_conjecture: x <= y REFUTED across 10 window(s).")))).isEmpty();
+                verify(refutedArgs, "verify_conjecture: x <= y REFUTED across 10 window(s).")))).isEmpty();
+    }
+
+    @Test
+    void unrelatedRefutationDoesNotBlockTheToolNamedBindingCompletion() {
+        String heldArgs = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":0,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
+        String unrelatedArgs = "{\"lhs\":\"x\",\"rhs\":\"z\",\"k\":1,\"c\":0,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
+        assertThat(policy.forcedBindingRefutation(List.of(
+                verify(heldArgs, "verify_conjecture: x <= y HELD across 10 window(s). TIGHT HOLD — "
+                        + "re-verify with c=-1.48048."),
+                verify(unrelatedArgs, "verify_conjecture: x <= z REFUTED across 10 window(s).")))).isPresent();
     }
 }

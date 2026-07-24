@@ -419,6 +419,16 @@ public class UniversityService {
             "${app.research.hypothesis-lhs-coverage-gate.enabled:false}")
     private boolean hypothesisLhsCoverageGateEnabled;
 
+    /** A binding claim needs its exact same-grid HOLD/REFUTED pair, even in a measurement paper. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.affine-binding-claim-gate.enabled:false}")
+    private boolean affineBindingClaimGateEnabled;
+
+    /** A predicate baseline comparison needs width and offset sensitivity, not adjacent replicas alone. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.predicate-baseline-sensitivity-gate.enabled:false}")
+    private boolean predicateBaselineSensitivityGateEnabled;
+
     /**
      * Phase 32 Wave 0 (32.1) — verified-values manifest capture. When on,
      * every published paper gets a {@code .manifest.json} sidecar beside its
@@ -1251,6 +1261,14 @@ public class UniversityService {
                             + "(selected trace lacks the exact locked conjecture relation)",
                     draft.paperId());
         }
+        boolean affineBindingClaimUncovered = affineBindingClaimGateEnabled
+                && AffineBindingClaimValidator.claimWithoutDocumentedPair(
+                        hypothesis, findings, conclusion, narration.toolCallTrace());
+        if (affineBindingClaimUncovered) {
+            log.warn("affine-binding-claim check failed paperId={} "
+                            + "(prose claims a binding regime without a same-grid pair)",
+                    draft.paperId());
+        }
         // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.
         // Warn-only: stamps the call path + logs, never routes the paper.
         // Sibling check to SinglePointSweep but operates on the hypothesis
@@ -1334,6 +1352,15 @@ public class UniversityService {
         if (proseBaselineDriftFlagged) {
             log.warn("prose-baseline-drift check failed paperId={} mode={} reasons={}",
                     draft.paperId(), proseBaselineDriftMode, proseBaselineDriftFailures);
+        }
+        List<String> predicateBaselineSensitivityFailures = predicateBaselineSensitivityGateEnabled
+                ? PredicateBaselineSensitivityValidator.validate(
+                        hypothesis + "\n" + findings + "\n" + conclusion, narration.toolCallTrace())
+                : List.of();
+        boolean predicateBaselineSensitivityUncovered = !predicateBaselineSensitivityFailures.isEmpty();
+        if (predicateBaselineSensitivityUncovered) {
+            log.warn("predicate-baseline-sensitivity check failed paperId={} reasons={}",
+                    draft.paperId(), predicateBaselineSensitivityFailures);
         }
         // 2026-05-21 review §1 rec #5 — textual "Lastname (Year)" cites in
         // Findings / Discussion / Related-Work prose that don't appear in
@@ -1724,6 +1751,9 @@ public class UniversityService {
             // sensitivity or binding probe is not confirmatory evidence.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (affineBindingClaimUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (manifestMissRoutes) {
             // Phase 32 Wave 1 enforce — a salient prose number resolves to no
             // manifest entry, derivation, rounding, or percent-scale match.
@@ -1756,6 +1786,9 @@ public class UniversityService {
             // unsourced-claim: revision can fix by either re-running the
             // predicate scan with the prose baseline or rewriting the
             // prose to match the args.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (predicateBaselineSensitivityUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (citationCorpusRoutes) {
@@ -1868,6 +1901,16 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:hypothesis_lhs_uncovered→needs_revision"
                     : persistedCallPath + " → publish:hypothesis_lhs_uncovered→needs_revision";
+        }
+        if (affineBindingClaimUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:affine_binding_pair_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:affine_binding_pair_uncovered→needs_revision";
+        }
+        if (predicateBaselineSensitivityUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:predicate_baseline_sensitivity_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:predicate_baseline_sensitivity_uncovered→needs_revision";
         }
         // Phase 32 Wave 1 — manifest-miss stamp: `→needs_revision` under
         // enforce (routes), `:warn` under shadow (audit-only).

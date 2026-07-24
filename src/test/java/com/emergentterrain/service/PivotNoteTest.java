@@ -3,6 +3,7 @@ package com.emergentterrain.service;
 import org.junit.jupiter.api.Test;
 
 import com.emergentterrain.llm.ToolInvocation;
+import com.emergentterrain.research.PaperDraft;
 
 import java.util.List;
 
@@ -47,6 +48,17 @@ class PivotNoteTest {
                 .contains("PRE-REGISTERED lhs 'max_prime_gap'")
                 .contains("lhs=\"max_prime_gap\"")
                 .contains("MUST use");
+    }
+
+    @Test
+    void baselineSensitivityNoteRequiresWidthsAndAnOffset() {
+        PaperDraft draft = new PaperDraft(null, "bot", "MATHEMATICS", "density", "title",
+                "Exact census baseline 0.220", "Baseline 0.220", "", "EMPIRICAL", List.of(),
+                0.5, 0.5, 0, 0, java.time.Instant.now(), 1, "P-test", null, null, false,
+                null, null, List.of(), null, null,
+                com.emergentterrain.research.ResultClassification.SUPPORTED, null);
+        assertThat(ResearchNarrationService.buildPredicateBaselineSensitivityNote(draft))
+                .contains("two distinct window widths").contains("overlapping offset window");
     }
 
     @Test
