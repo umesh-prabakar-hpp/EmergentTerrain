@@ -3002,6 +3002,16 @@ public class UniversityService {
             log.info("Run suppressed draft summary: {} draft(s) intentionally suppressed in this application run:{}{}",
                     suppressed.size(), System.lineSeparator(), list);
         }
+
+        List<ResearchCycleService.InFlightDraft> inFlight = researchCycleService.inFlightDraftSnapshots();
+        if (!inFlight.isEmpty()) {
+            String list = inFlight.stream()
+                    .map(d -> "  - " + d.paperId() + " — " + d.domain() + " / " + d.topic()
+                            + " [interrupted in phase: " + d.phase() + "]")
+                    .collect(Collectors.joining(System.lineSeparator()));
+            log.warn("Run in-flight draft summary: {} draft(s) were still active at shutdown:{}{}",
+                    inFlight.size(), System.lineSeparator(), list);
+        }
     }
 
     private record RunCreatedPaper(String paperId, String title, String status) {}

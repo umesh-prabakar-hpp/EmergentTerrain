@@ -14,6 +14,7 @@ import com.emergentterrain.research.PromptSanitizer;
 import com.emergentterrain.research.PromptTemplateIds;
 import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResultClassification;
+import com.emergentterrain.research.ResearchCycleService;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,6 +55,10 @@ import java.util.concurrent.TimeoutException;
 public class ResearchNarrationService {
 
     private static final Logger log = LoggerFactory.getLogger(ResearchNarrationService.class);
+
+    /** Optional lifecycle registry used by the end-of-run audit summary. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ResearchCycleService researchCycleService;
 
     private final LlmRouter router;
     private final MathToolSuite toolSuite;
@@ -1583,7 +1588,15 @@ public class ResearchNarrationService {
      * does not block other papers from starting their Groq narration call.
      */
     public void enqueueNarration(PaperDraft draft) {
+        updateDraftPhase(draft, "narration:queued");
         executor.execute(() -> refineAndNarrate(draft));
+    }
+
+    private void updateDraftPhase(PaperDraft draft, String phase) {
+        ResearchCycleService cycle = researchCycleService;
+        if (cycle != null && draft != null) {
+            cycle.updateDraftPhase(draft.paperId(), phase);
+        }
     }
 
     /**
@@ -1597,6 +1610,7 @@ public class ResearchNarrationService {
      * publishPaper's own release).
      */
     private void refineAndNarrate(PaperDraft draft) {
+        updateDraftPhase(draft, "narration:waiting_for_slot");
         // Acquire the narration concurrency permit BEFORE the wall-clock
         // supervisor starts. Time spent queueing for a slot must NOT count
         // against narrationTimeoutMs: otherwise a low narration-concurrency-cap
@@ -1611,6 +1625,7 @@ public class ResearchNarrationService {
         // draft at a deliberately throttled cap is the correct overload signal.
         narrationSlot.acquireUninterruptibly();
         try {
+            updateDraftPhase(draft, "narration:supervised");
             runSupervised(executor, () -> doRefineAndNarrate(draft), narrationTimeoutMs,
                     draft.paperId(), draftSettledCallback,
                     narrationFirstPassCheckpointEnabled
@@ -1707,6 +1722,7 @@ public class ResearchNarrationService {
 
     /** The narration pipeline proper; supervised by {@link #refineAndNarrate}. */
     private void doRefineAndNarrate(PaperDraft draft) {
+        updateDraftPhase(draft, "refinement");
         refinementSlot.acquireUninterruptibly();
         PaperDraft enrichedDraft;
         try {
@@ -1715,6 +1731,7 @@ public class ResearchNarrationService {
             refinementSlot.release();
         }
         // Statistical framing — fast call between refinement and narration; best-effort
+        updateDraftPhase(draft, "statistical_framing");
         PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
         // The narration concurrency permit is acquired by refineAndNarrate
         // BEFORE the wall-clock supervisor starts (so queue-wait doesn't burn
@@ -1764,6 +1781,7 @@ public class ResearchNarrationService {
     }
 
     private void runNarration(PaperDraft draft) {
+        updateDraftPhase(draft, "narration:first_pass");
         // Phase 20.4 — orchestration wall-clock bracket. Captured at entry so
         // every publish path (suppression, gate-closed, normal completion) can
         // stamp the same startedAt onto its NarrationResult envelope.
@@ -1835,6 +1853,7 @@ public class ResearchNarrationService {
         // no race — publish unconditionally, preserving pre-rec#8 behaviour.
         if (narrationPublisher != null
                 && (!narrationFirstPassCheckpointEnabled || claimPublish(draft.paperId()))) {
+            updateDraftPhase(draft, "publish");
             narrationPublisher.accept(draft, result);
         }
         // Phase 17 — clear the retry queue entry on a successful retry publish.
@@ -1923,6 +1942,7 @@ public class ResearchNarrationService {
                                                java.time.Instant orchestrationStartedAt) {
         List<FirstPass> firstPasses = new java.util.ArrayList<>();
         for (int i = 0; i < bestOfNCandidates; i++) {
+            updateDraftPhase(draft, "narration:first_pass:" + (i + 1) + "/" + bestOfNCandidates);
             // rec #2b — abort on interrupt (see produceBestCandidate).
             if (Thread.currentThread().isInterrupted()) {
                 log.warn("cascade paperId={} interrupted after {}/{} first-passes — aborting",
@@ -1943,6 +1963,8 @@ public class ResearchNarrationService {
 
         List<NarrationResult> finished = new java.util.ArrayList<>();
         for (FirstPass fp : screened) {
+            updateDraftPhase(draft, "narration:finish_candidate:" + (finished.size() + 1)
+                    + "/" + screened.size());
             // rec #2b — abort on interrupt (see produceBestCandidate).
             if (Thread.currentThread().isInterrupted()) {
                 log.warn("cascade paperId={} interrupted during finish stage — aborting", draft.paperId());
@@ -2429,6 +2451,7 @@ public class ResearchNarrationService {
         java.util.List<com.emergentterrain.llm.ToolInvocation> profTrace = java.util.List.of();
         try {
             // Phase 1 — Quality audit (fast Ollama): identify gaps before professor is invoked
+            updateDraftPhase(draft, "narration:quality_audit");
             String auditSummary = runQualityAudit(draft, firstPass, callPath, auditGapDimensions);
 
             // Pre-emptive gate check before the heaviest call in the pipeline:
@@ -2534,6 +2557,7 @@ public class ResearchNarrationService {
             // the same handle, then a retry on handle B doesn't leave the
             // success counter inflated from A's discarded attempt. Root cause
             // of the P-865/880/890 prof:ok-but-empty-trace divergence.
+            updateDraftPhase(draft, "narration:professor_tools");
             com.emergentterrain.llm.ToolCallResponse profResponse =
                     com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
                             router.callPrimaryWithTools(
@@ -2574,6 +2598,7 @@ public class ResearchNarrationService {
             while ((metrics.totalSuccesses() == 0 || profTrace == null || profTrace.isEmpty())
                     && emptyTraceResamples < professorEmptyTraceRetries) {
                 emptyTraceResamples++;
+                updateDraftPhase(draft, "narration:professor_resample:" + emptyTraceResamples);
                 callPath.add("prof:empty_trace_resample:n=" + emptyTraceResamples);
                 log.info("LLM professor tools: empty trace — resampling ({}/{}) paperId={}",
                         emptyTraceResamples, professorEmptyTraceRetries, draft.paperId());
@@ -2907,6 +2932,7 @@ public class ResearchNarrationService {
             // and trailing comments — 9 of 23 papers in refresh #1 hit
             // rev:parse_failed→fp. Provider-side JSON mode shuts that
             // class of failure off entirely on OpenAI-compatible pools.
+            updateDraftPhase(draft, "narration:student_revision");
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
             // Grounding rules (REVIEW_REPORT b72c4e10 §1 rec #4/#5) wrap the

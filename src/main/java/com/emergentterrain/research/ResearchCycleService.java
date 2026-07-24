@@ -89,7 +89,7 @@ public class ResearchCycleService {
     private final ConcurrentHashMap<UUID, Integer> papersSinceTerm = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> totalRejected   = new ConcurrentHashMap<>();
     /**
-     * In-flight drafts, keyed by paperId → enqueue timestamp (ms). Replaces a raw
+     * In-flight drafts, keyed by paperId → lifecycle snapshot. Replaces a raw
      * counter so release is <em>idempotent</em>: {@code remove} of an absent paperId
      * is a no-op, letting the same draft be released by {@code publishPaper}, the
      * narration task's {@code finally}, and the stuck-draft reaper without ever
@@ -98,7 +98,7 @@ public class ResearchCycleService {
      * {@code publishPaper}) no longer pins its slot forever — the {@code finally}
      * releases it on task end and {@link #reapStuckDrafts()} reclaims true hangs.
      */
-    private final ConcurrentHashMap<String, Long> inFlightDrafts = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, InFlightDraft> inFlightDrafts = new ConcurrentHashMap<>();
 
     /**
      * Phase 32 (brief Change 1) — optional well-posedness gate. When present and enabled, an ill-posed
@@ -377,8 +377,39 @@ public class ResearchCycleService {
 
     /** Record a draft as in-flight (occupying a backlog slot) at enqueue time. */
     void markDraftInFlight(String paperId) {
-        if (paperId != null) inFlightDrafts.put(paperId, System.currentTimeMillis());
+        if (paperId != null) {
+            inFlightDrafts.putIfAbsent(paperId, new InFlightDraft(
+                    paperId, "UNKNOWN", "UNKNOWN", "queued", System.currentTimeMillis()));
+        }
     }
+
+    /** Record draft metadata for the shutdown audit as well as its backlog slot. */
+    void markDraftInFlightWithMetadata(PaperDraft draft) {
+        if (draft == null || draft.paperId() == null) return;
+        inFlightDrafts.putIfAbsent(draft.paperId(), new InFlightDraft(
+                draft.paperId(),
+                draft.domain() == null || draft.domain().isBlank() ? "UNKNOWN" : draft.domain(),
+                draft.topicName() == null || draft.topicName().isBlank() ? "UNKNOWN" : draft.topicName(),
+                "queued", System.currentTimeMillis()));
+    }
+
+    /** Update the most recent lifecycle phase without changing queue membership. */
+    public void updateDraftPhase(String paperId, String phase) {
+        if (paperId == null || phase == null || phase.isBlank()) return;
+        inFlightDrafts.computeIfPresent(paperId, (id, current) ->
+                new InFlightDraft(current.paperId(), current.domain(), current.topic(), phase,
+                        current.queuedAtMs()));
+    }
+
+    /** Immutable snapshot used only for end-of-run audit reporting. */
+    public List<InFlightDraft> inFlightDraftSnapshots() {
+        return inFlightDrafts.values().stream()
+                .sorted(java.util.Comparator.comparing(InFlightDraft::paperId))
+                .toList();
+    }
+
+    public record InFlightDraft(String paperId, String domain, String topic,
+                                String phase, long queuedAtMs) {}
 
     /**
      * Release a draft's backlog slot. Idempotent — removing an absent paperId is a
@@ -417,7 +448,7 @@ public class ResearchCycleService {
         long now = System.currentTimeMillis();
         int reaped = 0;
         for (var e : inFlightDrafts.entrySet()) {
-            long ageMs = now - e.getValue();
+            long ageMs = now - e.getValue().queuedAtMs();
             if (ageMs > ttlMs && inFlightDrafts.remove(e.getKey(), e.getValue())) {
                 reaped++;
                 log.warn("research: reaped stuck draft paperId={} ageMs={} (narration hung/never settled) — "
@@ -672,7 +703,7 @@ public class ResearchCycleService {
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {
-                markDraftInFlight(draft.paperId());
+                markDraftInFlightWithMetadata(draft);
                 narratingCallback.accept(draft);
             } else {
                 ctx.publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(),
@@ -804,7 +835,7 @@ public class ResearchCycleService {
 
         Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
         if (narratingCallback != null) {
-            markDraftInFlight(draft.paperId());
+            markDraftInFlightWithMetadata(draft);
             narratingCallback.accept(draft);
         } else {
             ctx.publishPaper(draft, new NarrationResult(
@@ -896,7 +927,7 @@ public class ResearchCycleService {
 
         Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
         if (narratingCallback != null) {
-            markDraftInFlight(draft.paperId());
+            markDraftInFlightWithMetadata(draft);
             narratingCallback.accept(draft);
         } else {
             ctx.publishPaper(draft, new NarrationResult(
@@ -1455,7 +1486,7 @@ public class ResearchCycleService {
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {
-                markDraftInFlight(draft.paperId());
+                markDraftInFlightWithMetadata(draft);
                 narratingCallback.accept(draft);
             } else {
                 ctx.publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(),

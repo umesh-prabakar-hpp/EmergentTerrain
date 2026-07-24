@@ -52,6 +52,21 @@ class ResearchCycleServiceDraftQueueTest {
     }
 
     @Test
+    void shutdownSnapshotKeepsLastKnownPhaseUntilTheDraftSettles() {
+        ResearchCycleService svc = new ResearchCycleService();
+        svc.markDraftInFlight("P-42");
+        svc.updateDraftPhase("P-42", "narration:professor_resample:2");
+
+        assertThat(svc.inFlightDraftSnapshots()).singleElement().satisfies(draft -> {
+            assertThat(draft.paperId()).isEqualTo("P-42");
+            assertThat(draft.phase()).isEqualTo("narration:professor_resample:2");
+        });
+
+        svc.decrementDraftQueue("P-42");
+        assertThat(svc.inFlightDraftSnapshots()).isEmpty();
+    }
+
+    @Test
     void reaperReclaimsOnlyDraftsOlderThanTtl() {
         ResearchCycleService svc = new ResearchCycleService();
         svc.markDraftInFlight("P-1");

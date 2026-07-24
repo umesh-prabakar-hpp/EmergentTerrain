@@ -100,8 +100,10 @@ escrow: optional work can still consume the shared reserve.
 
 At application shutdown—including a clean budget drain—the log ends with a
 `Run paper summary` listing only papers created by that JVM (paper ID, title,
-and final workflow status). It reports an explicit empty summary when none
-were created; historical database papers are never included.
+and final workflow status). It also lists intentionally suppressed drafts and
+any still-active drafts with their last recorded narration phase, so a hard
+budget stop cannot hide a paper-ID sequence gap. It reports an explicit empty
+paper summary when none were created; historical database papers are never included.
 
 Phase 35 literature retrieval deterministically drops generic connective,
 ordinal, measurement-framing, comparative model-prose, and numeric/coefficient fragments before issuing FTS5 queries. Full-text fallback also requires its source title to contain a distinctive query-subject anchor, so a generic body overlap such as “density” cannot issue evidence for an unrelated domain. Each
