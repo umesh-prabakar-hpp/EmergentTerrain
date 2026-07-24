@@ -2233,6 +2233,30 @@ class PublishPaperTest {
     }
 
     @Test
+    void tightAffinePairWithoutLockedIndependentGridRoutesToNeedsRevision() {
+        ReflectionTestUtils.setField(service, "affineBindingIndependentGridGateEnabled", true);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":0,"
+                                + "\"window_start\":1000000,\"window_size\":5000,\"num_windows\":10}",
+                        "verify_conjecture: x <= +1.0 * y + +0.0 HELD across 10 window(s) of size 5000 "
+                                + "starting at 1000000. worst margin: -0.02000 at window starting 1000000. "
+                                + "relative slack: 0.0005 TIGHT HOLD — re-verify with c=-0.08000.", 0),
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":-0.08,"
+                                + "\"window_start\":1000000,\"window_size\":5000,\"num_windows\":10}",
+                        "verify_conjecture: x <= +1.0 * y + -0.0800 REFUTED across 10 window(s) of size 5000 "
+                                + "starting at 1000000. worst margin: +0.08000 at window starting 1000000.", 0));
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5),
+                new NarrationResult("Finite result.", "Local binding pair.", "Finite conclusion.",
+                        null, null, 0.8, List.of()).withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:affine_binding_independent_grid_uncovered→needs_revision");
+    }
+
+    @Test
     void equalWidthAdjacentPredicateBaselineScansRouteToNeedsRevision() {
         ReflectionTestUtils.setField(service, "predicateBaselineSensitivityGateEnabled", true);
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(

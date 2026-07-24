@@ -81,6 +81,12 @@ public class ConjectureInvestigationWriteBackService {
     /** A counterpart is nearby when each affine parameter changes by at most five percent. */
     private static final double NEARBY_PARAMETER_FRACTION = 0.05;
     private static final double NEARBY_PARAMETER_ABS_FLOOR = 0.005;
+    /** The verifier can name the exact intercept that should refute a tight hold.  That
+     * instrument-selected counterexample is stronger evidence than a generic five-percent
+     * proximity heuristic, especially when the held intercept is zero. */
+    private static final Pattern TOOL_NAMED_REFUTATION = Pattern.compile(
+            "TIGHT HOLD[^\\n]*?re-verify with c=([+-]?[0-9]+(?:\\.[0-9]+)?)",
+            Pattern.CASE_INSENSITIVE);
 
     // 2026-06-10 (lever D) — measured-invariant result lines (frames 1-3). A CONVERGED constant
     // (verify_constant / verify_growth) or a centred OSCILLATES envelope (verify_oscillation) at the
@@ -253,7 +259,7 @@ public class ConjectureInvestigationWriteBackService {
             heldInSelectedTrace = true;
             for (VerificationCall refuted : calls) {
                 if (refuted.refuted() && held.sameRelationAndGrid(refuted)
-                        && held.nearbyVariant(refuted)) {
+                        && (held.nearbyVariant(refuted) || held.isInstrumentNamedRefutation(refuted))) {
                     return "";
                 }
             }
@@ -298,12 +304,12 @@ public class ConjectureInvestigationWriteBackService {
             return null;
         }
         return new VerificationCall(lhs, rhs, strings.get("rhs2"), k, numbers.getOrDefault("k2", 0.0), c,
-                start.longValue(), size.longValue(), windows.intValue(), held, refuted);
+                start.longValue(), size.longValue(), windows.intValue(), held, refuted, result);
     }
 
     private record VerificationCall(String lhs, String rhs, String rhs2, double k, double k2, double c,
                                     long windowStart, long windowSize, int numWindows,
-                                    boolean held, boolean refuted) {
+                                    boolean held, boolean refuted, String result) {
         boolean matches(HeldBound bound) {
             return lhs.equals(bound.lhs()) && rhs.equals(bound.rhs())
                     && java.util.Objects.equals(rhs2, bound.rhs2())
@@ -322,6 +328,24 @@ public class ConjectureInvestigationWriteBackService {
         boolean nearbyVariant(VerificationCall other) {
             boolean changed = !same(k, other.k) || !same(k2, other.k2) || !same(c, other.c);
             return changed && nearby(k, other.k) && nearby(k2, other.k2) && nearby(c, other.c);
+        }
+
+        /**
+         * The exact refuting intercept emitted by the verifier completes a binding pair even
+         * when a percent-of-parameter comparison would call it "far".  In particular, any
+         * nonzero intercept is infinitely far in relative terms from a held intercept of zero.
+         * Keep slopes and the tested grid identical so this remains a local binding check, not
+         * a substitution of another relation.
+         */
+        boolean isInstrumentNamedRefutation(VerificationCall other) {
+            if (!same(k, other.k) || !same(k2, other.k2) || result == null) return false;
+            Matcher matcher = TOOL_NAMED_REFUTATION.matcher(result);
+            if (!matcher.find()) return false;
+            try {
+                return same(Double.parseDouble(matcher.group(1)), other.c);
+            } catch (NumberFormatException ignored) {
+                return false;
+            }
         }
 
         private static boolean same(double a, double b) {

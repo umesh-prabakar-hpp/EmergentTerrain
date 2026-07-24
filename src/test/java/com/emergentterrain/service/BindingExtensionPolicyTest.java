@@ -87,6 +87,25 @@ class BindingExtensionPolicyTest {
     }
 
     @Test
+    void independentReplication_preservesTheBoundAndLocksADeterministicSecondGrid() throws Exception {
+        String args = "{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\","
+                + "\"k\":0.424,\"c\":0,\"window_start\":900000000,"
+                + "\"window_size\":10000,\"num_windows\":10}";
+
+        String replication = BindingExtensionPolicy.independentReplicationArguments(args).orElseThrow();
+        com.fasterxml.jackson.databind.JsonNode parsed =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(replication);
+
+        assertThat(parsed.path("lhs").asText()).isEqualTo("max_prime_gap");
+        assertThat(parsed.path("rhs").asText()).isEqualTo("log_sq_window_start");
+        assertThat(parsed.path("k").asDouble()).isEqualTo(0.424);
+        assertThat(parsed.path("c").asDouble()).isZero();
+        assertThat(parsed.path("window_size").asLong()).isEqualTo(10_000L);
+        assertThat(parsed.path("num_windows").asInt()).isEqualTo(10);
+        assertThat(parsed.path("window_start").asLong()).isEqualTo(1_350_000_000L);
+    }
+
+    @Test
     void toolNamedRefutation_doesNotRunAfterSameGridRefutation() {
         String heldArgs = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1,\"c\":0,"
                 + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";

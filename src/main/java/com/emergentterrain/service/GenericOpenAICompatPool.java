@@ -1064,6 +1064,40 @@ public class GenericOpenAICompatPool implements LlmPool {
                         if (completion.isPresent()) {
                             BindingExtensionPolicy.ForcedToolCall call = completion.get();
                             String forcedArgs = withForcedIntercept(call.argumentsJson(), call.intercept());
+                            // Lock both follow-ups before either is run: a deterministic second grid
+                            // tests whether the tight affine relation travels, while the verifier-named
+                            // intercept documents the local binding pair.
+                            java.util.Optional<String> replicationArgs =
+                                    BindingExtensionPolicy.independentReplicationArguments(call.argumentsJson());
+                            if (replicationArgs.isPresent()) {
+                                String replicationResult;
+                                try {
+                                    replicationResult = executor.apply(mapper.writeValueAsString(
+                                            mapper.createObjectNode()
+                                                    .put("name", call.functionName())
+                                                    .set("arguments", mapper.readTree(replicationArgs.get()))));
+                                } catch (Exception ex) {
+                                    if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                                    replicationResult = "Tool error: " + ex.getMessage();
+                                }
+                                String replicationCallId = "call_" + (trace.size() + 1);
+                                trace.add(new com.emergentterrain.llm.ToolInvocation(
+                                        call.functionName(), replicationArgs.get(), replicationResult,
+                                        round, replicationCallId));
+                                messages.addObject().put("role", "user").put("content",
+                                        "An evidence-completion policy pre-registered and executed an "
+                                                + "independent-grid replication [" + replicationCallId + "]: "
+                                                + replicationResult
+                                                + "\nUse this result when writing the final synthesis.");
+                                log.info("GenericOpenAICompatPool({}) tools: policy independent-grid "
+                                                + "replication fn={} call_id={} result_len={}",
+                                        cfg.providerKey(), call.functionName(), replicationCallId,
+                                        replicationResult.length());
+                            } else {
+                                log.warn("GenericOpenAICompatPool({}) tools: could not derive deterministic "
+                                                + "independent-grid replication from binding call arguments",
+                                        cfg.providerKey());
+                            }
                             String result;
                             try {
                                 result = executor.apply(mapper.writeValueAsString(
@@ -1079,7 +1113,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                                     call.functionName(), forcedArgs, result, round, harnessCallId));
                             messages.addObject().put("role", "user").put("content",
                                     "An evidence-completion policy executed the verifier-selected "
-                                            + "same-grid follow-up [" + harnessCallId + "]: " + result
+                                            + "same-grid binding follow-up [" + harnessCallId + "]: " + result
                                             + "\nUse this result when writing the final synthesis.");
                             policyCompletionExecuted = true;
                             if (lastRound) {

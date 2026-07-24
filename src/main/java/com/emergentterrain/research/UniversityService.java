@@ -424,6 +424,11 @@ public class UniversityService {
             "${app.research.affine-binding-claim-gate.enabled:false}")
     private boolean affineBindingClaimGateEnabled;
 
+    /** A tight affine bound also needs the policy-locked independent-grid HOLD. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.affine-binding-independent-grid-gate.enabled:false}")
+    private boolean affineBindingIndependentGridGateEnabled;
+
     /** A predicate baseline comparison needs width and offset sensitivity, not adjacent replicas alone. */
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.predicate-baseline-sensitivity-gate.enabled:false}")
@@ -1282,6 +1287,14 @@ public class UniversityService {
                             + "(prose claims a binding regime without a same-grid pair)",
                     draft.paperId());
         }
+        boolean affineBindingIndependentGridUncovered = affineBindingIndependentGridGateEnabled
+                && AffineBindingIndependentGridValidator.tightBindingWithoutIndependentReplication(
+                        narration.toolCallTrace());
+        if (affineBindingIndependentGridUncovered) {
+            log.warn("affine-binding independent-grid check failed paperId={} "
+                            + "(tight binding pair lacks the policy-locked replication grid)",
+                    draft.paperId());
+        }
         // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.
         // Warn-only: stamps the call path + logs, never routes the paper.
         // Sibling check to SinglePointSweep but operates on the hypothesis
@@ -1770,6 +1783,9 @@ public class UniversityService {
         } else if (affineBindingClaimUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (affineBindingIndependentGridUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (manifestMissRoutes) {
             // Phase 32 Wave 1 enforce — a salient prose number resolves to no
             // manifest entry, derivation, rounding, or percent-scale match.
@@ -1922,6 +1938,11 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:affine_binding_pair_uncovered→needs_revision"
                     : persistedCallPath + " → publish:affine_binding_pair_uncovered→needs_revision";
+        }
+        if (affineBindingIndependentGridUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:affine_binding_independent_grid_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:affine_binding_independent_grid_uncovered→needs_revision";
         }
         if (predicateStudyPreRegistrationUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

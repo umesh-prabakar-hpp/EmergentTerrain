@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,8 +42,8 @@ public class BindingExtensionPolicy {
     /** A verification call selected by the instrument itself to complete a binding pair. */
     public record ForcedToolCall(String functionName, String argumentsJson, String intercept) {}
 
-    /** Relative slack below which a held bound counts as tight enough to be worth completing. */
-    static final double NEAR_BINDING_REL_SLACK = 0.01;
+    /** Relative slack below which a held bound counts as tight enough to need a locked replication. */
+    static final double NEAR_BINDING_REL_SLACK = 0.05;
 
     @Value("${app.research.professor.extra-rounds-on-binding.extra-rounds:2}")
     private int extraRounds = 2;
@@ -106,6 +107,47 @@ public class BindingExtensionPolicy {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Deterministically lock a second verifier grid before executing it.  The policy keeps the
+     * relation, coefficients, intercept, width, and number of windows fixed; only the start moves
+     * by a substantial, reproducible separation.  This makes the follow-up independent of the
+     * model's post-result choice while retaining an auditable request in the selected trace.
+     */
+    public static Optional<String> independentReplicationArguments(String heldArgs) {
+        if (heldArgs == null || heldArgs.isBlank()) return Optional.empty();
+        try {
+            JsonNode parsed = JSON.readTree(heldArgs);
+            if (!(parsed instanceof com.fasterxml.jackson.databind.node.ObjectNode args)) {
+                return Optional.empty();
+            }
+            JsonNode startNode = args.path("window_start");
+            JsonNode sizeNode = args.path("window_size");
+            JsonNode windowsNode = args.path("num_windows");
+            if (!startNode.canConvertToLong() || !sizeNode.canConvertToLong()
+                    || !windowsNode.canConvertToInt()) return Optional.empty();
+            OptionalLong start = independentWindowStart(startNode.longValue(), sizeNode.longValue(),
+                    windowsNode.intValue());
+            if (start.isEmpty()) return Optional.empty();
+            args.put("window_start", start.getAsLong());
+            return Optional.of(JSON.writeValueAsString(args));
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
+    }
+
+    /** The deterministic start used by both the execution policy and publication gate. */
+    public static OptionalLong independentWindowStart(long windowStart, long windowSize, int numWindows) {
+        if (windowStart < 0 || windowSize <= 0 || numWindows <= 0) return OptionalLong.empty();
+        try {
+            long span = Math.multiplyExact(windowSize, (long) numWindows);
+            long separatedSpan = Math.multiplyExact(span, 20L);
+            long separation = Math.max(separatedSpan, Math.max(1L, windowStart / 2L));
+            return OptionalLong.of(Math.addExact(windowStart, separation));
+        } catch (ArithmeticException ignored) {
+            return OptionalLong.empty();
+        }
     }
 
     private static boolean hasSameRelationGridRefutation(ToolInvocation held, List<ToolInvocation> trace) {

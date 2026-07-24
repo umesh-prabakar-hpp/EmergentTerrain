@@ -135,6 +135,27 @@ class ConjectureInvestigationWriteBackServiceTest {
     }
 
     @Test
+    void bindingPair_acceptsTheVerifierNamedRefutationWhenHeldInterceptIsZero() {
+        String heldResult = "verify_conjecture: max_prime_gap <= +0.4240 * log_sq_window_start + +0.0000 "
+                + "HELD across 10 window(s) of size 10000 starting at 900000000. "
+                + "worst margin: -0.24185 at window starting 900010000. relative slack: 0.0013 "
+                + "(|margin|/|bound|, smaller = tighter). TIGHT HOLD — one call from the demonstrated "
+                + "binding pair: re-verify with c=-0.32185 (same k; it should REFUTE).";
+        ToolInvocation held = verification(0.4240, 0.0, 900_000_000L, 10_000, 10,
+                heldResult, "call_1");
+        ToolInvocation refuted = verification(0.4240, -0.32185, 900_000_000L, 10_000, 10,
+                "verify_conjecture: max_prime_gap <= +0.4240 * log_sq_window_start + -0.3219 "
+                        + "REFUTED across 10 window(s) of size 10000 starting at 900000000. "
+                        + "worst margin: +0.08000 at window starting 900010000.", "call_2");
+        HeldBound bound = ConjectureInvestigationWriteBackService.parseHeldBounds(List.of(held)).get(0);
+
+        // The generic five-percent proximity rule rejects a 0 -> -0.32185 intercept move.
+        // The verifier named this exact counterexample, so it is the authoritative pair.
+        assertThat(ConjectureInvestigationWriteBackService.bindingPairRejectReason(
+                bound, List.of(held, refuted))).isEmpty();
+    }
+
+    @Test
     void bindingPair_rejectsARefuteFromDifferentGridOrAnUnselectedTrace() {
         ToolInvocation held = verification(0.7200, 1.5000, 1_800_000L, 500, 10,
                 HELD_TIGHT, "call_1");
