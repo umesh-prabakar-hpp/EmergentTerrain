@@ -299,6 +299,10 @@ public class UniversityService {
     private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
+    /** Durable reservation state, deliberately outside archived per-run research output. */
+    @Value("${app.research.paper-id-ledger.dir:simulation-history/research-paper-ids}")
+    private String paperIdLedgerDir = "simulation-history/research-paper-ids";
+    private volatile PaperIdAllocationLedger paperIdAllocationLedger;
     /** Papers emitted by this JVM only. This deliberately does not reuse {@link #published}, whose
      * per-room cache may be seeded from prior database rows at startup. */
     private final ConcurrentHashMap<String, RunCreatedPaper> runCreatedPapers = new ConcurrentHashMap<>();
@@ -879,8 +883,8 @@ public class UniversityService {
         // `archive` (default) is the pre-31.6 behavior: prior runs' room dirs
         // move to research/archive/<room>-<stamp>/. `retain` keeps them in
         // place so /paper-review sees the cross-restart corpus in one dir
-        // (paper-ID uniqueness across restarts is already guaranteed by the
-        // DB-backed counter in nextPaperId).
+        // (paper-ID uniqueness across restarts is guaranteed by the durable allocation ledger in
+        // nextPaperId, which also records suppressed drafts before publication is attempted).
         if ("retain".equalsIgnoreCase(researchOutputRetention)) {
             log.info("UniversityService: researchOutputRetention=retain — prior run's room "
                     + "dirs kept in place (31.6)");
@@ -3087,16 +3091,27 @@ public class UniversityService {
     String nextPaperId(UUID roomId) {
         String roomPrefix = roomId.toString().substring(0, 4);
         long next = paperCounter.compute(roomId, (id, current) -> {
-            long base = current != null ? current : loadMaxPaperNumber(id);
-            return base + 1;
+            long legacyFloor = current != null ? current : loadMaxPaperNumber(id);
+            return paperIdAllocationLedger().reserve(id, legacyFloor);
         });
         return "P-" + roomPrefix + "-" + next;
     }
 
+    private PaperIdAllocationLedger paperIdAllocationLedger() {
+        PaperIdAllocationLedger current = paperIdAllocationLedger;
+        if (current != null) return current;
+        synchronized (this) {
+            if (paperIdAllocationLedger == null) {
+                paperIdAllocationLedger = new PaperIdAllocationLedger(Paths.get(paperIdLedgerDir));
+            }
+            return paperIdAllocationLedger;
+        }
+    }
+
     /**
-     * Finds the highest paperId numeric suffix for a room. DB is queried first;
-     * markdown directory is consulted as a fallback only when the DB has no rows
-     * (e.g. a freshly migrated environment whose papers exist only on disk).
+     * Finds the highest legacy published-paper suffix for a room. The durable allocation ledger
+     * is the authority for every newly reserved ID; DB/file data remains a migration floor so an
+     * existing installation starts above its historical published output.
      */
     private long loadMaxPaperNumber(UUID roomId) {
         try {
