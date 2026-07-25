@@ -23,11 +23,12 @@ class ToolMetricsResetTest {
         m.incrementSymbolicSuccesses();
         m.incrementGpuEvalSuccesses();
         m.incrementPredicateScanSuccesses();
+        m.incrementVerifyOscillationSuccesses();
         m.incrementSandboxRejects();
         m.incrementSymbolicRejects();
         m.incrementGpuEvalRejects();
         // Sanity: all incremented before reset.
-        assertThat(m.totalSuccesses()).isEqualTo(4);
+        assertThat(m.totalSuccesses()).isEqualTo(5);
         assertThat(m.totalRejects()).isEqualTo(3);
 
         m.reset();
@@ -36,6 +37,7 @@ class ToolMetricsResetTest {
         assertThat(m.symbolicSuccessCount()).isZero();
         assertThat(m.gpuEvalSuccessCount()).isZero();
         assertThat(m.predicateScanSuccessCount()).isZero();
+        assertThat(m.verifyOscillationSuccessCount()).isZero();
         assertThat(m.sandboxRejectCount()).isZero();
         assertThat(m.symbolicRejectCount()).isZero();
         assertThat(m.gpuEvalRejectCount()).isZero();

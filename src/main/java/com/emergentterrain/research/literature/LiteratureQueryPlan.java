@@ -14,7 +14,11 @@ record LiteratureQueryPlan(List<Candidate> candidates, String unavailableReason)
      */
     private static final Set<String> WEAK_SUBJECT_TERMS = Set.of(
             "density", "fraction", "fractions", "number", "numbers", "range", "interval",
-            "value", "values", "result", "results", "scale", "scales", "deviation", "deviations");
+            "value", "values", "result", "results", "scale", "scales", "deviation", "deviations",
+            // Method/reporting words are insufficient to identify a literature subject. This
+            // duplicate protection matters at the title-less full-text boundary too, where a
+            // future planner must not reintroduce the "exact census" false-evidence path.
+            "exact", "census", "establish", "established", "establishes");
 
     LiteratureQueryPlan {
         candidates = candidates == null ? List.of() : List.copyOf(candidates);

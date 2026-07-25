@@ -208,6 +208,11 @@ public class MathToolSuite {
         private int gpuEvalSuccessCount    = 0;
         private int predicateScanSuccessCount = 0;
         private int verifyConjectureSuccessCount = 0;
+        /**
+         * 2026-07-25 — P-b72c-77627903 successfully ran {@code verify_oscillation}, but D3
+         * suppressed the draft because this purpose-built verifier had no ToolMetrics counter.
+         */
+        private int verifyOscillationSuccessCount = 0;
         public int sandboxRejectCount()  { return sandboxRejectCount;  }
         public int symbolicRejectCount() { return symbolicRejectCount; }
         public int gpuEvalRejectCount()  { return gpuEvalRejectCount;  }
@@ -216,10 +221,11 @@ public class MathToolSuite {
         public int gpuEvalSuccessCount() { return gpuEvalSuccessCount; }
         public int predicateScanSuccessCount() { return predicateScanSuccessCount; }
         public int verifyConjectureSuccessCount() { return verifyConjectureSuccessCount; }
+        public int verifyOscillationSuccessCount() { return verifyOscillationSuccessCount; }
         public int totalSuccesses() {
             return sandboxSuccessCount + symbolicSuccessCount
                     + gpuEvalSuccessCount + predicateScanSuccessCount
-                    + verifyConjectureSuccessCount;
+                    + verifyConjectureSuccessCount + verifyOscillationSuccessCount;
         }
         public int totalRejects() {
             return sandboxRejectCount + symbolicRejectCount + gpuEvalRejectCount;
@@ -253,10 +259,12 @@ public class MathToolSuite {
             gpuEvalSuccessCount = 0;
             predicateScanSuccessCount = 0;
             verifyConjectureSuccessCount = 0;
+            verifyOscillationSuccessCount = 0;
         }
         void incrementGpuEvalSuccesses()    { gpuEvalSuccessCount++;    }
         void incrementPredicateScanSuccesses() { predicateScanSuccessCount++; }
         void incrementVerifyConjectureSuccesses() { verifyConjectureSuccessCount++; }
+        void incrementVerifyOscillationSuccesses() { verifyOscillationSuccessCount++; }
     }
 
     private static final Set<String> VALID_PREDICATES = Set.of(
@@ -1386,6 +1394,13 @@ public class MathToolSuite {
                 // "… not configured" (failed args / sidecar) does not, via isSuccessResult.
                 if ("verify_conjecture".equals(name) && success) {
                     metrics.incrementVerifyConjectureSuccesses();
+                }
+                // 2026-07-25 — D3's success total must include every verifier it can use as
+                // load-bearing computational evidence. P-b72c-77627903 called
+                // verify_oscillation successfully, but this branch was absent, so three valid
+                // attempts looked like zero-success traces and were suppressed.
+                if ("verify_oscillation".equals(name) && success) {
+                    metrics.incrementVerifyOscillationSuccesses();
                 }
                 // run_param_sweep is intentionally not counted here — same
                 // as pre-Phase-17. Param-sweep papers are rare enough on

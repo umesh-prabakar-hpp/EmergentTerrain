@@ -36,6 +36,10 @@ public final class ArtifactPackageWriter {
         Files.writeString(evidence.resolve("tool-trace.json"),
                 objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(trace == null ? List.of() : trace),
                 StandardCharsets.UTF_8);
+        Files.writeString(evidence.resolve("literature-audit.json"),
+                objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(
+                        LiteratureTraceAudit.from(paper, trace, assessment, objectMapper)),
+                StandardCharsets.UTF_8);
         Files.writeString(results.resolve("findings.md"), nullToEmpty(paper.findings()), StandardCharsets.UTF_8);
         Files.writeString(results.resolve("conclusion.md"), nullToEmpty(paper.conclusion()), StandardCharsets.UTF_8);
 
@@ -47,7 +51,7 @@ public final class ArtifactPackageWriter {
                 StandardCharsets.UTF_8);
 
         ObjectNode manifest = objectMapper.createObjectNode();
-        manifest.put("schema_version", 1);
+        manifest.put("schema_version", 2);
         manifest.put("created_at", Instant.now().toString());
         manifest.put("paper_id", paper.paperId());
         manifest.put("publication_label", paper.publicationLabel().name());
@@ -87,6 +91,7 @@ public final class ArtifactPackageWriter {
                 .append("- `paper.md`: rendered paper\n")
                 .append("- `evidence/pre-registration.json`: locked research contract\n")
                 .append("- `evidence/tool-trace.json`: executed computational evidence\n")
+                .append("- `evidence/literature-audit.json`: search → issued-key → reference-read → citation chain\n")
                 .append("- `results/`: rendered findings and conclusion\n")
                 .append("- `manifest.json`: file hashes and quality-gate result\n")
                 .append("- `reproduce.sh`: declared reproduction command (printed, never server-executed)\n");

@@ -129,6 +129,59 @@ deterministic today. A future AI tool may propose only the validated
 raw FTS syntax or bypass the record-evidence and title-anchor policy before the
 adapter queries or issues a key.
 
+### 3.1 AI-first semantic judgment, deterministic publication invariants
+
+Phase 35 is deliberately not a claim that deterministic token policies can
+replace research judgment. The app is AI-first: a frontier model should
+eventually identify a claim's actual subject, distinguish a meaningful
+literature connection from lexical coincidence, assess novelty, and propose
+the next discriminating computation or holdout.
+
+The durable boundary is therefore **AI-led decision, deterministic
+verification**:
+
+- An AI planner may propose a structured research query: subject anchors,
+  claimed relation, and a short relevance rationale. It should operate on the
+  hypothesis and registered prediction rather than generic narration prose.
+- An AI reviewer may assess whether a retrieved source is relevant, but its
+  conclusion must name the issued `HF...` key and point to material returned by
+  `read_reference`; fluent ungrounded relevance prose is not evidence.
+- Deterministic code continues to own non-negotiable invariants: no raw FTS
+  syntax, no key without an indexed match, no citation without an issued key,
+  no artifact-backed label without a successful read and matching related-work
+  citation, and no numeric research claim without an executed trace.
+- An AI audit label is a review signal, not by itself a publication verdict.
+  Its factual predicates must be independently checkable; this prevents a
+  pure-mathematics finite census from being rejected solely because a model
+  emitted `physical_mechanism`.
+
+### 3.2 Literature evidence audit bundle
+
+Every artifact now contains `evidence/literature-audit.json`, a derived,
+checksummed index over the immutable raw `tool-trace.json`. It records, for
+each literature search, the requested claim, argument-parse status, outcome,
+issued relevance-safe keys, and bounded result summary. For each
+`read_reference` it records the requested and returned key, focused query,
+whether that key was issued by an earlier safe search, and whether a matching
+passage was actually read.
+
+The final gate section then makes the complete evidence lifecycle inspectable:
+
+`search claim → issued HF key → successful reference read → related-work citation → publication label`.
+
+It also names issued-but-unread sources, read-but-uncited sources, malformed
+arguments, unavailable corpus results, and missing publication requirements.
+The report is an audit index, not a second source of truth: the raw trace and
+the returned reference passage remain the evidentiary records. A malformed or
+incomplete audit chain cannot manufacture evidence or satisfy the
+artifact-backed gate.
+
+The current procedural-token exclusions are tactical fail-closed protection
+for demonstrated false-positive paths. If repeated reviews reveal a wider
+family, replace lists of individual words with a more general, tested notion of
+a domain-bearing subject anchor. The target is fewer special cases over time,
+not an ever-growing denylist.
+
 Every enabled lookup writes its exact FTS expressions plus per-candidate
 evidence and required-title anchors to `logs/et-app.log` at INFO level. This
 supports manual reproduction without logging the paper body. Repeated
@@ -186,6 +239,16 @@ at least one distinctive candidate subject anchor in the indexed source title,
 in addition to all candidate evidence anchors in the full record. This keeps
 the Dirichlet error-term fallback available through its `divisor` title anchor
 while rejecting an unrelated density paper whose title lacks `abundant`.
+
+The 2026-07-25 P-b72c-77627904 review found a narrower title-less fallback
+gap. A finite-census claim produced the procedural phrases `exact census` and
+`itself establish`; because those ordinary reporting words occurred in
+unrelated title-less astronomy records, the adapter issued false evidence. The
+planner now excludes `exact`, `census`, `establish`, and `itself` from anchor
+and pair generation, and the same terms are weak at the title-less acceptance
+boundary. A legitimate title-less source still needs a three-anchor exact
+subject match, such as `Dirichlet divisor error`; a procedural body overlap is
+an honest no-evidence result.
 
 Every completed lookup logs `outcome`, total elapsed time, candidate and batch
 counts, rows inspected, results issued, the final search surface

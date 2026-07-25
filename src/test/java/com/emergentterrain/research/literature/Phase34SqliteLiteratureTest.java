@@ -130,6 +130,21 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35FailsClosedForTitlelessProceduralCensusOverlap() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO fulltext VALUES ('2601.00002', 'no-problem/2601/2601.00002.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2601.00002', '', "
+                    + "'An exact census reports a fraction for an unrelated astronomy population.')");
+        }
+
+        assertThat(adapter.search("The finite-window fraction is an exact census but does not itself establish a limit"))
+                .contains("no sufficiently specific literature anchors")
+                .doesNotContain("EVIDENCE", "HF");
+    }
+
+    @Test
     void phase35NormalizesInstructionsAndKeepsAtLeastTwoAndAnchors() {
         LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
                 "Search the literature for prime gap bounds and prior papers",
@@ -138,6 +153,15 @@ class Phase34SqliteLiteratureTest {
         assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
                 .containsExactly("prime AND gap")
                 .allMatch(query -> query.contains(" AND ") && !query.contains(" OR "));
+    }
+
+    @Test
+    void phase35PlannerRejectsProceduralCensusPhrasesWithoutASubject() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "The finite-window fraction is an exact census but does not itself establish a limit",
+                java.util.Map.of("fraction", 10, "exact", 20, "census", 30, "establish", 40));
+
+        assertThat(plan.candidates()).isEmpty();
     }
 
     @Test

@@ -722,8 +722,9 @@ public class UniversityService {
         }
         if (auditPhysicalMechanismRejectsEnabled) {
             log.info("UniversityService: audit-physical-mechanism-rejects ENABLED — "
-                    + "SUPPORTED papers whose audit-4b gap list contains physical_mechanism "
-                    + "publish as REJECTED.");
+                    + "SUPPORTED non-MATHEMATICS papers whose audit-4b gap list contains "
+                    + "physical_mechanism publish as REJECTED; deterministic cross-domain "
+                    + "validation remains responsible for MATHEMATICS drift.");
         }
         if (topicSpecificFindingsValidatorEnabled) {
             log.info("UniversityService: topic-specific-findings-validator ENABLED — "
@@ -1669,16 +1670,17 @@ public class UniversityService {
         // prime-gap→CTE, Collatz→RLC, happy-number→packing non-sequitur clusters.
         List<String> auditGapDimensions = narration.auditGapDimensions() != null
                 ? narration.auditGapDimensions() : List.of();
-        // 2026-05-29 — exempt CONJECTURE_INVESTIGATION papers: they are pure-math
-        // (number-theoretic) by construction (math substrate only) and make no
-        // physical claim, so a "physical_mechanism" gap on them is a false flag,
-        // not a cross-domain non-sequitur. (Catalog MATHEMATICS papers that drift
-        // into physics vocabulary are still caught — only the conjecture kind is
-        // exempt.)
+        // 2026-07-25 — an audit label is probabilistic model output, not sufficient
+        // evidence to reject a pure-MATHEMATICS paper. P-b72c-77627904 was a finite
+        // number-theory census with explicit anti-physical caveats, but its catalog
+        // DOMAIN kind meant the old conjecture-only exemption still rejected it.
+        // The deterministic CrossDomainHypothesisGate remains the authority for a
+        // mathematics hypothesis that actually imports physics/materials markers.
+        boolean pureMathematics = "MATHEMATICS".equalsIgnoreCase(draft.domain());
         boolean physicalMechanismAuditFailed = auditPhysicalMechanismRejectsEnabled
                 && draft.resultClassification() == ResultClassification.SUPPORTED
                 && auditGapDimensions.contains("physical_mechanism")
-                && draft.kind() != PaperKind.CONJECTURE_INVESTIGATION;
+                && !pureMathematics;
         if (physicalMechanismAuditFailed) {
             log.warn("audit:physical_mechanism→REJECTED paperId={} dimensions={}",
                     draft.paperId(), auditGapDimensions);

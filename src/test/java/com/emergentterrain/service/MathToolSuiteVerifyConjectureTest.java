@@ -89,6 +89,29 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @Test
+    void successfulOscillationVerificationCountsTowardD3Successes() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        var executor = suite.buildExecutor(stubDraft(), metrics);
+
+        String call = mapper.writeValueAsString(Map.of(
+                "name", "verify_oscillation",
+                "arguments", Map.of(
+                        "lhs", "mertens_delta",
+                        "window_start", 200_000,
+                        "window_size", 500,
+                        "num_windows", 3)));
+
+        String result = executor.apply(call);
+
+        assertThat(result).startsWith("verify_oscillation:");
+        assertThat(metrics.verifyOscillationSuccessCount()).isEqualTo(1);
+        assertThat(metrics.totalSuccesses()).isEqualTo(1);
+    }
+
+    @Test
     void dispatcherRoutesRefutedCallToVerifier() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         MathToolSuite suite = new MathToolSuite(

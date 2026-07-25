@@ -35,6 +35,11 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             // word in model prose but do not make a selective literature phrase on their own.
             "has", "have", "had", "one", "order", "over", "consecutive", "high", "location",
             "tracks", "squared",
+            // Procedural wording is evidence-method framing, not a research subject. In
+            // particular, P-b72c-77627904 let "exact census" through to the title-less
+            // full-text fallback, where unrelated astronomy records happened to contain those
+            // common words. Keep these terms out of both anchor and pair generation.
+            "census", "establish", "established", "establishes", "exact", "itself",
             // Generic model-prose connectors observed to consume the full retrieval deadline
             // before a mathematical subject phrase was tried. They are not literature anchors.
             "integer", "integers", "satisfying", "satisfy", "satisfied", "obey", "obeys",

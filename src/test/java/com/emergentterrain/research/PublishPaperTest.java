@@ -2147,14 +2147,29 @@ class PublishPaperTest {
     // ---- Phase 7 G8: physical_mechanism audit gap → REJECTED ----
 
     @Test
-    void phase7_G8_supportedPaperWithPhysicalMechanismGapPublishesRejectedWhenFlagOn() {
+    void phase7_G8_nonMathematicsPaperWithPhysicalMechanismGapPublishesRejectedWhenFlagOn() {
         enableAuditPhysicalMechanismRejects();
-        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        PaperDraft draft = draftForTopic("PHYSICS", "Thermal Stress", ResultClassification.SUPPORTED, 0.5);
         NarrationResult narration = narrationWithAuditGaps(0.8, List.of("physical_mechanism"));
         service.publishPaper(draft, narration);
         ResearchPaper paper = firstPaper();
         assertThat(paper.status()).isEqualTo("REJECTED");
         assertThat(paper.llmCallPath()).contains("audit:physical_mechanism→REJECTED");
+    }
+
+    @Test
+    void phase7_G8_pureMathematicsCatalogPaperWithPhysicalMechanismGapDoesNotHardReject() {
+        enableAuditPhysicalMechanismRejects();
+        // The default helper creates a MATHEMATICS / DOMAIN (catalog) paper, matching
+        // P-b72c-77627904 rather than the already-exempt conjecture-investigation path.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("physical_mechanism"));
+
+        service.publishPaper(draft, narration);
+
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.status()).isEqualTo("PUBLISHED");
+        assertThat(paper.llmCallPath()).isNull();
     }
 
     @Test
