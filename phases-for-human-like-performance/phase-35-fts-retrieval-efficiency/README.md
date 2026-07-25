@@ -119,15 +119,26 @@ process-scoped `HF...` key whose source must be checked through
 text is indexed but whose theorem record is absent; it does not weaken the
 theorem path's title gate.
 
+For a common but valid pair such as `graph isomorphism`, even a ranked
+64-result body/theorem search can spend the budget scoring a very large posting
+list. Phase 35 therefore tries the same validated pair in the theorem
+statement `name` field first. This is a bounded latency optimization only: if
+the name-field attempt does not issue evidence, the unchanged general
+theorem-record candidate follows under the same aggregate budget and complete
+512-row eligibility range. No result key is granted by the name-field match
+until the ordinary record-evidence and full-text-presence checks pass.
+
 This deliberately favors a no-match over a plausible-looking but irrelevant
 citation. The selected expression and rejected candidate count are diagnostic
 data, not paper evidence.
 
-The boundary is `LiteratureQueryPlanner` → `LiteratureQueryPlan`. It is
-deterministic today. A future AI tool may propose only the validated
-`EXACT_PHRASE` or `AND_PAIR` query kinds and two safe anchors; it cannot supply
+The boundary is `LiteratureQueryPlanner` → `LiteratureQueryPlan`. The model may
+now supply exactly two semantic anchors through `search_literature`; the
+planner validates them and emits only a bounded `AND_PAIR`. It cannot supply
 raw FTS syntax or bypass the record-evidence and title-anchor policy before the
-adapter queries or issues a key.
+adapter queries or issues a key. The deterministic claim extractor remains a
+failure-compatible fallback for callers that predate the structured tool
+contract.
 
 ### 3.1 AI-first semantic judgment, deterministic publication invariants
 
@@ -140,12 +151,22 @@ the next discriminating computation or holdout.
 The durable boundary is therefore **AI-led decision, deterministic
 verification**:
 
-- An AI planner may propose a structured research query: subject anchors,
-  claimed relation, and a short relevance rationale. It should operate on the
-  hypothesis and registered prediction rather than generic narration prose.
-- An AI reviewer may assess whether a retrieved source is relevant, but its
-  conclusion must name the issued `HF...` key and point to material returned by
-  `read_reference`; fluent ungrounded relevance prose is not evidence.
+- The `search_literature` tool now requires the AI to propose a structured
+  research query: exactly two subject anchors, a claimed relation, and a short
+  relevance rationale. The anchors must be single domain-bearing tokens found
+  in the supplied specific claim; deterministic validation turns only that
+  safe pair into a bounded `AND_PAIR`. Relation and rationale are retained for
+  audit but never become executable FTS syntax. Malformed, procedural, or
+  ungrounded AI anchors fail closed with no evidence issued. The query should
+  operate on the hypothesis and registered prediction rather than generic
+  narration prose.
+- After `read_reference`, the AI can call `assess_reference_relevance` to
+  record a `RELEVANT`, `UNCERTAIN`, or `NOT_RELEVANT` judgment. Its conclusion
+  must name the issued `HF...` key and include a short exact excerpt returned
+  by `read_reference`; the adapter rejects an unissued key or an excerpt that
+  was not returned. The judgment is review metadata, not evidence by itself:
+  fluent ungrounded relevance prose cannot issue a key, bypass the trace, or
+  satisfy the artifact-backed gate.
 - Deterministic code continues to own non-negotiable invariants: no raw FTS
   syntax, no key without an indexed match, no citation without an issued key,
   no artifact-backed label without a successful read and matching related-work
@@ -159,8 +180,8 @@ verification**:
 
 Every artifact now contains `evidence/literature-audit.json`, a derived,
 checksummed index over the immutable raw `tool-trace.json`. It records, for
-each literature search, the requested claim, argument-parse status, outcome,
-issued relevance-safe keys, and bounded result summary. For each
+each literature search, the requested claim, structured AI proposal and its
+argument-parse status, outcome, issued relevance-safe keys, and bounded result summary. For each
 `read_reference` it records the requested and returned key, focused query,
 whether that key was issued by an earlier safe search, and whether a matching
 passage was actually read.
@@ -171,6 +192,9 @@ The final gate section then makes the complete evidence lifecycle inspectable:
 
 It also names issued-but-unread sources, read-but-uncited sources, malformed
 arguments, unavailable corpus results, and missing publication requirements.
+Accepted relevance-review calls and the cited/read/reviewed-key intersection
+are recorded beside that chain, so a reviewer can distinguish a source merely
+retrieved from one the research model actually inspected.
 The report is an audit index, not a second source of truth: the raw trace and
 the returned reference passage remain the evidentiary records. A malformed or
 incomplete audit chain cannot manufacture evidence or satisfy the

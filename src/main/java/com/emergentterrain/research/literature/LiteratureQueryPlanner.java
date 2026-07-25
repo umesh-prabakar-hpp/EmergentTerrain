@@ -12,4 +12,13 @@ import java.util.Map;
 interface LiteratureQueryPlanner {
 
     LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts);
+
+    /**
+     * Accepts a model-proposed semantic boundary only after the planner has validated it. The
+     * default keeps existing planners and callers byte-compatible.
+     */
+    default LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                    LiteratureQueryProposal proposal) {
+        return plan(claim, documentCounts);
+    }
 }

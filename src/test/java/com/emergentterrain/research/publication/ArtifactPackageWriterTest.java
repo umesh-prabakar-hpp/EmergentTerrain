@@ -57,17 +57,21 @@ class ArtifactPackageWriterTest {
                 PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE, List.of("locked pre-registration"));
 
         Path artifact = ArtifactPackageWriter.write(output, "room1234", paper, null, List.of(
-                new ToolInvocation("search_literature", "{\"claim\":\"prime gap bound\"}",
+                new ToolInvocation("search_literature", "{\"claim\":\"prime gap bound\",\"subject_anchors\":[\"prime\",\"gap\"],\"claimed_relation\":\"bound comparison\",\"relevance_rationale\":\"prior bounds matter\"}",
                         "search_literature: EVIDENCE — [HF123] Prime gap bounds", 0, "call_1"),
                 new ToolInvocation("read_reference", "{\"key\":\"HF123\",\"query\":\"bound\"}",
                         "read_reference HF123 — Prime gap bounds [source: test]\nTop passages matching \"bound\":\n---\ntext",
                         1, "call_2"),
+                new ToolInvocation("assess_reference_relevance",
+                        "{\"key\":\"HF123\",\"supporting_excerpt\":\"text\",\"verdict\":\"RELEVANT\",\"rationale\":\"same comparison\"}",
+                        "reference_relevance_assessment HF123 — ACCEPTED RELEVANT: tied to an issued key and returned read_reference passage; review metadata only.",
+                        1, "call_3"),
                 new ToolInvocation("read_reference", "{\"key\":\"HF999\",\"query\":\"bound\"}",
                         "read_reference: unknown Phase 34 key — call search_literature first", 1, "call_3")),
                 assessment, "# Title\n", new ObjectMapper());
 
         String audit = Files.readString(artifact.resolve("evidence/literature-audit.json"));
-        assertThat(audit).contains("prime gap bound", "HF123", "READ", "UNISSUED_KEY")
+        assertThat(audit).contains("prime gap bound", "HF123", "READ", "RELEVANT", "UNISSUED_KEY", "subjectAnchors")
                 .contains("\"sourceGroundedRelatedWork\" : true");
     }
 

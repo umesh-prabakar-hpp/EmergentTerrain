@@ -52,6 +52,11 @@ class Phase34SqliteLiteratureTest {
         assertThat(read).startsWith("read_reference " + key.group(1))
                 .contains("Top passages matching")
                 .contains("confirmed range");
+        assertThat(adapter.assessRelevance(key.group(1),
+                "The confirmed range gives a prime gap bound", "RELEVANT"))
+                .contains("ACCEPTED RELEVANT");
+        assertThat(adapter.assessRelevance(key.group(1), "made-up wording not returned by the source", "RELEVANT"))
+                .contains("supporting_excerpt must be a focused passage");
     }
 
     @Test
@@ -153,6 +158,31 @@ class Phase34SqliteLiteratureTest {
         assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
                 .containsExactly("prime AND gap")
                 .allMatch(query -> query.contains(" AND ") && !query.contains(" OR "));
+    }
+
+    @Test
+    void phase35AcceptsAnAiProposedSubjectPairOnlyWhenItIsGroundedAndSafe() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+
+        String search = adapter.search("prime gap bound", new LiteratureQueryProposal(
+                List.of("prime", "gap"), "compare a finite bound with prior work",
+                "prior prime-gap work may identify the established comparison"));
+
+        assertThat(search).contains("EVIDENCE", "Prime gap bounds");
+    }
+
+    @Test
+    void phase35FailsClosedForAnAiProposalWithProceduralOrUngroundedAnchors() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+
+        assertThat(adapter.search("prime gap bound", new LiteratureQueryProposal(
+                List.of("exact", "census"), "report a count", "generic reporting words")))
+                .contains("no valid two-anchor subject")
+                .doesNotContain("EVIDENCE");
+        assertThat(adapter.search("prime gap bound", new LiteratureQueryProposal(
+                List.of("dark", "matter"), "unrelated relation", "not in the claim")))
+                .contains("not grounded in the supplied claim")
+                .doesNotContain("EVIDENCE");
     }
 
     @Test
@@ -289,6 +319,21 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35TriesTheoremNameBeforeTheUnchangedGeneralCandidate() {
+        LiteratureQueryPlan.Candidate candidate = new LiteratureQueryPlan.Candidate(
+                LiteratureQueryPlan.QueryKind.AND_PAIR, List.of("graph", "isomorphism"),
+                List.of("graph", "isomorphism"), List.of());
+        List<Phase34SqliteLiterature.SearchCandidate> expanded =
+                Phase34SqliteLiterature.theoremNameFirstCandidates(List.of(
+                        new Phase34SqliteLiterature.SearchCandidate(candidate.expression(), candidate.queryAnchors(),
+                                candidate.evidenceAnchors(), candidate.minimumEvidenceMatches(),
+                                candidate.requiredTitleAnchors())));
+
+        assertThat(expanded).extracting(Phase34SqliteLiterature.SearchCandidate::expression)
+                .containsExactly("name : graph AND name : isomorphism", "graph AND isomorphism");
+    }
+
+    @Test
     void phase35FailsClosedWhenOnlyGenericClaimFramingRemains() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 
@@ -348,14 +393,29 @@ class Phase34SqliteLiteratureTest {
 
         assertThat(suite.toolsJson(false, true))
                 .contains("search_literature")
-                .contains("read_reference");
+                .contains("read_reference")
+                .contains("assess_reference_relevance");
         String search = suite.buildExecutor(draft, new MathToolSuite.ToolMetrics())
-                .apply("{\"name\":\"search_literature\",\"arguments\":{\"claim\":\"prime gap bound\"}}");
+                .apply("{\"name\":\"search_literature\",\"arguments\":{\"claim\":\"prime gap bound\","
+                        + "\"subject_anchors\":[\"prime\",\"gap\"],\"claimed_relation\":\"bound comparison\","
+                        + "\"relevance_rationale\":\"prior prime-gap work positions this bound\"}}");
         Matcher key = Pattern.compile("\\[(HF[0-9A-F]+)]").matcher(search);
         assertThat(key.find()).isTrue();
         String read = suite.buildExecutor(draft, new MathToolSuite.ToolMetrics()).apply(
                 "{\"name\":\"read_reference\",\"arguments\":{\"key\":\"" + key.group(1)
                         + "\",\"query\":\"confirmed range\"}}");
         assertThat(read).startsWith("read_reference " + key.group(1));
+        assertThat(suite.buildExecutor(draft, new MathToolSuite.ToolMetrics()).apply(
+                "{\"name\":\"assess_reference_relevance\",\"arguments\":{\"key\":\"" + key.group(1)
+                        + "\",\"supporting_excerpt\":\"The confirmed range gives a prime gap bound\","
+                        + "\"verdict\":\"RELEVANT\",\"rationale\":\"same finite bound\"}}"))
+                .contains("ACCEPTED RELEVANT");
+
+        assertThat(suite.buildExecutor(draft, new MathToolSuite.ToolMetrics()).apply(
+                "{\"name\":\"search_literature\",\"arguments\":{\"claim\":\"prime gap bound\","
+                        + "\"subject_anchors\":[\"exact\",\"census\"],\"claimed_relation\":\"count\","
+                        + "\"relevance_rationale\":\"generic words\"}}"))
+                .contains("no valid two-anchor subject")
+                .doesNotContain("EVIDENCE");
     }
 }

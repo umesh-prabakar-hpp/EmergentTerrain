@@ -855,6 +855,7 @@ public class MathToolSuite {
                         + (((referenceReader != null && referenceReader.available())
                                 || phase34SqliteLiterature != null)
                                 ? READ_REFERENCE_TOOL_JSON : "")
+                        + (phase34SqliteLiterature != null ? ASSESS_REFERENCE_RELEVANCE_TOOL_JSON : "")
                         + (domainRefClient != null
                                 ? LOOKUP_OEIS_TOOL_JSON + LOOKUP_DLMF_TOOL_JSON : ""),
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
@@ -886,14 +887,17 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"search_literature",
-                "description":"Look up citable prior work for this paper's domain/topic. Call this to GROUND any reference to prior work: cite ONLY the exact citation strings/keys this tool returns, and never invent author-year references. An empty/SILENT result means no prior work states the claim — in that case make no author-year citations (a SILENT over a large corpus is itself reportable as a novelty signal). When a corpus-grounded lookup is available, pass the SPECIFIC claim being grounded via 'claim' for the sharpest match.",
+                "description":"Look up citable prior work for this paper's domain/topic. Before searching, state the TWO domain-bearing subject anchors already present in the specific claim, the claimed relation, and why prior work on that subject would matter. The system validates anchors before retrieval; they are not raw query syntax. Cite ONLY exact keys this tool returns. An empty/SILENT result means no prior work states the claim, so make no author-year citations.",
                 "parameters":{
                   "type":"object",
                   "properties":{
                     "topic":{"type":"string","description":"Optional topic override; defaults to the paper's own topic. Use the paper's topic unless you have a specific reason to look up an adjacent one."},
-                    "claim":{"type":"string","description":"Optional: the specific claim sentence to ground (e.g. 'the error term in the Dirichlet divisor problem has a bounded O(1) envelope at the x^(1/4) normalisation'). Sharper than a bare topic; preferred when checking whether a RESULT is already known."}
+                    "claim":{"type":"string","description":"The specific claim sentence to ground. It must contain the two subject anchors."},
+                    "subject_anchors":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2,"description":"Exactly two distinct domain-bearing single-word anchors occurring in claim, e.g. [\"dirichlet\",\"divisor\"]. Never supply FTS syntax or generic reporting words."},
+                    "claimed_relation":{"type":"string","description":"The relationship to check against prior work, in plain language. This is audit context, not retrieval syntax."},
+                    "relevance_rationale":{"type":"string","description":"Why literature on these anchors could inform this claim. This is audit context; a source is not evidence until read_reference returns a passage."}
                   },
-                  "required":[]
+                  "required":["claim","subject_anchors","claimed_relation","relevance_rationale"]
                 }
               }
             }""";
@@ -917,6 +921,25 @@ public class MathToolSuite {
                     "query":{"type":"string","description":"What to look for in the text — the specific claim, constant, or exponent you are checking."}
                   },
                   "required":["key","query"]
+                }
+              }
+            }""";
+
+    private static final String ASSESS_REFERENCE_RELEVANCE_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"assess_reference_relevance",
+                "description":"After read_reference, record whether the returned passage is relevant to the specific claim. Supply the exact issued key, one short exact excerpt from the returned passage, and verdict RELEVANT, UNCERTAIN, or NOT_RELEVANT. The system verifies the key and excerpt. This is review metadata, not a citation or proof.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "key":{"type":"string","description":"Exact key already returned by search_literature and read by read_reference."},
+                    "supporting_excerpt":{"type":"string","description":"A short exact excerpt from the returned passage that supports the relevance judgment."},
+                    "verdict":{"type":"string","description":"RELEVANT, UNCERTAIN, or NOT_RELEVANT."},
+                    "rationale":{"type":"string","description":"Brief explanation of how the passage bears on the claim; audit context only."}
+                  },
+                  "required":["key","supporting_excerpt","verdict","rationale"]
                 }
               }
             }""";
@@ -1327,6 +1350,7 @@ public class MathToolSuite {
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
                     case "read_reference"     -> readReference(args, readReferenceCalls);
+                    case "assess_reference_relevance" -> assessReferenceRelevance(args);
                     case "lookup_oeis"        -> lookupOeis(args);
                     case "lookup_dlmf"        -> lookupDlmf(args);
                     case "derive_value"       -> deriveValue(args);
@@ -1430,7 +1454,18 @@ public class MathToolSuite {
             String query = args.path("claim").asText("");
             if (query.isBlank()) query = args.path("topic").asText("");
             if (query.isBlank() && draft != null) query = draft.topicName();
-            return phase34SqliteLiterature.search(query);
+            com.emergentterrain.research.literature.LiteratureQueryProposal proposal = null;
+            if (args.has("subject_anchors") || args.has("claimed_relation") || args.has("relevance_rationale")) {
+                java.util.List<String> anchors = new java.util.ArrayList<>();
+                JsonNode anchorNode = args.path("subject_anchors");
+                if (anchorNode.isArray()) {
+                    anchorNode.forEach(anchor -> anchors.add(anchor.asText("")));
+                }
+                proposal = new com.emergentterrain.research.literature.LiteratureQueryProposal(
+                        anchors, args.path("claimed_relation").asText(""),
+                        args.path("relevance_rationale").asText(""));
+            }
+            return phase34SqliteLiterature.search(query, proposal);
         }
         // Phase 32 §32.5 step 4 — grounding mode. For qualifying papers (see groundingApplies),
         // route the lookup to the offline BM25 corpus on the py-sidecar. Any failure (sidecar
@@ -2378,6 +2413,14 @@ public class MathToolSuite {
             return phase34SqliteLiterature.read(key, query);
         }
         return referenceReader.read(key, query);
+    }
+
+    private String assessReferenceRelevance(JsonNode args) {
+        if (phase34SqliteLiterature == null) {
+            return "reference_relevance_assessment not configured: Phase 34 SQLite literature is unavailable.";
+        }
+        return phase34SqliteLiterature.assessRelevance(args.path("key").asText(""),
+                args.path("supporting_excerpt").asText(""), args.path("verdict").asText(""));
     }
 
     private String lookupOeis(JsonNode args) {

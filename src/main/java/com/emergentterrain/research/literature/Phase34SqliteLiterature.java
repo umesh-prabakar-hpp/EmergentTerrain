@@ -65,6 +65,12 @@ public final class Phase34SqliteLiterature {
             return size() > MAX_ISSUED_KEYS;
         }
     });
+    private final Map<String, String> readOutputForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_ISSUED_KEYS;
+        }
+    });
 
     public Phase34SqliteLiterature(Path indexDir) {
         this(indexDir, false, DEFAULT_SEARCH_TIMEOUT_MS);
@@ -108,6 +114,14 @@ public final class Phase34SqliteLiterature {
     }
 
     public String search(String query) {
+        return search(query, null);
+    }
+
+    /**
+     * Searches a model-proposed semantic query only through the same bounded planner and
+     * evidence gates as deterministic claim extraction. Invalid proposals fail closed.
+     */
+    public String search(String query, LiteratureQueryProposal proposal) {
         SearchTelemetry telemetry = new SearchTelemetry();
         if (!available()) {
             return "search_literature: Phase 34 SQLite index is not available.";
@@ -135,11 +149,12 @@ public final class Phase34SqliteLiterature {
                      """)) {
             QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, searchTimeoutMs) : null;
             List<SearchCandidate> candidateQueries;
+            List<SearchCandidate> theoremCandidateQueries;
             if (phase35RetrievalEnabled) {
                 // Looking up each term in fts5vocab can itself scan the large on-disk vocabulary.
                 // The planner therefore treats an empty map as "unknown statistics" and lets the
                 // bounded phrase FTS searches establish whether a term exists within one budget.
-                LiteratureQueryPlan plan = queryPlanner.plan(query, Map.of());
+                LiteratureQueryPlan plan = queryPlanner.plan(query, Map.of(), proposal);
                 if (!plan.unavailableReason().isBlank()) {
                     if (budget != null) budget.close();
                     return "search_literature: " + plan.unavailableReason();
@@ -149,6 +164,11 @@ public final class Phase34SqliteLiterature {
                                 candidate.evidenceAnchors(), candidate.minimumEvidenceMatches(),
                                 candidate.requiredTitleAnchors()))
                         .toList();
+                // Ranking a broad body-term conjunction still makes FTS score a very large
+                // posting list before it can emit even the first 64 rows. Search the theorem
+                // statement name field first: it is a safe, bounded narrowing attempt whose
+                // general theorem query remains immediately behind it for complete recall.
+                theoremCandidateQueries = theoremNameFirstCandidates(candidateQueries);
                 log.info("Phase 35 literature plan: expressions={} candidateEvidenceAnchors={} candidateRequiredTitleAnchors={}",
                         candidateQueries.stream().map(SearchCandidate::expression).toList(),
                         candidateQueries.stream().map(SearchCandidate::evidenceAnchors).toList(),
@@ -157,6 +177,7 @@ public final class Phase34SqliteLiterature {
                 candidateQueries = legacySearchQueries(query).stream()
                         .map(candidate -> new SearchCandidate(candidate, List.of(), List.of(), 0, List.of()))
                         .toList();
+                theoremCandidateQueries = candidateQueries;
             }
             if (candidateQueries.isEmpty()) {
                 if (budget != null) budget.close();
@@ -164,8 +185,8 @@ public final class Phase34SqliteLiterature {
             }
             Map<String, Citation> distinct = new LinkedHashMap<>();
             try {
-                for (int attempt = 0; attempt < candidateQueries.size(); attempt++) {
-                    SearchCandidate candidate = candidateQueries.get(attempt);
+                for (int attempt = 0; attempt < theoremCandidateQueries.size(); attempt++) {
+                    SearchCandidate candidate = theoremCandidateQueries.get(attempt);
                     telemetry.candidateAttempts++;
                     for (int batchLimit : phase35RetrievalEnabled
                             ? stagedCandidateLimits(initialSearchCandidates) : List.of(LEGACY_SEARCH_ROWS)) {
@@ -250,6 +271,28 @@ public final class Phase34SqliteLiterature {
             logSearchTelemetry(telemetry, "error", 0);
             return "search_literature: Phase 34 SQLite query unavailable (" + safeMessage(e) + ").";
         }
+    }
+
+    /**
+     * Adds a statement-name-only attempt before the unchanged general theorem query. This avoids
+     * scoring a corpus-wide body match for common pairs such as {@code graph isomorphism}; failure
+     * falls through to the exact prior candidate, so it is a latency optimization rather than a
+     * recall or evidence-policy change.
+     */
+    static List<SearchCandidate> theoremNameFirstCandidates(List<SearchCandidate> candidates) {
+        Map<String, SearchCandidate> ordered = new LinkedHashMap<>();
+        for (SearchCandidate candidate : candidates) {
+            String nameExpression = candidate.queryAnchors().stream()
+                    .map(anchor -> "name : " + anchor)
+                    .collect(java.util.stream.Collectors.joining(" AND "));
+            if (!nameExpression.isBlank()) {
+                ordered.putIfAbsent(nameExpression, new SearchCandidate(nameExpression,
+                        candidate.queryAnchors(), candidate.evidenceAnchors(),
+                        candidate.minimumEvidenceMatches(), candidate.requiredTitleAnchors()));
+            }
+            ordered.putIfAbsent(candidate.expression(), candidate);
+        }
+        return List.copyOf(ordered.values());
     }
 
     /** The second stage deliberately retains the established 512-result eligibility range. */
@@ -373,14 +416,45 @@ public final class Phase34SqliteLiterature {
                 String sourceKey = blankAs(row.getString(2), paperId);
                 String passage = blankAs(row.getString(3), "No passage text was returned.");
                 if (passage.length() > MAX_PASSAGE_CHARS) passage = passage.substring(0, MAX_PASSAGE_CHARS) + "…";
-                return "read_reference " + key + " — " + title
+                String output = "read_reference " + key + " — " + title
                         + " [source: Phase 34 Marin ar5iv Markdown, record " + sourceKey
                         + "; paraphrase and cite the key]\nTop passages matching \""
                         + (query == null ? "" : query) + "\":\n---\n" + passage;
+                readOutputForKey.put(key.strip(), output);
+                return output;
             }
         } catch (Exception e) {
             return "read_reference: Phase 34 SQLite query unavailable (" + safeMessage(e) + ").";
         }
+    }
+
+    /**
+     * Accepts model relevance metadata only when it points to a key issued in this process and an
+     * excerpt that actually appeared in the corresponding {@link #read(String, String)} output.
+     * It never changes retrieval, citation issuance, or publication status by itself.
+     */
+    public String assessRelevance(String key, String supportingExcerpt, String verdict) {
+        String normalizedKey = key == null ? "" : key.strip();
+        String readOutput = readOutputForKey.get(normalizedKey);
+        if (!paperForKey.containsKey(normalizedKey) || readOutput == null) {
+            return "reference_relevance_assessment: rejected — key must be issued and successfully read first.";
+        }
+        String normalizedExcerpt = normalizeEvidenceText(supportingExcerpt);
+        if (normalizedExcerpt.length() < 16 || normalizedExcerpt.length() > 600
+                || !normalizeEvidenceText(readOutput).contains(normalizedExcerpt)) {
+            return "reference_relevance_assessment: rejected — supporting_excerpt must be a focused passage returned by read_reference.";
+        }
+        String normalizedVerdict = verdict == null ? "" : verdict.strip().toUpperCase(Locale.ROOT);
+        if (!("RELEVANT".equals(normalizedVerdict) || "UNCERTAIN".equals(normalizedVerdict)
+                || "NOT_RELEVANT".equals(normalizedVerdict))) {
+            return "reference_relevance_assessment: rejected — verdict must be RELEVANT, UNCERTAIN, or NOT_RELEVANT.";
+        }
+        return "reference_relevance_assessment " + normalizedKey + " — ACCEPTED " + normalizedVerdict
+                + ": tied to an issued key and returned read_reference passage; review metadata only.";
+    }
+
+    private static String normalizeEvidenceText(String text) {
+        return text == null ? "" : text.replaceAll("\\s+", " ").strip().toLowerCase(Locale.ROOT);
     }
 
     private Connection open() throws Exception {
@@ -532,8 +606,8 @@ public final class Phase34SqliteLiterature {
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet) {}
 
-    private record SearchCandidate(String expression, List<String> queryAnchors, List<String> evidenceAnchors,
-                                   int minimumEvidenceMatches, List<String> requiredTitleAnchors) {
+    static record SearchCandidate(String expression, List<String> queryAnchors, List<String> evidenceAnchors,
+                                 int minimumEvidenceMatches, List<String> requiredTitleAnchors) {
         private boolean titleHasDistinctiveQueryAnchor(List<String> titleTerms) {
             return queryAnchors.stream()
                     .filter(anchor -> !LiteratureQueryPlan.isWeakSubjectTerm(anchor))

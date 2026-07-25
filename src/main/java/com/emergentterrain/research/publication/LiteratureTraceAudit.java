@@ -23,6 +23,8 @@ final class LiteratureTraceAudit {
     private static final Pattern KEY = Pattern.compile("\\[([A-Za-z0-9]+)]");
     private static final Pattern READ = Pattern.compile(
             "(?s)^read_reference\\s+([A-Za-z0-9]+)(?:\\s+—|\\s+\\[).*Top passages matching.*");
+    private static final Pattern RELEVANCE = Pattern.compile(
+            "^reference_relevance_assessment\\s+([A-Za-z0-9]+)\\s+— ACCEPTED\\s+(RELEVANT|UNCERTAIN|NOT_RELEVANT):.*");
 
     private LiteratureTraceAudit() {}
 
@@ -30,6 +32,7 @@ final class LiteratureTraceAudit {
                        PublicationAssessment assessment, ObjectMapper mapper) {
         List<Search> searches = new ArrayList<>();
         List<ReferenceRead> reads = new ArrayList<>();
+        List<RelevanceAssessment> assessments = new ArrayList<>();
         Set<String> issuedKeys = new LinkedHashSet<>();
         Set<String> successfullyReadKeys = new LinkedHashSet<>();
         List<ToolInvocation> safeTrace = trace == null ? List.of() : trace;
@@ -38,12 +41,13 @@ final class LiteratureTraceAudit {
             if (call == null || call.functionName() == null) continue;
             if ("search_literature".equals(call.functionName())) {
                 Argument argument = argument(call.argsJson(), "claim", mapper);
+                SemanticProposal proposal = proposal(call.argsJson(), mapper);
                 String result = nullToEmpty(call.resultJson());
                 SearchOutcome outcome = searchOutcome(result);
                 List<String> keys = outcome == SearchOutcome.EVIDENCE ? keys(result) : List.of();
                 issuedKeys.addAll(keys);
                 searches.add(new Search(call.callId(), call.round(), argument.value(), argument.parseStatus(),
-                        outcome.name(), keys, summary(result)));
+                        proposal, outcome.name(), keys, summary(result)));
             } else if ("read_reference".equals(call.functionName())) {
                 Argument requestedKey = argument(call.argsJson(), "key", mapper);
                 Argument query = argument(call.argsJson(), "query", mapper);
@@ -57,6 +61,16 @@ final class LiteratureTraceAudit {
                         requestedKey.parseStatus(), query.value(), query.parseStatus(), returnedKey,
                         successful ? "READ" : readOutcome(result, requestedKey.value(), issuedKeys),
                         successful, summary(result)));
+            } else if ("assess_reference_relevance".equals(call.functionName())) {
+                Argument requestedKey = argument(call.argsJson(), "key", mapper);
+                Argument verdict = argument(call.argsJson(), "verdict", mapper);
+                Argument rationale = argument(call.argsJson(), "rationale", mapper);
+                Matcher match = RELEVANCE.matcher(nullToEmpty(call.resultJson()));
+                boolean accepted = match.matches() && match.group(1).equals(requestedKey.value());
+                assessments.add(new RelevanceAssessment(call.callId(), call.round(), requestedKey.value(),
+                        requestedKey.parseStatus(), verdict.value(), verdict.parseStatus(), rationale.value(),
+                        rationale.parseStatus(), accepted, accepted ? match.group(2) : "REJECTED",
+                        summary(call.resultJson())));
             }
         }
 
@@ -67,13 +81,18 @@ final class LiteratureTraceAudit {
         unreadIssuedKeys.removeAll(successfullyReadKeys);
         Set<String> readButUncitedKeys = new LinkedHashSet<>(successfullyReadKeys);
         readButUncitedKeys.removeAll(citedKeys);
+        Set<String> reviewedKeys = new LinkedHashSet<>();
+        assessments.stream().filter(RelevanceAssessment::accepted).map(RelevanceAssessment::key)
+                .forEach(reviewedKeys::add);
+        Set<String> citedReadReviewedKeys = new LinkedHashSet<>(citedReadKeys);
+        citedReadReviewedKeys.retainAll(reviewedKeys);
 
         Gate gate = new Gate(List.copyOf(issuedKeys), List.copyOf(successfullyReadKeys), citedKeys,
                 List.copyOf(citedReadKeys), List.copyOf(unreadIssuedKeys), List.copyOf(readButUncitedKeys),
-                !citedReadKeys.isEmpty(), paper == null ? "" : nullToEmpty(paper.status()),
+                List.copyOf(citedReadReviewedKeys), !citedReadKeys.isEmpty(), paper == null ? "" : nullToEmpty(paper.status()),
                 paper == null || paper.publicationLabel() == null ? "" : paper.publicationLabel().name(),
                 assessment == null ? List.of() : assessment.missingRequirements());
-        return new Report(1, List.copyOf(searches), List.copyOf(reads), gate);
+        return new Report(1, List.copyOf(searches), List.copyOf(reads), List.copyOf(assessments), gate);
     }
 
     private static SearchOutcome searchOutcome(String result) {
@@ -108,6 +127,31 @@ final class LiteratureTraceAudit {
         }
     }
 
+    private static SemanticProposal proposal(String rawArgs, ObjectMapper mapper) {
+        if (rawArgs == null || rawArgs.isBlank()) return new SemanticProposal(List.of(), "MISSING", "", "MISSING", "", "MISSING");
+        try {
+            JsonNode node = mapper.readTree(rawArgs);
+            if (node == null || !node.isObject()) {
+                return new SemanticProposal(List.of(), "MALFORMED", "", "MALFORMED", "", "MALFORMED");
+            }
+            JsonNode anchors = node.path("subject_anchors");
+            List<String> values = new ArrayList<>();
+            String anchorsStatus = "MISSING";
+            if (anchors.isArray()) {
+                anchors.forEach(anchor -> values.add(anchor.asText("")));
+                anchorsStatus = values.isEmpty() ? "MISSING" : "PRESENT";
+            } else if (!anchors.isMissingNode()) {
+                anchorsStatus = "MALFORMED";
+            }
+            Argument relation = argument(rawArgs, "claimed_relation", mapper);
+            Argument rationale = argument(rawArgs, "relevance_rationale", mapper);
+            return new SemanticProposal(List.copyOf(values), anchorsStatus, relation.value(), relation.parseStatus(),
+                    rationale.value(), rationale.parseStatus());
+        } catch (Exception ignored) {
+            return new SemanticProposal(List.of(), "MALFORMED", "", "MALFORMED", "", "MALFORMED");
+        }
+    }
+
     private static List<String> keys(String value) {
         Set<String> distinct = new LinkedHashSet<>();
         Matcher matcher = KEY.matcher(value == null ? "" : value);
@@ -126,16 +170,26 @@ final class LiteratureTraceAudit {
 
     private enum SearchOutcome { EVIDENCE, NO_EVIDENCE, TIMEOUT, UNAVAILABLE, ERROR }
 
-    record Report(int schemaVersion, List<Search> searches, List<ReferenceRead> referenceReads, Gate gate) {}
-    record Search(String callId, int round, String claim, String claimParseStatus, String outcome,
+    record Report(int schemaVersion, List<Search> searches, List<ReferenceRead> referenceReads,
+                  List<RelevanceAssessment> relevanceAssessments, Gate gate) {}
+    record Search(String callId, int round, String claim, String claimParseStatus, SemanticProposal semanticProposal,
+                  String outcome,
                   List<String> issuedKeys, String resultSummary) {}
+    record SemanticProposal(List<String> subjectAnchors, String subjectAnchorsParseStatus,
+                            String claimedRelation, String claimedRelationParseStatus,
+                            String relevanceRationale, String relevanceRationaleParseStatus) {}
     record ReferenceRead(String callId, int round, String requestedKey, String requestedKeyParseStatus,
                          String query, String queryParseStatus, String returnedKey, String outcome,
                          boolean issuedKeyReadSuccessfully, String resultSummary) {}
+    record RelevanceAssessment(String callId, int round, String key, String keyParseStatus,
+                               String requestedVerdict, String verdictParseStatus, String rationale,
+                               String rationaleParseStatus, boolean accepted, String acceptedVerdict,
+                               String resultSummary) {}
     record Gate(List<String> relevanceSafeIssuedKeys, List<String> successfullyReadKeys,
                 List<String> relatedWorkCitedKeys, List<String> citedReadKeys,
                 List<String> issuedButUnreadKeys, List<String> readButUncitedKeys,
-                boolean sourceGroundedRelatedWork, String workflowStatus, String publicationLabel,
+                List<String> citedReadReviewedKeys, boolean sourceGroundedRelatedWork,
+                String workflowStatus, String publicationLabel,
                 List<String> missingPublicationRequirements) {}
     private record Argument(String value, String parseStatus) {}
 }

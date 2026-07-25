@@ -9,7 +9,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Deterministic phrase planner used until a reviewed AI planner is introduced. */
+/** Deterministic validator and fallback planner for both extracted and AI-proposed query intent. */
 final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanner {
 
     private static final Pattern TOKEN = Pattern.compile("[\\p{Alnum}]{2,}");
@@ -54,9 +54,18 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
 
     @Override
     public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
+        return plan(claim, documentCounts, null);
+    }
+
+    @Override
+    public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                    LiteratureQueryProposal proposal) {
         if (documentCounts == null) {
             return LiteratureQueryPlan.unavailable(
                     "Phase 35 query planning is unavailable; no evidence was issued.");
+        }
+        if (proposal != null) {
+            return planValidatedProposal(claim, proposal);
         }
         List<String> extractedAnchors = extractAnchors(claim);
         List<String> anchors = (documentCounts.isEmpty() ? extractedAnchors.stream()
@@ -87,6 +96,30 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
                     evidenceAnchorsFor(pair, anchors), requireTitleAnchor ? pair : List.of()));
         }
         return new LiteratureQueryPlan(candidates, "");
+    }
+
+    /**
+     * Models supply semantic intent; this validator owns every retrieval-relevant decision. A
+     * proposal must name exactly two safe, distinct domain-bearing tokens already present in the
+     * claim. Relation and rationale remain auditable model context, never FTS syntax.
+     */
+    private static LiteratureQueryPlan planValidatedProposal(String claim, LiteratureQueryProposal proposal) {
+        List<String> proposed = proposal.subjectAnchors().stream()
+                .map(anchor -> anchor == null ? "" : anchor.strip().toLowerCase(Locale.ROOT))
+                .toList();
+        if (proposed.size() != 2 || proposed.stream().distinct().count() != 2
+                || proposed.stream().anyMatch(anchor -> !TOKEN.matcher(anchor).matches())
+                || proposed.stream().anyMatch(anchor -> !isEligibleAnchor(anchor))) {
+            return LiteratureQueryPlan.unavailable(
+                    "Phase 35 AI literature proposal has no valid two-anchor subject; no evidence was issued.");
+        }
+        List<String> claimAnchors = extractAnchors(claim);
+        if (!claimAnchors.containsAll(proposed)) {
+            return LiteratureQueryPlan.unavailable(
+                    "Phase 35 AI literature proposal anchors are not grounded in the supplied claim; no evidence was issued.");
+        }
+        return new LiteratureQueryPlan(List.of(new LiteratureQueryPlan.Candidate(
+                LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, List.of())), "");
     }
 
     /**
