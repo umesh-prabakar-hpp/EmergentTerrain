@@ -129,9 +129,11 @@ combines distant rare words and never runs an all-terms OR fallback.
   The theorem-record path requires both phrase terms in the source title and
   all candidate evidence in the returned title/theorem record before issuing
   an `HF...` key.
-- A two-anchor claim uses one bounded `AND` pair so sources with descriptive
-  rather than topical titles can still be found; both terms must occur in the
-  returned theorem record.
+- A two-anchor claim uses one bounded `AND` pair for query recall, but an
+  evidence key is issued only when both normalized subject anchors occur in
+  title-level metadata. Both terms must also occur in the returned theorem
+  record. This rejects body-only lexical coincidences without changing the
+  bounded query expression.
 - Instructional and generic framing terms (`finite`, `scale`, `normalized`,
   and similar) are not eligible anchors.
 - A match that lacks the required record evidence is an honest no-match, never

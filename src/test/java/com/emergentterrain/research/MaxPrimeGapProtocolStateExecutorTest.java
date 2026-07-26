@@ -42,11 +42,27 @@ class MaxPrimeGapProtocolStateExecutorTest {
         assertThat(width.phase()).isEqualTo("width_holdout");
         assertThat(width.argumentsJson()).contains("\"k\":0.496").contains("\"c\":0.0")
                 .contains("\"window_start\":900000000").contains("\"window_size\":20000")
-                .contains("\"num_windows\":10");
+                .contains("\"num_windows\":5");
 
         trace.add(new ToolInvocation("verify_conjecture", width.argumentsJson(), heldResult(), 0));
         assertThat(MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(REGISTRATION, trace)).isTrue();
         assertThat(MaxPrimeGapProtocolStateExecutor.next(REGISTRATION, trace)).isEmpty();
+    }
+
+    @Test
+    void replacesTheFormerOversizedWidthCallWithTheRegisteredSafeGrid() {
+        List<ToolInvocation> trace = new ArrayList<>(List.of(
+                tightFit(), refutedFit(), held(150_000_000L, 10_000L, 10),
+                held(900_000_000L, 10_000L, 10), held(900_005_000L, 10_000L, 10),
+                new ToolInvocation("verify_conjecture", args(0.496, 0.0, 900_000_000L, 20_000L, 10),
+                        "Invalid verify_conjecture: num_windows × window_size = 200000 exceeds cap of 100000.", 0)));
+
+        MaxPrimeGapProtocolStateExecutor.PlannedCall width =
+                MaxPrimeGapProtocolStateExecutor.next(REGISTRATION, trace).orElseThrow();
+
+        assertThat(width.phase()).isEqualTo("width_holdout");
+        assertThat(width.argumentsJson()).contains("\"window_size\":20000")
+                .contains("\"num_windows\":5");
     }
 
     @Test

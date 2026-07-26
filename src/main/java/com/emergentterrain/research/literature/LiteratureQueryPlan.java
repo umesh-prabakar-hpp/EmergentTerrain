@@ -38,6 +38,26 @@ record LiteratureQueryPlan(List<Candidate> candidates, String unavailableReason)
     }
 
     /**
+     * Normalizes title and subject tokens for deterministic anchor comparison. This deliberately
+     * handles only case and common English plural forms; it is not a semantic expansion or a
+     * query rewrite.
+     */
+    static String normalizeSubjectAnchor(String value) {
+        String normalized = value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+        if (normalized.length() <= 3 || normalized.endsWith("ss")) return normalized;
+        if (normalized.endsWith("ies") && normalized.length() > 4) {
+            return normalized.substring(0, normalized.length() - 3) + "y";
+        }
+        if (normalized.endsWith("ches") || normalized.endsWith("shes")
+                || normalized.endsWith("sses") || normalized.endsWith("xes")
+                || normalized.endsWith("zes")) {
+            return normalized.substring(0, normalized.length() - 2);
+        }
+        if (normalized.endsWith("s")) return normalized.substring(0, normalized.length() - 1);
+        return normalized;
+    }
+
+    /**
      * A query pair plus a deterministic rule for deciding whether an FTS hit is citation-worthy.
      *
      * <p>An eventual AI planner may choose a better pair, but cannot ask the adapter to issue a

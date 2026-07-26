@@ -21,7 +21,7 @@ class MaxPrimeGapMultiScalePreRegistrationTest {
                 held(150_000_000L, 10_000L, 10, 0.424, 0.0, 0.01),
                 held(900_000_000L, 10_000L, 10, 0.424, 0.0, 0.02),
                 held(900_005_000L, 10_000L, 10, 0.424, 0.0, 0.03),
-                held(900_000_000L, 20_000L, 10, 0.424, 0.0, 0.04));
+                held(900_000_000L, 20_000L, 5, 0.424, 0.0, 0.04));
 
         assertThat(MaxPrimeGapMultiScalePreRegistration.isLocked(REGISTRATION)).isTrue();
         assertThat(MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(REGISTRATION, trace)).isTrue();
@@ -36,7 +36,7 @@ class MaxPrimeGapMultiScalePreRegistrationTest {
                 held(150_000_000L, 10_000L, 10, 0.424, 0.0, 0.01),
                 held(900_000_000L, 10_000L, 10, 0.2541, 0.0, 0.04),
                 held(900_005_000L, 10_000L, 10, 0.424, 0.0, 0.03),
-                held(900_000_000L, 20_000L, 10, 0.424, 0.0, 0.04));
+                held(900_000_000L, 20_000L, 5, 0.424, 0.0, 0.04));
 
         MaxPrimeGapMultiScalePreRegistration.Assessment assessment =
                 MaxPrimeGapMultiScalePreRegistration.assess(REGISTRATION, trace);
@@ -66,7 +66,7 @@ class MaxPrimeGapMultiScalePreRegistrationTest {
                 held(150_000_000L, 10_000L, 10, 0.424, 0.0, 0.01),
                 held(900_000_000L, 10_000L, 10, 0.424, 0.0, 0.02),
                 held(900_005_000L, 10_000L, 10, 0.424, 0.0, 0.03),
-                held(900_000_000L, 20_000L, 10, 0.424, 0.0, 0.04),
+                held(900_000_000L, 20_000L, 5, 0.424, 0.0, 0.04),
                 refuted(100_000_000L, 10_000L, 10, 0.424, -0.32185));
 
         assertThat(MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(REGISTRATION, trace)).isFalse();

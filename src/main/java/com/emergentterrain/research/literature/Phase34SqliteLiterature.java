@@ -508,15 +508,15 @@ public final class Phase34SqliteLiterature {
     private static boolean hasSufficientRecordEvidence(String title, String name, String slogan, String body,
                                                        SearchCandidate candidate) {
         if (candidate.evidenceAnchors().isEmpty()) return true;
-        List<String> titleTerms = tokenTerms(title);
-        if (!titleTerms.containsAll(candidate.requiredTitleAnchors())) {
+        List<String> titleTerms = normalizedTokenTerms(title);
+        if (!titleTerms.containsAll(candidate.normalizedRequiredTitleAnchors())) {
             return false;
         }
         List<String> recordTerms = new ArrayList<>(titleTerms);
-        recordTerms.addAll(tokenTerms(name));
-        recordTerms.addAll(tokenTerms(slogan));
-        recordTerms.addAll(tokenTerms(body));
-        int corroborated = (int) candidate.evidenceAnchors().stream().filter(recordTerms::contains).count();
+        recordTerms.addAll(normalizedTokenTerms(name));
+        recordTerms.addAll(normalizedTokenTerms(slogan));
+        recordTerms.addAll(normalizedTokenTerms(body));
+        int corroborated = (int) candidate.normalizedEvidenceAnchors().stream().filter(recordTerms::contains).count();
         return corroborated >= candidate.minimumEvidenceMatches();
     }
 
@@ -532,12 +532,16 @@ public final class Phase34SqliteLiterature {
     private static boolean hasSufficientFullTextEvidence(String metadataTitle, String indexedTitle, String text,
                                                          SearchCandidate candidate) {
         if (candidate.evidenceAnchors().isEmpty()) return true;
-        List<String> titleTerms = new ArrayList<>(tokenTerms(metadataTitle));
-        titleTerms.addAll(tokenTerms(indexedTitle));
-        if (!candidate.titleHasDistinctiveQueryAnchor(titleTerms) && !candidate.allowsTitlelessFullText()) return false;
+        List<String> titleTerms = new ArrayList<>(normalizedTokenTerms(metadataTitle));
+        titleTerms.addAll(normalizedTokenTerms(indexedTitle));
+        if (candidate.requiresAllSubjectAnchorsInTitle()) {
+            if (!titleTerms.containsAll(candidate.normalizedRequiredTitleAnchors())) return false;
+        } else if (!candidate.titleHasDistinctiveQueryAnchor(titleTerms) && !candidate.allowsTitlelessFullText()) {
+            return false;
+        }
         List<String> recordTerms = new ArrayList<>(titleTerms);
-        recordTerms.addAll(tokenTerms(text));
-        return candidate.evidenceAnchors().stream().allMatch(recordTerms::contains);
+        recordTerms.addAll(normalizedTokenTerms(text));
+        return candidate.normalizedEvidenceAnchors().stream().allMatch(recordTerms::contains);
     }
 
     private static List<String> tokenTerms(String value) {
@@ -545,6 +549,10 @@ public final class Phase34SqliteLiterature {
         Matcher matcher = TOKEN.matcher(value == null ? "" : value);
         while (matcher.find()) terms.add(matcher.group().toLowerCase(Locale.ROOT));
         return terms;
+    }
+
+    private static List<String> normalizedTokenTerms(String value) {
+        return tokenTerms(value).stream().map(LiteratureQueryPlan::normalizeSubjectAnchor).toList();
     }
 
     private static String safeMessage(Exception error) {
@@ -609,9 +617,27 @@ public final class Phase34SqliteLiterature {
     static record SearchCandidate(String expression, List<String> queryAnchors, List<String> evidenceAnchors,
                                  int minimumEvidenceMatches, List<String> requiredTitleAnchors) {
         private boolean titleHasDistinctiveQueryAnchor(List<String> titleTerms) {
-            return queryAnchors.stream()
+            return normalizedQueryAnchors().stream()
                     .filter(anchor -> !LiteratureQueryPlan.isWeakSubjectTerm(anchor))
                     .anyMatch(titleTerms::contains);
+        }
+
+        private boolean requiresAllSubjectAnchorsInTitle() {
+            return !expression.startsWith("\"")
+                    && requiredTitleAnchors.size() == queryAnchors.size()
+                    && !requiredTitleAnchors.isEmpty();
+        }
+
+        private List<String> normalizedQueryAnchors() {
+            return queryAnchors.stream().map(LiteratureQueryPlan::normalizeSubjectAnchor).distinct().toList();
+        }
+
+        private List<String> normalizedEvidenceAnchors() {
+            return evidenceAnchors.stream().map(LiteratureQueryPlan::normalizeSubjectAnchor).distinct().toList();
+        }
+
+        private List<String> normalizedRequiredTitleAnchors() {
+            return requiredTitleAnchors.stream().map(LiteratureQueryPlan::normalizeSubjectAnchor).distinct().toList();
         }
 
         private boolean allowsTitlelessFullText() {

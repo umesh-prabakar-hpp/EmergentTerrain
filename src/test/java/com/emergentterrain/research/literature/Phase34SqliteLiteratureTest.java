@@ -158,6 +158,48 @@ class Phase34SqliteLiteratureTest {
         assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
                 .containsExactly("prime AND gap")
                 .allMatch(query -> query.contains(" AND ") && !query.contains(" OR "));
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::requiredTitleAnchors)
+                .containsExactly(List.of("prime", "gap"));
+    }
+
+    @Test
+    void phase35RejectsTheObservedGeometryFalsePositiveForPrimeGapEvidence() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO papers VALUES ('2109.02156', "
+                    + "'Linking disjoint axis-parallel segments into a simple polygon is hard too', "
+                    + "'R. Jiang', 'cs.CG')");
+            sql.execute("INSERT INTO theorems VALUES (2, '2109.02156')");
+            sql.execute("INSERT INTO theorem_fts VALUES (2, '2109.02156', 'Segment visibility theorem', "
+                    + "'prime gap', 'An unrelated geometry construction happens to contain both prime and gap.')");
+            sql.execute("INSERT INTO fulltext VALUES ('2109.02156', 'no-problem/2109/2109.02156.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2109.02156', "
+                    + "'Linking disjoint axis-parallel segments into a simple polygon is hard too', "
+                    + "'The unrelated geometry text contains prime and gap as lexical coincidences.')");
+        }
+
+        String search = adapter.search("prime gap");
+
+        assertThat(search).contains("EVIDENCE", "Prime gap bounds")
+                .doesNotContain("Linking disjoint axis-parallel segments");
+    }
+
+    @Test
+    void phase35AcceptsNormalizedPluralSubjectAnchorsInTitleMetadata() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("INSERT INTO papers VALUES ('2501.00002', 'Prime gaps at large scale', 'A. Author', 'math.NT')");
+            sql.execute("INSERT INTO theorems VALUES (2, '2501.00002')");
+            sql.execute("INSERT INTO theorem_fts VALUES (2, '2501.00002', 'Prime gap theorem', "
+                    + "'prime gap', 'A prime gap result is established.')");
+            sql.execute("INSERT INTO fulltext VALUES ('2501.00002', 'no-problem/2501/2501.00002.html')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('2501.00002', 'Prime gaps at large scale', "
+                    + "'A prime gap result is established.')");
+        }
+
+        assertThat(adapter.search("prime gap")).contains("Prime gaps at large scale");
     }
 
     @Test

@@ -17,7 +17,11 @@ an auditable multi-scale confirmation.
 | Near location holdout | 150,000,000 | 10,000 | 10 |
 | Far location holdout | 900,000,000 | 10,000 | 10 |
 | Overlapping-offset holdout | 900,005,000 | 10,000 | 10 |
-| Width holdout | 900,000,000 | 20,000 | 10 |
+| Width holdout | 900,000,000 | 20,000 | 5 |
+
+The width holdout spans exactly 100,000 integers (20,000 × 5), matching the verifier's
+fixed maximum-work cap. This preserves an independent doubled-width test without issuing a
+request the verifier must reject.
 
 The professor may select `k,c` only from a tight (`relative slack <= 0.05`) HELD fit call. That
 exact pair is locked before any holdout is read. The fit also needs a same-grid `REFUTED` call

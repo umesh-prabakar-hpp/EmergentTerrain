@@ -30,7 +30,8 @@ public final class MaxPrimeGapMultiScalePreRegistration {
             new Grid("near_holdout", 150_000_000L, 10_000L, 10),
             new Grid("far_holdout", 900_000_000L, 10_000L, 10),
             new Grid("offset_holdout", 900_005_000L, 10_000L, 10),
-            new Grid("width_holdout", 900_000_000L, 20_000L, 10));
+            // Keep the doubled-width check inside ConjectureVerifier's 100,000-integer cap.
+            new Grid("width_holdout", 900_000_000L, 20_000L, 5));
 
     private MaxPrimeGapMultiScalePreRegistration() {}
 

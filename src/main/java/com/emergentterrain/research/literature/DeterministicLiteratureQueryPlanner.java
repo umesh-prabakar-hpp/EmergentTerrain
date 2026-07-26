@@ -88,12 +88,14 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             if (LiteratureQueryPlan.isWeakSubjectTerm(pair.get(0))
                     && LiteratureQueryPlan.isWeakSubjectTerm(pair.get(1))) continue;
             // Exact subject phrases keep multi-concept claims selective. A two-word claim has no
-            // independent third anchor, so its AND pair preserves recall for descriptive titles.
+            // independent third anchor, so its AND pair preserves recall at query time; before an
+            // HF key is issued, both normalized subject anchors must still be present in title-level
+            // metadata. This prevents a body-only lexical coincidence from becoming literature evidence.
             LiteratureQueryPlan.QueryKind queryKind = requireTitleAnchor
                     ? LiteratureQueryPlan.QueryKind.EXACT_PHRASE
                     : LiteratureQueryPlan.QueryKind.AND_PAIR;
             candidates.add(new LiteratureQueryPlan.Candidate(queryKind, pair,
-                    evidenceAnchorsFor(pair, anchors), requireTitleAnchor ? pair : List.of()));
+                    evidenceAnchorsFor(pair, anchors), pair));
         }
         return new LiteratureQueryPlan(candidates, "");
     }
@@ -119,7 +121,7 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
                     "Phase 35 AI literature proposal anchors are not grounded in the supplied claim; no evidence was issued.");
         }
         return new LiteratureQueryPlan(List.of(new LiteratureQueryPlan.Candidate(
-                LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, List.of())), "");
+                LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, proposed)), "");
     }
 
     /**
