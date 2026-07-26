@@ -410,6 +410,35 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @org.junit.jupiter.api.Test
+    void bindingInstructionUsesThePublicationGateTightnessBoundary() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        var executor = suite.buildExecutor(stubDraft());
+
+        // abundant_density is fixed at 0.247. This intercept yields exactly 5% relative slack,
+        // which publication accepts as a tight binding result.
+        String atBoundary = executor.apply(mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density", "rhs", "prime_density",
+                        "k", 0.0, "c", 0.23523809523809525,
+                        "window_start", 200_000, "window_size", 500, "num_windows", 3))));
+        assertThat(atBoundary).contains("HELD").contains("TIGHT HOLD");
+
+        // This is the live-run regression shape (about 5.49% slack): it must be narrated as
+        // loose/tighten-needed rather than prompting a false demonstrated-binding claim.
+        String aboveBoundary = executor.apply(mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density", "rhs", "prime_density",
+                        "k", 0.0, "c", 0.23416,
+                        "window_start", 200_000, "window_size", 500, "num_windows", 3))));
+        assertThat(aboveBoundary).contains("HELD").contains("LOOSE:")
+                .doesNotContain("TIGHT HOLD");
+    }
+
+    @org.junit.jupiter.api.Test
     void toolsJsonParses_withReferenceReaderWired() throws Exception {
         // 2026-07-06 REGRESSION GUARD: the read_reference schema shipped with text-block \"
         // escapes that collapse to RAW quotes -> invalid tools JSON -> EVERY professor path

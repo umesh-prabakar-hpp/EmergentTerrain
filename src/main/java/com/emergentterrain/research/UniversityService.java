@@ -459,6 +459,11 @@ public class UniversityService {
             "${app.research.max-prime-gap-multiscale-preregistration-gate.enabled:false}")
     private boolean maxPrimeGapMultiScalePreRegistrationGateEnabled;
 
+    /** A max-divisor-count measurement study needs its locked holdouts and a read/cited Wigert source. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.max-divisor-count-measurement-preregistration-gate.enabled:false}")
+    private boolean maxDivisorCountMeasurementPreRegistrationGateEnabled;
+
     /**
      * Phase 32 Wave 0 (32.1) — verified-values manifest capture. When on,
      * every published paper gets a {@code .manifest.json} sidecar beside its
@@ -1321,6 +1326,22 @@ public class UniversityService {
                             + "(registration or selected trace lacks the locked fit/refutation/holdout protocol)",
                     draft.paperId());
         }
+        boolean maxDivisorCountTopic = "conjecture/max_divisor_count".equals(draft.topicName());
+        boolean maxDivisorCountMeasurementPreRegistrationUncovered =
+                maxDivisorCountMeasurementPreRegistrationGateEnabled && maxDivisorCountTopic
+                        && (!MaxDivisorCountMeasurementPreRegistration.isLocked(draft.preRegistration())
+                        || !MaxDivisorCountMeasurementPreRegistration.hasExactEvidence(
+                                draft.preRegistration(), narration.toolCallTrace()));
+        boolean maxDivisorCountWigertReferenceUncovered =
+                maxDivisorCountMeasurementPreRegistrationGateEnabled && maxDivisorCountTopic
+                        && !MaxDivisorCountMeasurementPreRegistration.hasSourceBackedWigertReference(
+                                narration.toolCallTrace(), narration.relatedWork());
+        if (maxDivisorCountMeasurementPreRegistrationUncovered || maxDivisorCountWigertReferenceUncovered) {
+            log.warn("max-divisor-count measurement pre-registration check failed paperId={} "
+                            + "(locked protocol missing={}, source-backed Wigert reference missing={})",
+                    draft.paperId(), maxDivisorCountMeasurementPreRegistrationUncovered,
+                    maxDivisorCountWigertReferenceUncovered);
+        }
         boolean affineBindingClaimUncovered = affineBindingClaimGateEnabled
                 && AffineBindingClaimValidator.claimWithoutDocumentedPair(
                         hypothesis, findings, conclusion, narration.toolCallTrace());
@@ -1833,6 +1854,10 @@ public class UniversityService {
         } else if (maxPrimeGapMultiScalePreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (maxDivisorCountMeasurementPreRegistrationUncovered
+                || maxDivisorCountWigertReferenceUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (affineBindingClaimUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2019,6 +2044,18 @@ public class UniversityService {
                     ? "publish:max_prime_gap_multiscale_preregistration_uncovered→needs_revision"
                     : persistedCallPath
                             + " → publish:max_prime_gap_multiscale_preregistration_uncovered→needs_revision";
+        }
+        if (maxDivisorCountMeasurementPreRegistrationUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:max_divisor_count_measurement_preregistration_uncovered→needs_revision"
+                    : persistedCallPath
+                            + " → publish:max_divisor_count_measurement_preregistration_uncovered→needs_revision";
+        }
+        if (maxDivisorCountWigertReferenceUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:max_divisor_count_wigert_reference_uncovered→needs_revision"
+                    : persistedCallPath
+                            + " → publish:max_divisor_count_wigert_reference_uncovered→needs_revision";
         }
         if (predicateBaselineSensitivityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

@@ -62,11 +62,6 @@ public class MathToolSuite {
      * <p>Visibility is package-private so unit tests pin the contract
      * without standing up the full executor.
      */
-    /** 2026-06-11 (rec 2) — above this binding-window relative slack, verify_conjecture suggests the
-     *  tightest holding k so the professor stops leaving a bound at a loose textbook constant. Matches the
-     *  write-back's MAX_REL_SLACK (a bound the pool would reject as too-loose gets a tighten suggestion). */
-    static final double MAX_REL_SLACK_SUGGEST = 0.25;
-
     static final java.util.List<String> SUCCESS_PREFIXES = java.util.List.of(
             "Param sweep (",
             "Predicate scan:",
@@ -893,7 +888,7 @@ public class MathToolSuite {
                   "properties":{
                     "topic":{"type":"string","description":"Optional topic override; defaults to the paper's own topic. Use the paper's topic unless you have a specific reason to look up an adjacent one."},
                     "claim":{"type":"string","description":"The specific claim sentence to ground. It must contain the two subject anchors."},
-                    "subject_anchors":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2,"description":"Exactly two distinct domain-bearing single-word anchors occurring in claim, e.g. [\"dirichlet\",\"divisor\"]. Never supply FTS syntax or generic reporting words."},
+                    "subject_anchors":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2,"description":"Exactly two distinct domain-bearing single-word anchors occurring in claim, e.g. [\\\"dirichlet\\\",\\\"divisor\\\"]. Never supply FTS syntax or generic reporting words."},
                     "claimed_relation":{"type":"string","description":"The relationship to check against prior work, in plain language. This is audit context, not retrieval syntax."},
                     "relevance_rationale":{"type":"string","description":"Why literature on these anchors could inform this claim. This is audit context; a source is not evidence until read_reference returns a passage."}
                   },
@@ -2882,7 +2877,7 @@ public class MathToolSuite {
                     " %d/%d window(s) hold strictly (margin <= 0); %d hold only within tolerance "
                             + "(0 < margin <= %.5f).",
                     strictHolds, result.windows().size(), toleranceHolds, tolThreshold));
-            if (relSlack > MAX_REL_SLACK_SUGGEST && !rhs2.isBlank()) {
+            if (relSlack > BindingExtensionPolicy.TIGHT_RELATIVE_SLACK && !rhs2.isBlank()) {
                 // G2 two-term tighten pass — the lever is the intercept c (keep k1, k2 from the residual
                 // fit). Tightest c keeping every window holding = c + the binding (max) margin; re-verify
                 // there AND confirm a slightly smaller c REFUTES, which demonstrates the binding regime
@@ -2899,7 +2894,7 @@ public class MathToolSuite {
                                 + "demonstrate the binding regime; a held composite that never binds stays "
                                 + "loose and is not retained as an EMPIRICAL_RESULT.",
                         cTight, cTight, k, rhs2, k2, cRefute));
-            } else if (relSlack > MAX_REL_SLACK_SUGGEST) {
+            } else if (relSlack > BindingExtensionPolicy.TIGHT_RELATIVE_SLACK) {
                 // 2026-06-11 (rec 2) — one-term: a HELD bound left at a loose textbook constant (e.g.
                 // Cramér's k=1, ~2x loose at reachable x). Suggest the TIGHTEST k that still holds (max
                 // over windows of (lhs − c)/rhs) so it tightens to the empirical fit. One-term only — for
@@ -2920,6 +2915,19 @@ public class MathToolSuite {
                                     + "constant that leaves this much slack, and do NOT stop at the tight hold "
                                     + "without its refute.",
                             kTight, kSuggest, c));
+                } else {
+                    // A c-only bound (k=0) has no positive slope to tighten. It is still loose
+                    // above the shared binding threshold, so name the intercept procedure rather
+                    // than falling through silently and inviting a binding-regime claim.
+                    double cTight = c + binding.map(w -> w.margin()).orElse(0.0);
+                    double cRefute = cTight - 2 * result.holdThreshold();
+                    sb.append(String.format(
+                            " LOOSE: this held result exceeds the binding slack boundary. Re-verify at "
+                                    + "c=%+.5f (keep k=%+.4f) to test the tightest observed intercept, "
+                                    + "then confirm c=%+.5f REFUTES (2× the hold threshold lower). Do not "
+                                    + "describe a binding regime unless the tightened hold meets the stated "
+                                    + "slack policy and the refutation is recorded on the same grid.",
+                            cTight, k, cRefute));
                 }
             } else {
                 // 2026-07-05 (run-26 rec 2, P-b72c-77627796) — the TIGHT-hold case had NO hint at

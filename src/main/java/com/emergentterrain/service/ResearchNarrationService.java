@@ -5,6 +5,7 @@ import com.emergentterrain.research.ConjecturePreRegistration;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
+import com.emergentterrain.research.MaxDivisorCountMeasurementPreRegistration;
 import com.emergentterrain.research.MaxPrimeGapMultiScalePreRegistration;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
@@ -568,6 +569,19 @@ public class ResearchNarrationService {
                 + "REFUTED changed-intercept counterpart; each holdout needs HELD evidence with relative "
                 + "slack no greater than 0.05. A common loose envelope or a holdout refit is exploratory "
                 + "and cannot support the registered result. " + directive;
+    }
+
+    static String buildMaxDivisorCountMeasurementPreRegistrationNote(PreRegistration registration,
+            List<com.emergentterrain.llm.ToolInvocation> trace) {
+        String directive = MaxDivisorCountMeasurementPreRegistration.completionDirective(registration, trace);
+        if (directive.isBlank()) return "";
+        return "\n\nMAX-DIVISOR-COUNT MEASUREMENT PRE-REGISTRATION NOTE — this study has one fixed "
+                + "fit grid and three fixed scale/window holdouts. Select k and c only on the fit grid, "
+                + "then keep both unchanged. The fit needs a same-grid REFUTED changed-intercept counterpart; "
+                + "each holdout needs HELD evidence with relative slack no greater than 0.05. Before workflow "
+                + "promotion, search using exactly the anchors divisor and wigert, read a returned source, and "
+                + "cite its exact key in Related Work. A refit, an unrelated source, or an unread search result "
+                + "cannot replace these conditions. " + directive;
     }
 
     static List<com.emergentterrain.llm.ToolInvocation> appendTrace(
@@ -2579,6 +2593,8 @@ public class ResearchNarrationService {
                             ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
                     + (MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
                             ? buildMaxPrimeGapMultiScalePreRegistrationNote(draft.preRegistration(), null) : "")
+                    + (MaxDivisorCountMeasurementPreRegistration.isLocked(draft.preRegistration())
+                            ? buildMaxDivisorCountMeasurementPreRegistrationNote(draft.preRegistration(), null) : "")
                     + buildPredicateBaselineSensitivityNote(draft);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
@@ -2730,7 +2746,12 @@ public class ResearchNarrationService {
                         MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
                                 && !MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(
                                         draft.preRegistration(), profTrace);
+                boolean maxDivisorCountMeasurementPreRegistrationMissing =
+                        MaxDivisorCountMeasurementPreRegistration.isLocked(draft.preRegistration())
+                                && !MaxDivisorCountMeasurementPreRegistration.hasExactEvidence(
+                                        draft.preRegistration(), profTrace);
                 boolean offTarget = !exactPreRegistrationMissing && !maxPrimeGapMultiScalePreRegistrationMissing
+                        && !maxDivisorCountMeasurementPreRegistrationMissing
                         && pivotEnabled
                         && com.emergentterrain.research.ScoreCalibration
                                 .hypothesisLhsUncovered(topic, triggerTrace);
@@ -2759,6 +2780,7 @@ public class ResearchNarrationService {
                                 .heldTwoTermNoBindingRegion(topic, triggerTrace)
                         : null;
                 if (!exactPreRegistrationMissing && !maxPrimeGapMultiScalePreRegistrationMissing
+                        && !maxDivisorCountMeasurementPreRegistrationMissing
                         && !offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
                         && sharpnessProbe == null) {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
@@ -2783,6 +2805,13 @@ public class ResearchNarrationService {
                                     + "corrective re-run {}/{} paperId={}",
                             pivotReruns, pivotMaxRefinements, draft.paperId());
                     pivotPrompt = userPrompt + buildMaxPrimeGapMultiScalePreRegistrationNote(
+                            draft.preRegistration(), profTrace);
+                } else if (maxDivisorCountMeasurementPreRegistrationMissing) {
+                    callPath.add("prereg:pivot:max_divisor_count_measurement_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: max-divisor-count measurement protocol incomplete — "
+                                    + "corrective re-run {}/{} paperId={}",
+                            pivotReruns, pivotMaxRefinements, draft.paperId());
+                    pivotPrompt = userPrompt + buildMaxDivisorCountMeasurementPreRegistrationNote(
                             draft.preRegistration(), profTrace);
                 } else if (offTarget) {
                     callPath.add("prereg:pivot:offtarget_rerun:n=" + pivotReruns);
@@ -2840,6 +2869,10 @@ public class ResearchNarrationService {
                             .isLocked(draft.preRegistration())
                             && !MaxPrimeGapMultiScalePreRegistration.hasExactEvidence(
                                     draft.preRegistration(), profTrace);
+                    boolean stillMaxDivisorCountMeasurement = MaxDivisorCountMeasurementPreRegistration
+                            .isLocked(draft.preRegistration())
+                            && !MaxDivisorCountMeasurementPreRegistration.hasExactEvidence(
+                                    draft.preRegistration(), profTrace);
                     boolean stillSkipped = secondOrderGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .secondOrderEngagementSkipped(topic, triggerTrace);
@@ -2857,6 +2890,8 @@ public class ResearchNarrationService {
                                     .heldTwoTermNoBindingRegion(topic, triggerTrace) != null;
                     callPath.add(stillMaxPrimeGapMultiScale
                             ? "prereg:pivot:still_max_prime_gap_multiscale_uncovered"
+                            : stillMaxDivisorCountMeasurement
+                            ? "prereg:pivot:still_max_divisor_count_measurement_uncovered"
                             : stillOff
                             ? "prereg:pivot:still_offtarget"
                             : stillSkipped

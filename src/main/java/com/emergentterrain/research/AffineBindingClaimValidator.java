@@ -2,6 +2,7 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.llm.ToolInvocation;
 import com.emergentterrain.research.conjecture.ConjectureInvestigationWriteBackService;
+import com.emergentterrain.service.BindingExtensionPolicy;
 
 import java.util.List;
 import java.util.Locale;
@@ -18,7 +19,7 @@ public final class AffineBindingClaimValidator {
         List<ConjectureInvestigationWriteBackService.HeldBound> held =
                 ConjectureInvestigationWriteBackService.parseHeldBounds(trace);
         for (ConjectureInvestigationWriteBackService.HeldBound bound : held) {
-            if (bound.relSlack() != null && bound.relSlack() <= 0.05
+            if (bound.relSlack() != null && bound.relSlack() <= BindingExtensionPolicy.TIGHT_RELATIVE_SLACK
                     && ConjectureInvestigationWriteBackService.hasDocumentedBindingPair(bound, trace)) {
                 return false;
             }

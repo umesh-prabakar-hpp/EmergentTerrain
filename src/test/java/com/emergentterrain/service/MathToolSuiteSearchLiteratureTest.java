@@ -51,6 +51,14 @@ class MathToolSuiteSearchLiteratureTest {
     }
 
     @Test
+    void fullyEnabledToolsJsonParsesWhenLiteratureToolIsWired() throws Exception {
+        String json = suite.toolsJson(true, true);
+
+        assertThat(json).contains("search_literature");
+        assertThat(M.readTree(json).isArray()).isTrue();
+    }
+
+    @Test
     void returnsCuratedReferenceForKnownTopic() {
         Function<String, String> exec =
                 suite.buildExecutor(draft("MATHEMATICS", "Collatz Stopping Time"),

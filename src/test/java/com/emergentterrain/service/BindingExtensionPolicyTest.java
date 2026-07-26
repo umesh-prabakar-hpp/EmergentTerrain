@@ -67,6 +67,8 @@ class BindingExtensionPolicyTest {
         assertThat(BindingExtensionPolicy.hasRelSlackBelow("relative slack: 0.0100", 0.01)).isFalse();
         assertThat(BindingExtensionPolicy.hasRelSlackBelow("no slack here", 0.01)).isFalse();
         assertThat(BindingExtensionPolicy.hasRelSlackBelow("relative slack: garbage", 0.01)).isFalse();
+        assertThat(BindingExtensionPolicy.hasRelSlackAtMost("relative slack: 0.0500", 0.05)).isTrue();
+        assertThat(BindingExtensionPolicy.hasRelSlackAtMost("relative slack: 0.0549", 0.05)).isFalse();
     }
 
     @Test

@@ -51,6 +51,34 @@ Phase 35 must preserve all of the following:
 - The existing global narration timeout remains a final guard. The solution
   must reduce ordinary query time rather than simply shorten that timeout.
 
+## Tool-schema regression guard
+
+On 2026-07-25, a live run suppressed twelve drafts before their professor
+tool loops could begin because the optional `search_literature` description
+embedded a JSON array example with quotes that were escaped for Java but not
+for the emitted JSON. `ResearchNarrationService.validateProfessorToolsJson`
+correctly rejected that schema, and the empty traces then triggered the
+`missing-methods` safety gate. This was a schema-construction failure, not a
+retrieval, sidecar, or provider failure.
+
+Any conditionally advertised literature tool must therefore be covered by a
+wired parse test. `MathToolSuiteSearchLiteratureTest` calls
+`toolsJson(true, true)` with a corpus wired and parses the complete result with
+Jackson; it must remain green whenever either the literature schema or tool
+assembly changes.
+
+## Affine-binding classification boundary
+
+On 2026-07-25, a completed `richly_divisible_density` trace reported a 5.49%
+relative-slack HELD result as `TIGHT HOLD`, then executed its same-grid
+refutation. The publication gate correctly requires relative slack at most 5%,
+so the manuscript's binding-regime wording was rejected despite the trace
+being otherwise complete. `BindingExtensionPolicy.TIGHT_RELATIVE_SLACK` is now
+the shared inclusive 5% boundary for verifier instructions and both affine
+publication validators. `MathToolSuiteVerifyConjectureTest` pins 5.00% as
+`TIGHT HOLD` and the 5.49% live-run shape as `LOOSE`; preserve those boundary
+tests when changing affine evidence policy.
+
 ## Implementation plan
 
 ### 1. Preserve ranking while enabling FTS5 early termination

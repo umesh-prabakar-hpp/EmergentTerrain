@@ -17,7 +17,6 @@ import java.util.OptionalLong;
  * bound coefficients unchanged.
  */
 public final class AffineBindingIndependentGridValidator {
-    private static final double TIGHT_RELATIVE_SLACK = 0.05;
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private AffineBindingIndependentGridValidator() {}
@@ -27,7 +26,7 @@ public final class AffineBindingIndependentGridValidator {
         List<HeldBound> heldBounds = ConjectureInvestigationWriteBackService.parseHeldBounds(trace);
         boolean tightDocumentedPair = false;
         for (HeldBound held : heldBounds) {
-            if (held.relSlack() == null || held.relSlack() >= TIGHT_RELATIVE_SLACK
+            if (held.relSlack() == null || held.relSlack() > BindingExtensionPolicy.TIGHT_RELATIVE_SLACK
                     || !ConjectureInvestigationWriteBackService.hasDocumentedBindingPair(held, trace)) {
                 continue;
             }

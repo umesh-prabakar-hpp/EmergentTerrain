@@ -2380,6 +2380,28 @@ class PublishPaperTest {
                 .contains("publish:predicate_study_preregistration_uncovered→needs_revision");
     }
 
+    @Test
+    void maxDivisorCountWithoutReadAndCitedWigertSourceCannotPromote() {
+        ReflectionTestUtils.setField(service, "maxDivisorCountMeasurementPreRegistrationGateEnabled", true);
+        PreRegistration registration = MaxDivisorCountMeasurementPreRegistration.from(
+                new com.emergentterrain.research.conjecture.Conjecture(
+                        "MATHEMATICS", "max_divisor_count", "wigert_bound", 0.928, 0.0));
+        PaperDraft draft = draftForTopicWithPreRegistration("MATHEMATICS", "conjecture/max_divisor_count",
+                ResultClassification.SUPPORTED, 0.5, registration);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("search_literature",
+                        "{\"claim\":\"divisor Wigert\",\"subject_anchors\":[\"divisor\",\"wigert\"],"
+                                + "\"claimed_relation\":\"finite envelope\",\"relevance_rationale\":\"comparison\"}",
+                        "EVIDENCE [HF123] Wigert divisor result", 0));
+        service.publishPaper(draft, new NarrationResult("Finite study.", "Finite findings.", "Finite conclusion.",
+                null, null, 0.8, List.of()).withToolCallTrace(trace)
+                .withDiscussionAndRelatedWork(null, "A search-only statement [HF123]."));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:max_divisor_count_wigert_reference_uncovered→needs_revision");
+    }
+
     private static com.emergentterrain.llm.ToolInvocation predicateScan(long start, long end) {
         return new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
                 "{\"predicate\":\"isAbundant\",\"range_start\":" + start
@@ -2459,6 +2481,12 @@ class PublishPaperTest {
     /** Phase 5 B2 — domain/topic-customised draft for magnitude-range tests. */
     private PaperDraft draftForTopic(String domain, String topic,
                                       ResultClassification classification, double peerScore) {
+        return draftForTopicWithPreRegistration(domain, topic, classification, peerScore, null);
+    }
+
+    private PaperDraft draftForTopicWithPreRegistration(String domain, String topic,
+                                                         ResultClassification classification, double peerScore,
+                                                         PreRegistration preRegistration) {
         String botId = UUID.randomUUID().toString();
         return new PaperDraft(
                 roomId, botId, domain, topic,
@@ -2468,7 +2496,7 @@ class PublishPaperTest {
                 peerScore, peerScore, 0.0, 100L, Instant.now(),
                 1, "P-test-" + paperCounter.incrementAndGet(), 50, 3.0, false,
                 null, null, List.of(), null,
-                null, classification, null);
+                preRegistration, classification, null);
     }
 
     private NarrationResult narration(double confidenceScore) {

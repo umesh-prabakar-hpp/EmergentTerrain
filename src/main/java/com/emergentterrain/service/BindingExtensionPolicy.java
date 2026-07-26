@@ -42,8 +42,11 @@ public class BindingExtensionPolicy {
     /** A verification call selected by the instrument itself to complete a binding pair. */
     public record ForcedToolCall(String functionName, String argumentsJson, String intercept) {}
 
-    /** Relative slack below which a held bound counts as tight enough to need a locked replication. */
-    static final double NEAR_BINDING_REL_SLACK = 0.05;
+    /**
+     * Largest relative slack that counts as a tight affine result everywhere in the pipeline.
+     * The verifier, binding extension, and publication validators share this inclusive boundary.
+     */
+    public static final double TIGHT_RELATIVE_SLACK = 0.05;
 
     @Value("${app.research.professor.extra-rounds-on-binding.extra-rounds:2}")
     private int extraRounds = 2;
@@ -53,8 +56,8 @@ public class BindingExtensionPolicy {
     }
 
     /**
-     * True when the trace holds a tightly-held verification (relative slack <
-     * {@link #NEAR_BINDING_REL_SLACK}) and no refuted verdict for that same relation and grid —
+     * True when the trace holds a tightly-held verification (relative slack ≤
+     * {@link #TIGHT_RELATIVE_SLACK}) and no refuted verdict for that same relation and grid —
      * the half-finished binding pair. A completed same-grid pair or a trace with only loose holds
      * has nothing worth extending for.
      */
@@ -67,7 +70,7 @@ public class BindingExtensionPolicy {
             if (result == null) {
                 continue;
             }
-            if (result.contains(" HELD across") && hasRelSlackBelow(result, NEAR_BINDING_REL_SLACK)) {
+            if (result.contains(" HELD across") && hasRelSlackAtMost(result, TIGHT_RELATIVE_SLACK)) {
                 if (!hasSameRelationGridRefutation(call, trace)) return true;
             }
         }
@@ -79,7 +82,7 @@ public class BindingExtensionPolicy {
         // run-26 rec 2 — P-796 spent its extension RE-holding; point at the tool's LITERAL
         // refuting intercept ("TIGHT HOLD — … re-verify with c=…") instead of a vague "tighter".
         return "EXTENSION GRANTED (" + extraRounds() + " extra tool round(s)): your trace contains "
-                + "a tightly-held bound (relative slack < " + NEAR_BINDING_REL_SLACK + ") without "
+                + "a tightly-held bound (relative slack ≤ " + TIGHT_RELATIVE_SLACK + ") without "
                 + "its refuting counterpart — you are ONE call from a DEMONSTRATED binding regime. "
                 + "Your tight-hold tool result names the exact refuting intercept (\"TIGHT HOLD — "
                 + "… re-verify with c=…\"): make THAT call verbatim. Do NOT verify more holds. "
@@ -209,6 +212,23 @@ public class BindingExtensionPolicy {
         }
         try {
             return end > start && Double.parseDouble(result.substring(start, end)) < threshold;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /** Parse "relative slack: X" from a verification result; true iff present and X ≤ threshold. */
+    static boolean hasRelSlackAtMost(String result, double threshold) {
+        int i = result == null ? -1 : result.indexOf("relative slack: ");
+        if (i < 0) return false;
+        int start = i + "relative slack: ".length();
+        int end = start;
+        while (end < result.length()
+                && (Character.isDigit(result.charAt(end)) || result.charAt(end) == '.')) {
+            end++;
+        }
+        try {
+            return end > start && Double.parseDouble(result.substring(start, end)) <= threshold;
         } catch (NumberFormatException e) {
             return false;
         }
