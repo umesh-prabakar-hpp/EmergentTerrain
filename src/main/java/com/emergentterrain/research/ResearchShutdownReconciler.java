@@ -3,6 +3,7 @@ package com.emergentterrain.research;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -37,6 +38,7 @@ public class ResearchShutdownReconciler {
     @Value("${app.research.shutdown-reconciliation.publication-lock-ms:5000}")
     private long publicationLockMs = 5_000L;
 
+    @Autowired
     public ResearchShutdownReconciler(ResearchCycleService researchCycleService,
                                       ObjectProvider<UniversityService> universityService) {
         this.researchCycleService = researchCycleService;

@@ -1,6 +1,8 @@
 package com.emergentterrain.research;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -10,6 +12,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Pins bounded hard-stop reconciliation independently of Spring/JPA. */
 class ResearchShutdownReconcilerTest {
+
+    @Test
+    void marksTheProductionConstructorForSpringInjection() throws Exception {
+        assertThat(ResearchShutdownReconciler.class.getConstructor(
+                ResearchCycleService.class, ObjectProvider.class).getAnnotation(Autowired.class)).isNotNull();
+    }
 
     @Test
     void settlesNormallyBeforeDeadline_withoutSuppressingAnything() throws Exception {
