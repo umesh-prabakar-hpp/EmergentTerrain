@@ -7,6 +7,7 @@ import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.MaxDivisorCountMeasurementPreRegistration;
 import com.emergentterrain.research.MaxPrimeGapMultiScalePreRegistration;
+import com.emergentterrain.research.MaxPrimeGapProtocolStateExecutor;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PredicateBaselineSensitivityValidator;
@@ -157,6 +158,14 @@ public class ResearchNarrationService {
     private boolean pivotEnabled;
     @org.springframework.beans.factory.annotation.Value("${app.research.pivot.max-refinements:1}")
     private int pivotMaxRefinements;
+
+    /**
+     * Execute only the next verifier-supplied, pre-registered max-prime-gap action without asking
+     * the model to repeat an operational choice. The model still owns framing and interpretation.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.max-prime-gap-multiscale-preregistration-executor.enabled:false}")
+    private boolean maxPrimeGapProtocolStateExecutorEnabled;
 
     /**
      * Phase 32 Wave 2 (32.3, 2026-06-13) — second-order ENGAGEMENT gate. Shares the
@@ -600,6 +609,52 @@ public class ResearchNarrationService {
             }
         }
         return List.copyOf(numbered);
+    }
+
+    /**
+     * Executes the bounded, state-approved tail of a locked max-prime-gap protocol.  This is not
+     * a substitute for the professor: it cannot choose a subject, a hypothesis, a comparator, or
+     * an interpretation.  It merely carries verifier-emitted k/c values and pre-registered grids
+     * into the next measurement so a vague corrective prompt cannot duplicate or refit the study.
+     */
+    private List<com.emergentterrain.llm.ToolInvocation> executeMaxPrimeGapProtocolState(
+            PaperDraft draft, List<com.emergentterrain.llm.ToolInvocation> initialTrace,
+            List<String> callPath) {
+        if (!maxPrimeGapProtocolStateExecutorEnabled
+                || !MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
+                || initialTrace == null || initialTrace.isEmpty()) {
+            return initialTrace;
+        }
+        List<com.emergentterrain.llm.ToolInvocation> trace = initialTrace;
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        java.util.function.Function<String, String> executor = toolSuite.buildExecutor(draft, metrics);
+        // One tight-fit action, one verifier-named refutation, and four registered holdouts.
+        for (int actions = 0; actions < 6; actions++) {
+            java.util.Optional<MaxPrimeGapProtocolStateExecutor.PlannedCall> planned =
+                    MaxPrimeGapProtocolStateExecutor.next(draft.preRegistration(), trace);
+            if (planned.isEmpty()) break;
+            MaxPrimeGapProtocolStateExecutor.PlannedCall action = planned.orElseThrow();
+            try {
+                com.fasterxml.jackson.databind.JsonNode arguments = objectMapper.readTree(action.argumentsJson());
+                String request = objectMapper.writeValueAsString(java.util.Map.of(
+                        "name", "verify_conjecture", "arguments", arguments));
+                updateDraftPhase(draft, "narration:max_prime_gap_protocol:" + action.phase());
+                String result = executor.apply(request);
+                com.emergentterrain.llm.ToolInvocation invocation =
+                        new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                                action.argumentsJson(), result, 0);
+                trace = appendTrace(trace, List.of(invocation));
+                callPath.add("prereg:auto:max_prime_gap:" + action.phase());
+                log.info("max-prime-gap protocol executor: phase={} paperId={} result={}",
+                        action.phase(), draft.paperId(), abbrev(result));
+            } catch (Exception e) {
+                callPath.add("prereg:auto:max_prime_gap:" + action.phase() + ":error");
+                log.warn("max-prime-gap protocol executor failed phase={} paperId={}: {}",
+                        action.phase(), draft.paperId(), e.toString());
+                break;
+            }
+        }
+        return trace;
     }
 
     static String shiftCallMarkers(String prose, int offset) {
@@ -2712,6 +2767,8 @@ public class ResearchNarrationService {
             callPath.add("prof:" + abbrev(router.primaryModel()) + ":ok");
             log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
+
+            profTrace = executeMaxPrimeGapProtocolState(draft, profTrace, callPath);
 
             // Phase 32 Wave 2 (32.3) — off-target corrective re-run. Sits AFTER
             // the D3 gate (trace verified non-empty) so a failed re-run can fall

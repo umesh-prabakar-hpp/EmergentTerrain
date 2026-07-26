@@ -245,7 +245,12 @@ public final class MaxDivisorCountMeasurementPreRegistration {
             if (index < 0) return null;
             String tail = result.substring(index + "relative slack:".length()).trim();
             int end = 0;
-            while (end < tail.length() && (Character.isDigit(tail.charAt(end)) || tail.charAt(end) == '.')) end++;
+            boolean decimal = false;
+            while (end < tail.length() && (Character.isDigit(tail.charAt(end))
+                    || (tail.charAt(end) == '.' && !decimal))) {
+                if (tail.charAt(end) == '.') decimal = true;
+                end++;
+            }
             try { return end == 0 ? null : Double.valueOf(tail.substring(0, end)); }
             catch (NumberFormatException ignored) { return null; }
         }

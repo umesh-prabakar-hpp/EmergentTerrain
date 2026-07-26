@@ -66,6 +66,10 @@ public final class MaxPrimeGapMultiScalePreRegistration {
                 && registration.mappingNotes().startsWith(PREFIX);
     }
 
+    static Grid fitGrid() { return FIT; }
+
+    static List<Grid> holdoutGrids() { return HOLDOUTS; }
+
     /** True only when the selected trace completes the registered fit/holdout protocol. */
     public static boolean hasExactEvidence(PreRegistration registration, List<ToolInvocation> trace) {
         return assess(registration, trace).complete();
@@ -215,7 +219,12 @@ public final class MaxPrimeGapMultiScalePreRegistration {
             if (index < 0) return null;
             String tail = result.substring(index + "relative slack:".length()).trim();
             int end = 0;
-            while (end < tail.length() && (Character.isDigit(tail.charAt(end)) || tail.charAt(end) == '.')) end++;
+            boolean decimal = false;
+            while (end < tail.length() && (Character.isDigit(tail.charAt(end))
+                    || (tail.charAt(end) == '.' && !decimal))) {
+                if (tail.charAt(end) == '.') decimal = true;
+                end++;
+            }
             if (end == 0) return null;
             try { return Double.valueOf(tail.substring(0, end)); }
             catch (NumberFormatException ignored) { return null; }

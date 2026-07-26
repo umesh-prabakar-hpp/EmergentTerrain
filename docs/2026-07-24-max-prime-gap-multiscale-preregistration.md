@@ -31,5 +31,20 @@ that holdout. Extra windows remain useful exploratory sensitivity checks, but ca
 registered call. The narration repair loop supplies the missing exact directive, and the enabled
 publication gate routes any incomplete trace to `NEEDS_REVISION`.
 
+## Protocol-state execution
+
+With `app.research.max-prime-gap-multiscale-preregistration-executor.enabled=true`, the app does
+not ask the model to repeat a verifier-owned operational choice. Once a fit-grid result says
+`LOOSE: ... re-verify at k=...`, `MaxPrimeGapProtocolStateExecutor` carries that exact suggested
+`k` onto the registered fit grid. Once a tight result says `TIGHT HOLD ... re-verify with c=...`,
+it carries that exact instrument-named intercept into the same-grid refutation. It then executes
+the fixed holdouts in their registered order with the locked pair.
+
+This is deliberately bounded to six calls: tight fit, refutation, and four holdouts. It never
+invents a coefficient or intercept, retries a failed automatic call, or refits a holdout. The AI
+still chooses the study framing and interprets the completed or failed trace; the executor only
+makes the pre-registered measurement mechanics reproducible. Set the flag to `false` to return to
+prompt-only corrective reruns.
+
 This protocol supports only the recorded finite-window result. It does not claim an asymptotic
 law for prime gaps.
