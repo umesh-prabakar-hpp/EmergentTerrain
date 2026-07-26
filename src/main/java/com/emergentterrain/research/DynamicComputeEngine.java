@@ -48,7 +48,11 @@ public class DynamicComputeEngine {
                 .formatted(count, n, fraction)
                 + "sampling uncertainty, no confidence interval)";
 
-        double tolerance = Math.max(0.01, Math.abs(problem.baseline()) * 0.15);
+        // Allocation prevents an unregistered approximate-equality study from becoming a paper.
+        // This fallback remains only for legacy/helper calls that do not create a preregistered study.
+        double tolerance = problem.comparisonTolerance() != null
+                ? problem.comparisonTolerance()
+                : Math.max(0.01, Math.abs(problem.baseline()) * 0.15);
         MathPhysicsEngine.ClaimStatus status = switch (problem.expectedRelation()) {
             case ABOVE_BASELINE -> fraction >= problem.baseline()
                     ? MathPhysicsEngine.ClaimStatus.SUPPORTED : fraction >= problem.baseline() - tolerance
@@ -56,15 +60,18 @@ public class DynamicComputeEngine {
             case BELOW_BASELINE -> fraction <= problem.baseline()
                     ? MathPhysicsEngine.ClaimStatus.SUPPORTED : fraction <= problem.baseline() + tolerance
                     ? MathPhysicsEngine.ClaimStatus.PARTIAL : MathPhysicsEngine.ClaimStatus.REFUTED;
+            // An approximate-equality pre-registration has one executable acceptance band. Do
+            // not retain a broader hidden "partial" band: it would let post-census results
+            // outside the declared tolerance acquire a positive semantic label.
             case APPROXIMATELY_EQUAL -> deviation <= tolerance ? MathPhysicsEngine.ClaimStatus.SUPPORTED
-                    : deviation <= Math.max(0.03, Math.abs(problem.baseline()) * 0.40)
-                    ? MathPhysicsEngine.ClaimStatus.PARTIAL : MathPhysicsEngine.ClaimStatus.REFUTED;
+                    : MathPhysicsEngine.ClaimStatus.REFUTED;
         };
 
         String findings = "Dynamic [%d,%d) \"%s\": fraction satisfying predicate = %s (baseline %.3f, deviation %+.3f)."
                 .formatted(start, end, problem.description(), propStr, problem.baseline(), fraction - problem.baseline());
-        String assessment = "Fraction %.3f vs baseline %.3f (%s) — deviation %.3f."
-                .formatted(fraction, problem.baseline(), problem.expectedRelation(), deviation);
+        String assessment = "Fraction %.3f vs baseline %.3f (%s; tolerance %.5f%s) — deviation %.3f."
+                .formatted(fraction, problem.baseline(), problem.expectedRelation(), tolerance,
+                        problem.comparisonTolerance() == null ? "; legacy fallback" : "", deviation);
 
         return new MathPhysicsEngine.ResearchResult(findings, deviation, fraction, n)
                 .withClaim(status, assessment)

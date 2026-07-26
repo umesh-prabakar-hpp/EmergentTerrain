@@ -372,6 +372,8 @@ public class GenomeMentoringService {
             String hypothesis  = d.path("hypothesis").asText(null);
             DynamicProblem.ExpectedRelation expectedRelation = DynamicProblem.ExpectedRelation.parse(
                     d.path("expectedRelation").asText(null), hypothesis);
+            Double comparisonTolerance = d.path("comparisonTolerance").isNumber()
+                    ? d.path("comparisonTolerance").doubleValue() : null;
 
             if (description == null || rangeStart < 1 || rangeEnd <= rangeStart
                     || rangeEnd - rangeStart > 500) {
@@ -392,10 +394,17 @@ public class GenomeMentoringService {
                 log.warn("LLM genome mentor: unknown metric '{}' for bot={}", metric, botId);
                 return null;
             }
+            if (expectedRelation == DynamicProblem.ExpectedRelation.APPROXIMATELY_EQUAL
+                    && (comparisonTolerance == null || !Double.isFinite(comparisonTolerance)
+                    || comparisonTolerance <= 0.0)) {
+                log.warn("LLM genome mentor: approximate-equality directive lacks positive comparisonTolerance "
+                                + "for bot={}", botId);
+                return null;
+            }
 
             String id = "dyn-" + botId.toString().substring(0, 6) + "-" + System.currentTimeMillis();
             return new DynamicProblem(id, description, rangeStart, rangeEnd,
-                    predicate, metric, baseline, hypothesis, expectedRelation);
+                    predicate, metric, baseline, hypothesis, expectedRelation, comparisonTolerance);
         } catch (Exception e) {
             log.warn("LLM genome mentor: directive parse failed for bot={}: {}", botId, e.getMessage());
             return null;

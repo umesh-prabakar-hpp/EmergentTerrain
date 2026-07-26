@@ -175,7 +175,7 @@ public class PromptTemplateRegistry {
                 center adjustment. Suggest one or two small genome adjustments.
 
                 Reply with only this JSON and nothing else:
-                {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"your description","rangeStart":N,"rangeEnd":M,"predicate":"your predicate","metric":"your metric","baseline":0.0,"expectedRelation":"ABOVE_BASELINE|BELOW_BASELINE|APPROXIMATELY_EQUAL","hypothesis":"your hypothesis"}}
+                {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"your description","rangeStart":N,"rangeEnd":M,"predicate":"your predicate","metric":"your metric","baseline":0.0,"expectedRelation":"ABOVE_BASELINE|BELOW_BASELINE|APPROXIMATELY_EQUAL","comparisonTolerance":0.01,"hypothesis":"your hypothesis"}}
                 Gene rules: gene must be one of w0 w1 w2 w3 w4 explorationRate paramCenter1 paramCenter2. \
                 delta between -0.15 and 0.15. Include 1 or 2 edits. \
                 For paramCenter1: delta ±0.15 shifts the center by ±6 units (range 10–99). \
@@ -183,13 +183,14 @@ public class PromptTemplateRegistry {
                 Directive rules: predicate uses isPrime, isHappy, collatzTerminates, isAbundant, isPerfect joined with AND or OR. \
                 metric is one of: fraction_satisfying, mean_of:collatzSteps, max_of:collatzSteps, mean_of:sigmaSum. \
                 rangeEnd - rangeStart must not exceed 500. baseline is your predicted numeric value for the metric. \
+                If expectedRelation is APPROXIMATELY_EQUAL, comparisonTolerance is REQUIRED and must be a positive absolute numeric band chosen before the scan. \
                 Base the directive on what the ACTUAL peer papers above reveal — target a specific unexplored range \
                 or combination that their results point toward. \
                 Only include directive if the peer papers reveal a specific unexplored range worth targeting. Omit directive entirely otherwise.
                 Example directives (DO NOT copy these — generate your own based on the actual papers shown above):
-                  {"description":"abundant numbers in range 200-400","rangeStart":200,"rangeEnd":400,"predicate":"isAbundant","metric":"fraction_satisfying","baseline":0.25,"expectedRelation":"APPROXIMATELY_EQUAL","hypothesis":"About 25% of integers in 200-400 are abundant, consistent with the known asymptotic density."}
-                  {"description":"mean Collatz depth for happy primes near 800","rangeStart":780,"rangeEnd":950,"predicate":"isPrime AND isHappy","metric":"mean_of:collatzSteps","baseline":75.0,"expectedRelation":"APPROXIMATELY_EQUAL","hypothesis":"Happy primes near 800 require about 75 Collatz steps to terminate, deeper than the general average."}
-                  {"description":"perfect or abundant numbers below 300","rangeStart":2,"rangeEnd":302,"predicate":"isAbundant OR isPerfect","metric":"fraction_satisfying","baseline":0.24,"expectedRelation":"APPROXIMATELY_EQUAL","hypothesis":"Roughly 24% of integers below 302 are abundant or perfect."}
+                  {"description":"abundant numbers in range 200-400","rangeStart":200,"rangeEnd":400,"predicate":"isAbundant","metric":"fraction_satisfying","baseline":0.25,"expectedRelation":"APPROXIMATELY_EQUAL","comparisonTolerance":0.03,"hypothesis":"About 25% of integers in 200-400 are abundant, consistent with the known asymptotic density."}
+                  {"description":"mean Collatz depth for happy primes near 800","rangeStart":780,"rangeEnd":950,"predicate":"isPrime AND isHappy","metric":"mean_of:collatzSteps","baseline":75.0,"expectedRelation":"APPROXIMATELY_EQUAL","comparisonTolerance":8.0,"hypothesis":"Happy primes near 800 require about 75 Collatz steps to terminate, deeper than the general average."}
+                  {"description":"perfect or abundant numbers below 300","rangeStart":2,"rangeEnd":302,"predicate":"isAbundant OR isPerfect","metric":"fraction_satisfying","baseline":0.24,"expectedRelation":"APPROXIMATELY_EQUAL","comparisonTolerance":0.03,"hypothesis":"Roughly 24% of integers below 302 are abundant or perfect."}
                 """));
 
         // NARRATION_PRIMARY — the main first-pass narration. Largest template

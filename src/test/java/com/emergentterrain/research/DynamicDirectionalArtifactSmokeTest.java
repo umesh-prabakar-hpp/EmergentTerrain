@@ -29,6 +29,18 @@ class DynamicDirectionalArtifactSmokeTest {
             "The exact finite-window fraction exceeds the pre-registered baseline of 0.17.",
             DynamicProblem.ExpectedRelation.ABOVE_BASELINE);
 
+    private static final DynamicProblem APPROXIMATE_STUDY = new DynamicProblem(
+            "controlled-approximately-equal-abundance",
+            "Controlled exact census of abundant integers",
+            420,
+            500,
+            "isAbundant",
+            "fraction_satisfying",
+            0.24,
+            "The exact finite-window abundant-number density is within the pre-registered absolute band.",
+            DynamicProblem.ExpectedRelation.APPROXIMATELY_EQUAL,
+            0.03);
+
     @TempDir
     Path output;
 
@@ -37,9 +49,9 @@ class DynamicDirectionalArtifactSmokeTest {
         DynamicComputeEngine engine = new DynamicComputeEngine();
         PreRegistration registration = PredicateStudyPreRegistration.from(STUDY);
         List<ToolInvocation> trace = List.of(
-                scan(engine, 61, 411, "primary"),
-                scan(engine, 148, 498, "offset"),
-                scan(engine, 61, 236, "narrow"));
+                scan(STUDY, engine, 61, 411, "primary"),
+                scan(STUDY, engine, 148, 498, "offset"),
+                scan(STUDY, engine, 61, 236, "narrow"));
 
         MathPhysicsEngine.ResearchResult primary = engine.compute(STUDY);
         assertThat(primary.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.SUPPORTED);
@@ -76,13 +88,60 @@ class DynamicDirectionalArtifactSmokeTest {
         assertThat(conclusion).contains("supported");
     }
 
-    private static ToolInvocation scan(DynamicComputeEngine engine, int start, int end, String callId) {
+    @Test
+    void writesInspectableArtifactForApproximatelyEqualRegisteredPredicateStudy() throws Exception {
+        DynamicComputeEngine engine = new DynamicComputeEngine();
+        PreRegistration registration = PredicateStudyPreRegistration.from(APPROXIMATE_STUDY);
+        List<ToolInvocation> trace = List.of(
+                scan(APPROXIMATE_STUDY, engine, 420, 500, "primary"),
+                scan(APPROXIMATE_STUDY, engine, 440, 520, "offset"),
+                scan(APPROXIMATE_STUDY, engine, 420, 460, "narrow"));
+
+        MathPhysicsEngine.ResearchResult primary = engine.compute(APPROXIMATE_STUDY);
+        assertThat(primary.secondaryValue()).isEqualTo(0.25);
+        assertThat(primary.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.SUPPORTED);
+        assertThat(PredicateStudyPreRegistration.hasExactEvidence(registration, trace)).isTrue();
+
+        ResearchPaper paper = new ResearchPaper(
+                "P-controlled-approximately-equal-1", UUID.randomUUID(), "controlled-smoke", "MATHEMATICS",
+                "dynamic predicate", "Controlled approximate-equality predicate study",
+                APPROXIMATE_STUDY.hypothesis(), "COMPUTATIONAL",
+                primary.findings(),
+                "The three preregistered exact censuses are inside the locked absolute tolerance of 0.03.",
+                List.of(), 0.82, "PUBLISHED", 1L, Instant.now(), 1, 0.0, "deterministic-smoke", "trace");
+        paper.setPublicationLabel(PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE);
+        PublicationAssessment assessment = new PublicationAssessment(
+                PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE,
+                List.of("controlled smoke artifact has no external related-work source"));
+
+        Path artifact = ArtifactPackageWriter.write(output, "controlled-room", paper, registration,
+                trace, assessment, "# Controlled approximate-equality predicate study\n\n"
+                        + "Status: PUBLISHED\n\n"
+                        + "All registered exact scans are inside the locked tolerance of 0.03.\n",
+                new ObjectMapper());
+
+        String preregistration = Files.readString(artifact.resolve("evidence/pre-registration.json"));
+        String toolTrace = Files.readString(artifact.resolve("evidence/tool-trace.json"));
+        String conclusion = Files.readString(artifact.resolve("results/conclusion.md"));
+
+        assertThat(preregistration).contains("expected_relation=APPROXIMATELY_EQUAL")
+                .contains("comparison_tolerance=0.03");
+        assertThat(toolTrace).contains("\\\"comparison_tolerance\\\":0.03")
+                .contains("SUPPORTED");
+        assertThat(conclusion).contains("locked absolute tolerance of 0.03");
+    }
+
+    private static ToolInvocation scan(DynamicProblem study, DynamicComputeEngine engine,
+                                       int start, int end, String callId) {
         DynamicProblem registeredWindow = new DynamicProblem(
-                STUDY.id(), STUDY.description(), start, end, STUDY.predicate(), STUDY.metric(),
-                STUDY.baseline(), STUDY.hypothesis(), STUDY.expectedRelation());
+                study.id(), study.description(), start, end, study.predicate(), study.metric(),
+                study.baseline(), study.hypothesis(), study.expectedRelation(), study.comparisonTolerance());
         MathPhysicsEngine.ResearchResult result = engine.compute(registeredWindow);
-        String arguments = "{\"predicate\":\"isAbundant OR isPerfect\",\"range_start\":" + start
-                + ",\"range_end\":" + end + ",\"metric\":\"fraction_satisfying\",\"baseline\":0.17}";
+        String arguments = "{\"predicate\":\"" + study.predicate() + "\",\"range_start\":" + start
+                + ",\"range_end\":" + end + ",\"metric\":\"" + study.metric()
+                + "\",\"baseline\":" + study.baseline()
+                + (study.comparisonTolerance() == null ? "" : ",\"comparison_tolerance\":" + study.comparisonTolerance())
+                + "}";
         return new ToolInvocation("run_predicate_scan", arguments,
                 "Predicate scan: " + result.findings() + " Claim status: " + result.claimStatus(), 0, callId);
     }

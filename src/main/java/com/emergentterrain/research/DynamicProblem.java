@@ -12,6 +12,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * baseline:  the pre-registered comparison value for the metric
  * expectedRelation: ABOVE_BASELINE, BELOW_BASELINE, or APPROXIMATELY_EQUAL; this makes the
  *                   directional claim executable rather than inferring it from a score distance
+ * comparisonTolerance: required positive absolute tolerance for APPROXIMATELY_EQUAL studies.
  * rangeEnd - rangeStart is capped at DynamicComputeEngine.MAX_RANGE during execution.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -24,17 +25,33 @@ public record DynamicProblem(
         String metric,
         double baseline,
         String hypothesis,
-        ExpectedRelation expectedRelation) {
+        ExpectedRelation expectedRelation,
+        Double comparisonTolerance) {
 
     /** Backward-compatible construction for persisted and older tool directives. */
     public DynamicProblem(String id, String description, int rangeStart, int rangeEnd,
                           String predicate, String metric, double baseline, String hypothesis) {
         this(id, description, rangeStart, rangeEnd, predicate, metric, baseline, hypothesis,
-                ExpectedRelation.infer(hypothesis));
+                ExpectedRelation.infer(hypothesis), null);
+    }
+
+    /** Backward-compatible nine-field form before explicit tolerance was introduced. */
+    public DynamicProblem(String id, String description, int rangeStart, int rangeEnd,
+                          String predicate, String metric, double baseline, String hypothesis,
+                          ExpectedRelation expectedRelation) {
+        this(id, description, rangeStart, rangeEnd, predicate, metric, baseline, hypothesis,
+                expectedRelation, null);
     }
 
     public DynamicProblem {
         expectedRelation = expectedRelation == null ? ExpectedRelation.infer(hypothesis) : expectedRelation;
+        comparisonTolerance = comparisonTolerance != null && Double.isFinite(comparisonTolerance)
+                && comparisonTolerance > 0.0 ? comparisonTolerance : null;
+    }
+
+    /** True when an approximate-equality decision has an explicit, positive preregistered band. */
+    public boolean hasExplicitComparisonTolerance() {
+        return expectedRelation != ExpectedRelation.APPROXIMATELY_EQUAL || comparisonTolerance != null;
     }
 
     /** The pre-registered comparison direction for a dynamic baseline study. */

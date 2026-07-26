@@ -766,6 +766,8 @@ public class MathToolSuite {
                         "range_end":{"type":"integer","description":"Range end (range_end − range_start ≤ 500)"},
                         "metric":{"type":"string","description":"EXACTLY one of these four tokens, copied verbatim with no extra words: fraction_satisfying | mean_of:collatzSteps | max_of:collatzSteps | mean_of:sigmaSum. For ANY density / proportion / 'fraction of integers that are …' question, use fraction_satisfying. Only collatzSteps and sigmaSum statistics exist — there is NO divisor-count and NO omega (distinct-prime-factor) metric, so do not request those."},
                         "baseline":{"type":"number","description":"Hypothesized value for comparison"},
+                        "expected_relation":{"type":"string","description":"ABOVE_BASELINE, BELOW_BASELINE, or APPROXIMATELY_EQUAL. Required for a locked predicate-study call."},
+                        "comparison_tolerance":{"type":"number","description":"Positive absolute tolerance. Required for a locked APPROXIMATELY_EQUAL predicate-study call."},
                         "hypothesis":{"type":"string","description":"What you predict this will show"}
                       },
                       "required":["predicate","range_start","range_end","metric","baseline","hypothesis"]
@@ -1716,6 +1718,10 @@ public class MathToolSuite {
         String metric     = normalizeMetric(rawMetric);
         double baseline   = args.path("baseline").asDouble(0.0);
         String hypothesis = args.path("hypothesis").asText("");
+        DynamicProblem.ExpectedRelation expectedRelation = DynamicProblem.ExpectedRelation.parse(
+                args.path("expected_relation").asText(null), hypothesis);
+        Double comparisonTolerance = args.path("comparison_tolerance").isNumber()
+                ? args.path("comparison_tolerance").doubleValue() : null;
         if (predicate == null || rangeStart < 1 || rangeEnd <= rangeStart
                 || rangeEnd - rangeStart > DynamicComputeEngine.MAX_RANGE) {
             // 2026-06-05 — inform, don't just reject: the recurring failure mode is a
@@ -1759,7 +1765,7 @@ public class MathToolSuite {
             String id = "prof-scan-" + System.currentTimeMillis();
             DynamicProblem problem = new DynamicProblem(
                     id, "professor predicate scan", rangeStart, rangeEnd,
-                    predicate, metric, baseline, hypothesis);
+                    predicate, metric, baseline, hypothesis, expectedRelation, comparisonTolerance);
             MathPhysicsEngine.ResearchResult result = DynamicComputeEngine.compute(problem);
             log.info("MathToolSuite: run_predicate_scan predicate=\"{}\" range=[{},{}) ms={}",
                     predicate, rangeStart, rangeEnd, System.currentTimeMillis() - t);

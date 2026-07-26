@@ -1394,7 +1394,8 @@ public class ResearchCycleService {
                         + (d.hypothesis() != null && !d.hypothesis().isBlank()
                                 ? "\n\n" + d.hypothesis() : "");
                 return new DynamicProblem(d.id(), d.description(), d.rangeStart(), d.rangeEnd(),
-                        d.predicate(), d.metric(), d.baseline(), redirected, d.expectedRelation());
+                        d.predicate(), d.metric(), d.baseline(), redirected, d.expectedRelation(),
+                        d.comparisonTolerance());
             }
         }
         try {
@@ -1423,7 +1424,8 @@ public class ResearchCycleService {
             String newHyp = caveat
                     + (d.hypothesis() != null && !d.hypothesis().isBlank() ? "\n\n" + d.hypothesis() : "");
             return new DynamicProblem(d.id(), d.description(), d.rangeStart(), d.rangeEnd(),
-                    d.predicate(), d.metric(), d.baseline(), newHyp, d.expectedRelation());
+                    d.predicate(), d.metric(), d.baseline(), newHyp, d.expectedRelation(),
+                    d.comparisonTolerance());
         } catch (Exception e) {
             return d;   // never block the research cycle on the gate
         }
@@ -1434,6 +1436,15 @@ public class ResearchCycleService {
     private void runDynamicCycle(UUID roomId, Researcher author, List<Researcher> pool,
                                  DynamicProblem directive, Random rng, long gameTick,
                                  boolean peerReviewEnabled, Context ctx) {
+        if (!directive.hasExplicitComparisonTolerance()) {
+            log.info("university dynamic directive rejected before census: approximate-equality "
+                            + "study lacks an explicit preregistered tolerance description=\"{}\"",
+                    directive.description());
+            author.recordRejected();
+            author.getState().getGenome().recordRejection(rng);
+            totalRejected.merge(roomId, 1, Integer::sum);
+            return;
+        }
         // Lock the finite comparison design before the first census runs. The professor later
         // receives the same three ranges as required trace evidence; it cannot choose them after
         // seeing this initial result.

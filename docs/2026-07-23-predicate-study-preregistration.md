@@ -10,7 +10,9 @@ been chosen before evidence was available.
 window `[a,b)`, it locks:
 
 - the predicate, metric, numeric baseline, and expected relation to that baseline
-  (`ABOVE_BASELINE`, `BELOW_BASELINE`, or `APPROXIMATELY_EQUAL`);
+  (`ABOVE_BASELINE`, `BELOW_BASELINE`, or `APPROXIMATELY_EQUAL`); and
+- for `APPROXIMATELY_EQUAL`, one positive absolute `comparisonTolerance` chosen before the
+  first census.
 - the original exact census `[a,b)`;
 - a same-width overlapping offset census; and
 - a narrower census anchored at `a`.
@@ -37,11 +39,19 @@ registered one. The existing baseline-sensitivity gate still evaluates the obser
 the new rule does not license persistence or asymptotic claims from finite censuses.
 
 The relation is executable: `DynamicComputeEngine` evaluates an above/below study by the locked
-inequality, while approximate-equality studies retain the existing tolerance band. It must not
+inequality, while approximate-equality studies use their locked absolute tolerance. A new
+approximate-equality directive without a positive tolerance cannot allocate a locked study; its
+legacy fallback band is retained only to render older stored directives and cannot satisfy the
+new registration gate. The selected `run_predicate_scan` trace must repeat that exact
+`comparison_tolerance`, so a later tool call cannot quietly widen the comparison band. It must not
 classify a directional exceedance as `REFUTED` merely because it is far from the baseline; that
 would turn a confirmed finite census into a false `NULL_RESULT`. Older stored directives infer a
 relation from their hypothesis as a compatibility bridge, but new mentor output declares it
 explicitly and records it in the pre-registration mapping notes.
+
+For a new approximate-equality study, the declared band is the whole acceptance criterion: an
+observed deviation inside it is `SUPPORTED`, and one outside it is `REFUTED`. There is no wider
+post-hoc `PARTIAL` band that can turn a failed declared comparison into a positive result.
 
 The pre-registration is stored in the ordinary artifact pre-registration section and its
 computational-study plan, so the before-result design and after-result trace are auditable together.
