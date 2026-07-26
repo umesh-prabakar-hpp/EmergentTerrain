@@ -2010,7 +2010,63 @@ public class UniversityService {
             reviewState = ReviewState.CLEAN;
         }
 
+        // The scientific conclusion and publication readiness are separate axes.
+        // Resolve the three evidence deficits in one place so a missing citation,
+        // sensitivity check, or replication can hold a supported result for
+        // revision without ever turning it into a NULL_RESULT.
+        EnumSet<PublicationStateResolver.Deficit> publicationDeficits =
+                EnumSet.noneOf(PublicationStateResolver.Deficit.class);
+        boolean acquiredLiteratureWasUncited =
+                com.emergentterrain.research.publication.ComputationalPublicationPhase
+                        .hasReadLiteratureEvidence(narration.toolCallTrace())
+                && !com.emergentterrain.research.publication.ComputationalPublicationPhase
+                        .hasLiteraturePositioning(narration.relatedWork(), narration.toolCallTrace());
+        boolean computationalPlanLacksSourceGrounding = draft.preRegistration() != null
+                && draft.preRegistration().computationalStudyPlan() != null
+                && !com.emergentterrain.research.publication.ComputationalPublicationPhase
+                        .hasLiteraturePositioning(narration.relatedWork(), narration.toolCallTrace());
+        boolean relatedWorkEvidenceDemoted = callPath != null
+                && callPath.contains("related_work:no_evidence_external_claim:demoted_to_needs_revision");
+        if (acquiredLiteratureWasUncited || computationalPlanLacksSourceGrounding
+                || relatedWorkEvidenceDemoted) {
+            publicationDeficits.add(PublicationStateResolver.Deficit.CITATION);
+        }
+        if (predicateBaselineSensitivityUncovered || exactPreRegistrationUncovered
+                || constantLimitPreRegistrationUncovered || predicateStudyPreRegistrationUncovered
+                || maxPrimeGapMultiScalePreRegistrationUncovered
+                || maxDivisorCountMeasurementPreRegistrationUncovered) {
+            publicationDeficits.add(PublicationStateResolver.Deficit.SENSITIVITY);
+        }
+        if (affineBindingIndependentGridUncovered) {
+            publicationDeficits.add(PublicationStateResolver.Deficit.REPLICATION);
+        }
+        PublicationStateResolver.WorkflowState baseWorkflowState = switch (paperStatus) {
+            case "REJECTED" -> PublicationStateResolver.WorkflowState.REJECTED;
+            case "PUBLISHED_NO_PROFESSOR" -> PublicationStateResolver.WorkflowState.PUBLISHED_NO_PROFESSOR;
+            case "NEEDS_REVISION" -> PublicationStateResolver.WorkflowState.NEEDS_REVISION;
+            default -> PublicationStateResolver.WorkflowState.PUBLISHED;
+        };
+        ResultClassification semanticResult = numericInconsistentDowngraded
+                ? ResultClassification.NULL_RESULT : draft.resultClassification();
+        PublicationStateResolver.Resolution resolvedPublicationState = PublicationStateResolver.resolve(
+                semanticResult, baseWorkflowState, reviewState, publicationDeficits);
+        if (!paperStatus.equals(resolvedPublicationState.paperStatus()) || !publicationDeficits.isEmpty()) {
+            log.info("publication-state: paperId={} semantic={} base={} final={} deficits={}",
+                    draft.paperId(), semanticResult, baseWorkflowState,
+                    resolvedPublicationState.paperStatus(), resolvedPublicationState.deficits());
+        }
+        paperStatus = resolvedPublicationState.paperStatus();
+        reviewState = resolvedPublicationState.reviewState();
+
         String persistedCallPath = narration.callPath();
+        if (!resolvedPublicationState.deficits().isEmpty()) {
+            String deficitStamp = "publication:deficits=" + resolvedPublicationState.deficits().stream()
+                    .map(deficit -> deficit.name().toLowerCase(Locale.ROOT))
+                    .sorted()
+                    .collect(Collectors.joining(","));
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? deficitStamp : persistedCallPath + " → " + deficitStamp;
+        }
         if (physicalMechanismAuditFailed) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "audit:physical_mechanism→REJECTED"

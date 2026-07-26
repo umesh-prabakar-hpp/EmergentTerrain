@@ -62,7 +62,8 @@ public final class ComputationalPublicationPhase {
         return new PublicationAssessment(label, List.copyOf(missing));
     }
 
-    private static boolean hasLiteraturePositioning(String relatedWork, List<ToolInvocation> trace) {
+    /** True only when a searched, successfully read source is explicitly cited in Related Work. */
+    public static boolean hasLiteraturePositioning(String relatedWork, List<ToolInvocation> trace) {
         if (relatedWork == null || relatedWork.isBlank() || trace == null) {
             return false;
         }
@@ -83,6 +84,30 @@ public final class ComputationalPublicationPhase {
         }
         return readKeys.stream().anyMatch(key -> searchedKeys.contains(key)
                 && citesKey(relatedWork, key));
+    }
+
+    /**
+     * True when the trace acquired a usable searched-and-read source, regardless
+     * of whether the manuscript rendered its citation. This is deliberately
+     * separate from {@link #hasLiteraturePositioning(String, List)} so the
+     * publication-state resolver can identify P33-style citation omissions.
+     */
+    public static boolean hasReadLiteratureEvidence(List<ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) return false;
+        List<String> searchedKeys = new ArrayList<>();
+        List<String> readKeys = new ArrayList<>();
+        for (ToolInvocation call : trace) {
+            if (call == null || call.functionName() == null) continue;
+            String result = call.resultJson();
+            if (result == null || result.isBlank()) continue;
+            if ("search_literature".equals(call.functionName())) {
+                searchedKeys.addAll(referenceKeys(result));
+            } else if ("read_reference".equals(call.functionName())) {
+                Matcher read = REFERENCE_READ.matcher(result);
+                if (read.matches()) readKeys.add(read.group(1));
+            }
+        }
+        return readKeys.stream().anyMatch(searchedKeys::contains);
     }
 
     private static List<String> referenceKeys(String result) {

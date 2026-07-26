@@ -48,15 +48,23 @@ public class DynamicComputeEngine {
                 .formatted(count, n, fraction)
                 + "sampling uncertainty, no confidence interval)";
 
-        MathPhysicsEngine.ClaimStatus status =
-                deviation <= Math.max(0.01, problem.baseline() * 0.15) ? MathPhysicsEngine.ClaimStatus.SUPPORTED
-                : deviation <= Math.max(0.03, problem.baseline() * 0.40) ? MathPhysicsEngine.ClaimStatus.PARTIAL
-                : MathPhysicsEngine.ClaimStatus.REFUTED;
+        double tolerance = Math.max(0.01, Math.abs(problem.baseline()) * 0.15);
+        MathPhysicsEngine.ClaimStatus status = switch (problem.expectedRelation()) {
+            case ABOVE_BASELINE -> fraction >= problem.baseline()
+                    ? MathPhysicsEngine.ClaimStatus.SUPPORTED : fraction >= problem.baseline() - tolerance
+                    ? MathPhysicsEngine.ClaimStatus.PARTIAL : MathPhysicsEngine.ClaimStatus.REFUTED;
+            case BELOW_BASELINE -> fraction <= problem.baseline()
+                    ? MathPhysicsEngine.ClaimStatus.SUPPORTED : fraction <= problem.baseline() + tolerance
+                    ? MathPhysicsEngine.ClaimStatus.PARTIAL : MathPhysicsEngine.ClaimStatus.REFUTED;
+            case APPROXIMATELY_EQUAL -> deviation <= tolerance ? MathPhysicsEngine.ClaimStatus.SUPPORTED
+                    : deviation <= Math.max(0.03, Math.abs(problem.baseline()) * 0.40)
+                    ? MathPhysicsEngine.ClaimStatus.PARTIAL : MathPhysicsEngine.ClaimStatus.REFUTED;
+        };
 
         String findings = "Dynamic [%d,%d) \"%s\": fraction satisfying predicate = %s (baseline %.3f, deviation %+.3f)."
                 .formatted(start, end, problem.description(), propStr, problem.baseline(), fraction - problem.baseline());
-        String assessment = "Fraction %.3f vs predicted %.3f — deviation %.3f."
-                .formatted(fraction, problem.baseline(), deviation);
+        String assessment = "Fraction %.3f vs baseline %.3f (%s) — deviation %.3f."
+                .formatted(fraction, problem.baseline(), problem.expectedRelation(), deviation);
 
         return new MathPhysicsEngine.ResearchResult(findings, deviation, fraction, n)
                 .withClaim(status, assessment)

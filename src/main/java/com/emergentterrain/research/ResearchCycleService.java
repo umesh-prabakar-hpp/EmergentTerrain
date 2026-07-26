@@ -1394,7 +1394,7 @@ public class ResearchCycleService {
                         + (d.hypothesis() != null && !d.hypothesis().isBlank()
                                 ? "\n\n" + d.hypothesis() : "");
                 return new DynamicProblem(d.id(), d.description(), d.rangeStart(), d.rangeEnd(),
-                        d.predicate(), d.metric(), d.baseline(), redirected);
+                        d.predicate(), d.metric(), d.baseline(), redirected, d.expectedRelation());
             }
         }
         try {
@@ -1423,7 +1423,7 @@ public class ResearchCycleService {
             String newHyp = caveat
                     + (d.hypothesis() != null && !d.hypothesis().isBlank() ? "\n\n" + d.hypothesis() : "");
             return new DynamicProblem(d.id(), d.description(), d.rangeStart(), d.rangeEnd(),
-                    d.predicate(), d.metric(), d.baseline(), newHyp);
+                    d.predicate(), d.metric(), d.baseline(), newHyp, d.expectedRelation());
         } catch (Exception e) {
             return d;   // never block the research cycle on the gate
         }

@@ -9,7 +9,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * predicate: one or more of isPrime, isHappy, collatzTerminates, isAbundant, isPerfect,
  *            joined with AND or OR (e.g. "isPrime AND isHappy")
  * metric:    fraction_satisfying | mean_of:collatzSteps | max_of:collatzSteps | mean_of:sigmaSum
- * baseline:  the LLM's predicted value for the metric (used for deviation scoring and CI context)
+ * baseline:  the pre-registered comparison value for the metric
+ * expectedRelation: ABOVE_BASELINE, BELOW_BASELINE, or APPROXIMATELY_EQUAL; this makes the
+ *                   directional claim executable rather than inferring it from a score distance
  * rangeEnd - rangeStart is capped at DynamicComputeEngine.MAX_RANGE during execution.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -21,4 +23,46 @@ public record DynamicProblem(
         String predicate,
         String metric,
         double baseline,
-        String hypothesis) {}
+        String hypothesis,
+        ExpectedRelation expectedRelation) {
+
+    /** Backward-compatible construction for persisted and older tool directives. */
+    public DynamicProblem(String id, String description, int rangeStart, int rangeEnd,
+                          String predicate, String metric, double baseline, String hypothesis) {
+        this(id, description, rangeStart, rangeEnd, predicate, metric, baseline, hypothesis,
+                ExpectedRelation.infer(hypothesis));
+    }
+
+    public DynamicProblem {
+        expectedRelation = expectedRelation == null ? ExpectedRelation.infer(hypothesis) : expectedRelation;
+    }
+
+    /** The pre-registered comparison direction for a dynamic baseline study. */
+    public enum ExpectedRelation {
+        ABOVE_BASELINE,
+        BELOW_BASELINE,
+        APPROXIMATELY_EQUAL;
+
+        public static ExpectedRelation parse(String value, String hypothesis) {
+            if (value != null && !value.isBlank()) {
+                try {
+                    return ExpectedRelation.valueOf(value.strip().toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException ignored) {
+                    // Older model output remains usable through the deterministic hypothesis fallback.
+                }
+            }
+            return infer(hypothesis);
+        }
+
+        static ExpectedRelation infer(String hypothesis) {
+            String text = hypothesis == null ? "" : hypothesis.toLowerCase(java.util.Locale.ROOT);
+            if (text.matches(".*\\b(exceed|exceeds|above|greater|higher|at least|rise|rises)\\b.*")) {
+                return ABOVE_BASELINE;
+            }
+            if (text.matches(".*\\b(below|less|lower|under|at most|decrease|decreases)\\b.*")) {
+                return BELOW_BASELINE;
+            }
+            return APPROXIMATELY_EQUAL;
+        }
+    }
+}

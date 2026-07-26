@@ -2257,6 +2257,42 @@ class PublishPaperTest {
     // ---- 2026-07-23: binding-pair and predicate-baseline-sensitivity publication gates ----
 
     @Test
+    void acquiredLiteratureOmittedFromRelatedWorkRoutesSupportedPaperToNeedsRevision() {
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("search_literature", "{}",
+                        "search_literature: EVIDENCE — [HF33] Twin-prime source", 0),
+                new com.emergentterrain.llm.ToolInvocation("read_reference", "{\"key\":\"HF33\"}",
+                        "read_reference HF33 — Twin-prime source [source: indexed]\n"
+                                + "Top passages matching \"twin prime\":\n---\ntext", 1));
+        NarrationResult narration = new NarrationResult(null, null, null, null, null, 0.7, List.of())
+                .withToolCallTrace(trace)
+                .withDiscussionAndRelatedWork(null, "The computation is compared with prior work.");
+
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5), narration);
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().reviewState()).isEqualTo("REVISABLE_DEFECT");
+        assertThat(firstPaper().llmCallPath()).contains("publication:deficits=citation");
+    }
+
+    @Test
+    void computationalPlanWithoutSourceGroundedRelatedWorkRoutesSupportedPaperToNeedsRevision() {
+        PreRegistration registration = new PreRegistration("h", "p", "f", "",
+                new com.emergentterrain.research.publication.ComputationalStudyPlan(
+                        "fixed discovery window", "fixed confirmation window", "fixed rule",
+                        "fixed sensitivity ladder", "./reproduce.sh"));
+        NarrationResult narration = narration(0.7).withToolCallTrace(List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_constant", "{}",
+                        "verify_constant: exact finite calculation", 0)));
+
+        service.publishPaper(draftWithTemplate(ResultClassification.SUPPORTED,
+                "template hypothesis", "template conclusion", 0.5, registration), narration);
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath()).contains("publication:deficits=citation");
+    }
+
+    @Test
     void affineBindingClaimWithoutDocumentedPairRoutesToNeedsRevision() {
         ReflectionTestUtils.setField(service, "affineBindingClaimGateEnabled", true);
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(

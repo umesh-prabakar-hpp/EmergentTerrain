@@ -370,6 +370,8 @@ public class GenomeMentoringService {
             String metric      = d.path("metric").asText("fraction_satisfying");
             double baseline    = d.path("baseline").asDouble(0.0);
             String hypothesis  = d.path("hypothesis").asText(null);
+            DynamicProblem.ExpectedRelation expectedRelation = DynamicProblem.ExpectedRelation.parse(
+                    d.path("expectedRelation").asText(null), hypothesis);
 
             if (description == null || rangeStart < 1 || rangeEnd <= rangeStart
                     || rangeEnd - rangeStart > 500) {
@@ -393,7 +395,7 @@ public class GenomeMentoringService {
 
             String id = "dyn-" + botId.toString().substring(0, 6) + "-" + System.currentTimeMillis();
             return new DynamicProblem(id, description, rangeStart, rangeEnd,
-                    predicate, metric, baseline, hypothesis);
+                    predicate, metric, baseline, hypothesis, expectedRelation);
         } catch (Exception e) {
             log.warn("LLM genome mentor: directive parse failed for bot={}: {}", botId, e.getMessage());
             return null;

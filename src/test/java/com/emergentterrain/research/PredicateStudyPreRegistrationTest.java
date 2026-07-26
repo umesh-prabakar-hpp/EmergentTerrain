@@ -26,7 +26,8 @@ class PredicateStudyPreRegistrationTest {
 
         assertThat(PredicateStudyPreRegistration.isLocked(registration)).isTrue();
         assertThat(PredicateStudyPreRegistration.exactTestDirective(registration))
-                .contains("baseline=0.22").contains("[350,850)").contains("[475,975)").contains("[350,600)");
+                .contains("baseline=0.22").contains("expected_relation=APPROXIMATELY_EQUAL")
+                .contains("[350,850)").contains("[475,975)").contains("[350,600)");
         assertThat(PredicateStudyPreRegistration.hasExactEvidence(registration,
                 List.of(scan(350, 850, 0.22), scan(475, 975, 0.22), scan(350, 600, 0.22)))).isTrue();
     }

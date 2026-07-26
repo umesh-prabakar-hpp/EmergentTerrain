@@ -44,15 +44,17 @@ public final class PredicateStudyPreRegistration {
                 "The registered offset and second-width exact censuses "
                         + scans.get(1).range() + " and " + scans.get(2).range() + ".",
                 "Compare all three registered windows against the unchanged baseline "
-                        + directive.baseline() + "; do not select a window after seeing results.",
+                        + directive.baseline() + " with the pre-registered relation "
+                        + directive.expectedRelation() + "; do not select a window after seeing results.",
                 "The offset window tests alignment and the narrower window tests width sensitivity; "
                         + "additional scans are exploratory and cannot replace these calls.",
                 "");
         return new PreRegistration(
-                "Compare the exact finite " + subject + " census against the pre-registered baseline "
-                        + directive.baseline() + " across three fixed windows.",
-                "The registered windows may differ finitely, but any conclusion is limited to their exact "
-                        + "censuses and does not establish persistence or an asymptotic density.",
+                "Compare the exact finite " + subject + " census " + directive.expectedRelation()
+                        + " the pre-registered baseline " + directive.baseline() + " across three fixed windows.",
+                "The registered windows may differ finitely, but a " + directive.expectedRelation()
+                        + " result is assessed against that locked direction only and does not establish "
+                        + "persistence or an asymptotic density.",
                 "The comparison design fails if any registered predicate scan is missing, uses a changed "
                         + "baseline, or the pre-registered finite values contradict the stated direction.",
                 encoded(directive, scans), plan);
@@ -90,7 +92,7 @@ public final class PredicateStudyPreRegistration {
         Specification spec = parse(registration);
         if (spec == null) return "";
         return "run_predicate_scan predicate=\"" + spec.predicate + "\", metric=\"" + spec.metric
-                + "\", baseline=" + spec.baseline + " on "
+                + "\", baseline=" + spec.baseline + ", expected_relation=" + spec.expectedRelation + " on "
                 + String.join(", ", spec.scans.stream().map(Scan::range).toList());
     }
 
@@ -125,6 +127,7 @@ public final class PredicateStudyPreRegistration {
                 .append("predicate=").append(directive.predicate()).append(';')
                 .append("metric=").append(directive.metric()).append(';')
                 .append("baseline=").append(directive.baseline()).append(';');
+        out.append("expected_relation=").append(directive.expectedRelation()).append(';');
         for (Scan scan : scans) out.append("scan=").append(scan.start).append(',').append(scan.end).append(';');
         return out.toString();
     }
@@ -133,6 +136,7 @@ public final class PredicateStudyPreRegistration {
         if (!isLocked(registration)) return null;
         String predicate = null, metric = null;
         Double baseline = null;
+        DynamicProblem.ExpectedRelation expectedRelation = DynamicProblem.ExpectedRelation.APPROXIMATELY_EQUAL;
         List<Scan> scans = new ArrayList<>();
         for (String part : registration.mappingNotes().substring(PREFIX.length()).split(";", -1)) {
             int equals = part.indexOf('=');
@@ -144,6 +148,7 @@ public final class PredicateStudyPreRegistration {
                     case "predicate" -> predicate = value;
                     case "metric" -> metric = value;
                     case "baseline" -> baseline = Double.valueOf(value);
+                    case "expected_relation" -> expectedRelation = DynamicProblem.ExpectedRelation.valueOf(value);
                     case "scan" -> {
                         String[] ends = value.split(",", -1);
                         if (ends.length != 2) return null;
@@ -159,12 +164,13 @@ public final class PredicateStudyPreRegistration {
                 || baseline == null || !Double.isFinite(baseline) || scans.size() != 3
                 || scans.stream().anyMatch(scan -> scan.end <= scan.start
                 || scan.end - scan.start > DynamicComputeEngine.MAX_RANGE)) return null;
-        return new Specification(predicate, metric, baseline, scans);
+        return new Specification(predicate, metric, baseline, expectedRelation, scans);
     }
 
     private record Scan(int start, int end) {
         String range() { return "[" + start + "," + end + ")"; }
     }
 
-    private record Specification(String predicate, String metric, double baseline, List<Scan> scans) {}
+    private record Specification(String predicate, String metric, double baseline,
+                                 DynamicProblem.ExpectedRelation expectedRelation, List<Scan> scans) {}
 }
