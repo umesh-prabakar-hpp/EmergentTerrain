@@ -6,6 +6,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
+import com.emergentterrain.research.ResearchShutdownReconciler;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -334,6 +336,33 @@ public class RunBudgetTracker {
      */
     protected void terminate(int exitCode) {
         Thread t = new Thread(() -> {
+            if (ctx != null) {
+                try {
+                    ResearchShutdownReconciler.Result reconciliation = ctx.getBean(ResearchShutdownReconciler.class)
+                            .reconcileBeforeContextClose();
+                    if (!reconciliation.safeToClose()) {
+                        // The fail-closed path intentionally avoids SpringApplication.exit: it would
+                        // close Hikari underneath a still-running publication transaction. The
+                        // reconciler already logged durable IDs/phases as shutdown suppressions;
+                        // Runtime.halt skips JVM shutdown hooks, so Spring cannot close Hikari under
+                        // the remaining transaction. The OS aborts that transaction instead of
+                        // misreporting it as a completed paper.
+                        log.error("Run budget shutdown reconciliation could not close the publication gate; "
+                                        + "aborting process without Spring context teardown. unresolved={}",
+                                reconciliation.unresolved());
+                        Runtime.getRuntime().halt(exitCode);
+                        return;
+                    }
+                } catch (Exception e) {
+                    // A missing UniversityService is valid in non-university profiles. Any other
+                    // reconciler failure must fail closed: context teardown is unsafe when we do
+                    // not know whether publication work is still using persistence.
+                    log.error("Run budget shutdown reconciliation failed; aborting process without "
+                            + "Spring context teardown", e);
+                    Runtime.getRuntime().halt(exitCode);
+                    return;
+                }
+            }
             int code = SpringApplication.exit(ctx, () -> exitCode);
             System.exit(code);
         }, "run-budget-stop");

@@ -37,7 +37,18 @@ exist, update the timestamp and say there were no new papers.
 3. Auto-discover logs unless `--no-logs` was supplied.
 4. Review each new paper using the rubric below.
 5. Update `REVIEW_REPORT.md` in place, preserving prior per-paper rows.
-6. End with the closing line.
+6. Regenerate `docs/paper-literature-key-map.md` with
+   `./scripts/update-paper-literature-key-map.sh` from the project root.
+7. End with the closing line.
+
+## Literature-Key Map
+
+Retain a key for a paper only when `search_literature` issued it in an `EVIDENCE` result,
+`read_reference` successfully returned a passage for the same key, and the paper's
+`## Related Work` section cites it. The map is a reviewer index, not a source of evidence.
+Do not retain raw search hits, unread keys, failed reads, snippets, or asserted relevance alone.
+Compare generated rows with `literature-audit.json` `citedReadKeys` and, when available,
+`citedReadReviewedKeys`; any disagreement is a review finding.
 
 ## Log Discovery
 
@@ -168,4 +179,3 @@ End every regeneration with:
 ```
 
 Use the user's actual cadence if it is not 15 minutes.
-

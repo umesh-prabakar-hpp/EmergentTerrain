@@ -667,6 +667,34 @@ public class ResearchNarrationService {
         return trace;
     }
 
+    /**
+     * Phase 35 — closes the mechanical search-without-read gap before student revision. The
+     * executor can only consume an already issued, relevance-safe HF key; it chooses no source,
+     * makes no relevance judgment, and never writes citation prose. The existing publication gate
+     * still requires the resulting key to be cited in Related Work.
+     */
+    private List<com.emergentterrain.llm.ToolInvocation> executeDeterministicPostSearchRead(
+            PaperDraft draft, List<com.emergentterrain.llm.ToolInvocation> initialTrace,
+            List<String> callPath) {
+        if (!deterministicPostSearchReadEnabled || phase34SqliteLiterature == null) {
+            return initialTrace;
+        }
+        com.emergentterrain.research.literature.DeterministicPostSearchReadExecutor.Outcome outcome =
+                new com.emergentterrain.research.literature.DeterministicPostSearchReadExecutor(
+                        phase34SqliteLiterature, objectMapper).execute(initialTrace);
+        if (!outcome.attempted()) {
+            return initialTrace;
+        }
+        List<com.emergentterrain.llm.ToolInvocation> trace = appendTrace(initialTrace,
+                List.of(outcome.invocation()));
+        callPath.add("literature:auto_read:" + (outcome.successful() ? "read" : "no_passage")
+                + ":key=" + outcome.key());
+        updateDraftPhase(draft, "narration:literature_post_search_read");
+        log.info("deterministic post-search read paperId={} key={} outcome={}",
+                draft.paperId(), outcome.key(), outcome.reason());
+        return trace;
+    }
+
     static String shiftCallMarkers(String prose, int offset) {
         if (prose == null || prose.isBlank() || offset == 0) return prose;
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\[call_(\\d+)]").matcher(prose);
@@ -1093,6 +1121,15 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.related-work-evidence-gate.enabled:false}")
     private boolean relatedWorkEvidenceGateEnabled;
+
+    /**
+     * Phase 35 — after a safe SQLite search issues an HF key, make one bounded read available to
+     * the deterministic student-revision context when the professor omitted all read attempts.
+     * This does not write Related Work or relax its source-grounded publication gate.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled:false}")
+    private boolean deterministicPostSearchReadEnabled;
 
     /**
      * Lever 2 — revision self-check tools. When on, the prof→student revision
@@ -3031,6 +3068,11 @@ public class ResearchNarrationService {
                     break;
                 }
             }
+            // Phase 35 — make a relevance-safe issued source readable to the student revision
+            // even when the professor stopped after search_literature. This executes only one
+            // trace-selected read and remains below the citation/publication gates.
+            profTrace = executeDeterministicPostSearchRead(draft, profTrace, callPath);
+
             // Second-order coverage stamp (2026-06-13) — for any leading-order
             // conjecture topic, record ONE outcome on the FINAL trace so coverage is
             // visible in the log without opening the paper's Methods, and the silent

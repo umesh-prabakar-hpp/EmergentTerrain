@@ -318,6 +318,19 @@ indexed documents or query semantics. It must never run concurrently with the
 external importer and must not be performed by the application at request
 time.
 
+## Deterministic post-search read
+
+`app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled` is enabled in
+the live configuration. After the professor loop but before student revision, it appends exactly
+one `read_reference` call only when the trace has an `EVIDENCE` result with an issued `HF...` key,
+the originating search has a structured nonblank claim, and no earlier read was attempted. The
+first issued key in trace order and that exact claim are the fixed selection/query rule.
+
+It does not search again, retry a failed read, make an AI or deterministic relevance judgment,
+write Related Work, or change a label. The purpose is only to expose already validated source
+text to the student revision. The normal successful-read plus matching-`[HF...]` citation gate
+remains mandatory for an artifact-backed paper candidate. Set the flag false for rollback.
+
 ## Acceptance suite
 
 Before enabling the changes live:

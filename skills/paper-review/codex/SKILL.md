@@ -44,6 +44,27 @@ papers exist, update the timestamp and report "no new papers".
 4. Parse the per-paper ratings table for reviewed paper IDs.
 5. Identify sequence gaps and add `*(missing - sequence gap)*` rows when appropriate.
 
+## Literature-Key Map
+
+After every review pass, regenerate `docs/paper-literature-key-map.md` from the project root:
+
+```bash
+./scripts/update-paper-literature-key-map.sh
+```
+
+It is a compact index, not a new source of evidence. Retain a key for a paper only when all three
+traceable conditions hold in that paper's final artifact:
+
+1. `search_literature` issued the key in an `EVIDENCE` result;
+2. `read_reference` successfully returned a passage for that same key; and
+3. the paper's `## Related Work` section cites that key.
+
+If an artifact has `evidence/literature-audit.json`, compare its `citedReadKeys` and, when
+available, `citedReadReviewedKeys` with the generated row. Treat any disagreement as a review
+finding. Do not retain raw search hits, unread keys, failed reads, snippets, or a model's
+asserted relevance alone. The generator scans both the current `research/` room and archived
+artifacts, and writes a `None yet` row when no paper satisfies the full evidence chain.
+
 ## Log Auto-Discovery
 
 Unless `--no-logs` is set, find logs before reviewing papers.

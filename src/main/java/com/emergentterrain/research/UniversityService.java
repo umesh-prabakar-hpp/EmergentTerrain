@@ -22,6 +22,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -308,6 +310,13 @@ public class UniversityService {
     private final ConcurrentHashMap<String, RunCreatedPaper> runCreatedPapers = new ConcurrentHashMap<>();
     /** Drafts intentionally suppressed by this JVM only; printed beside the durable run summary. */
     private final ConcurrentHashMap<String, RunSuppressedDraft> runSuppressedDrafts = new ConcurrentHashMap<>();
+    /**
+     * Prevents Spring teardown from racing a publication transaction. Normal publication holds the
+     * read side for its complete durable/side-effect sequence; bounded shutdown reconciliation sets
+     * {@link #shuttingDown} then obtains the write side, proving that no publication can still be
+     * committing before {@code SpringApplication.exit} closes JPA/Hikari.
+     */
+    private final ReentrantReadWriteLock publicationShutdownLock = new ReentrantReadWriteLock(true);
     private static final Pattern CITED_PAPER_PATTERN = Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
 
     // (Replication threshold + queue moved to ReplicationService in Phase 0 Task 0.3b.)
@@ -1002,6 +1011,15 @@ public class UniversityService {
      * Also fires genome mentoring for high-quality papers.
      */
     public void publishPaper(PaperDraft draft, NarrationResult narration) {
+        publicationShutdownLock.readLock().lock();
+        try {
+        if (shuttingDown) {
+            recordRunSuppressedDraft(draft, "shutdown_reconciliation");
+            researchCycleService.decrementDraftQueue(draft.paperId());
+            log.warn("shutdown reconciliation suppressed late publication paperId={} domain={} topic={}",
+                    draft.paperId(), draft.domain(), draft.topicName());
+            return;
+        }
         // Phase 20.4 step 2b-3 — accept both legacy null (pre-sentinel
         // callers) and the suppression sentinel. Short-circuit identically;
         // the sentinel adds visibility (status / timing / partial token
@@ -2690,6 +2708,9 @@ public class UniversityService {
             botRepository.findById(botId).ifPresent(bot ->
                     mentoringCallback.accept(bot, getPublishedPapers(draft.roomId(), 40)));
         }
+        } finally {
+            publicationShutdownLock.readLock().unlock();
+        }
     }
 
     // ---- Citation tracking ----
@@ -3065,6 +3086,58 @@ public class UniversityService {
         logRunCreatedPaperSummary();
     }
 
+    /**
+     * Fail closed after the bounded drain window expires. Setting the flag first blocks every
+     * publication that has not yet entered {@link #publishPaper}; acquiring the write lock then
+     * waits only a bounded period for one already-running publication to finish its DB work.
+     *
+     * <p>The returned value tells the budget terminator whether it is safe to close Spring's
+     * persistence infrastructure. A timeout is intentionally not treated as a clean shutdown:
+     * closing Hikari in that state would recreate the P-b72c-77627930 socket-close race.
+     */
+    ShutdownReconciliation reconcileInFlightDrafts(
+            List<ResearchCycleService.InFlightDraft> unresolved, long publicationLockMs) {
+        List<ResearchCycleService.InFlightDraft> drafts = unresolved == null ? List.of() : unresolved;
+        this.shuttingDown = true;
+        for (ResearchCycleService.InFlightDraft draft : drafts) {
+            recordRunSuppressedDraft(draft, "shutdown_timeout:" + draft.phase());
+            researchCycleService.decrementDraftQueue(draft.paperId());
+        }
+        if (!drafts.isEmpty()) {
+            String list = drafts.stream()
+                    .map(d -> "  - " + d.paperId() + " — " + d.domain() + " / " + d.topic()
+                            + " [shutdown-suppressed in phase: " + d.phase() + "]")
+                    .collect(Collectors.joining(System.lineSeparator()));
+            log.warn("Shutdown reconciliation: {} in-flight draft(s) exceeded the drain window; "
+                    + "recorded as intentional suppressions:{}{}", drafts.size(),
+                    System.lineSeparator(), list);
+        }
+        boolean publicationIdle = false;
+        try {
+            publicationIdle = publicationShutdownLock.writeLock().tryLock(
+                    Math.max(0L, publicationLockMs), TimeUnit.MILLISECONDS);
+            if (publicationIdle) {
+                log.info("Shutdown reconciliation: publication gate closed; no DB publication is in flight.");
+            } else {
+                log.error("Shutdown reconciliation: publication gate did not quiesce within {}ms; "
+                                + "context close is unsafe and must not race this transaction.", publicationLockMs);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Shutdown reconciliation interrupted while waiting for publication gate; "
+                    + "context close is unsafe.");
+        } finally {
+            if (publicationIdle) {
+                publicationShutdownLock.writeLock().unlock();
+            }
+        }
+        logRunCreatedPaperSummary();
+        return new ShutdownReconciliation(drafts, publicationIdle);
+    }
+
+    record ShutdownReconciliation(List<ResearchCycleService.InFlightDraft> unresolved,
+                                  boolean publicationIdle) {}
+
     /** Log the durable, operator-facing end-of-run paper list after a drain, budget stop, Ctrl-C, or
      * normal context close. It is intentionally session-scoped rather than DB-scoped so prior runs never
      * appear in this summary. */
@@ -3114,6 +3187,17 @@ public class UniversityService {
                 draft.paperId(),
                 draft.domain() == null || draft.domain().isBlank() ? "UNKNOWN" : draft.domain(),
                 draft.topicName() == null || draft.topicName().isBlank() ? "UNKNOWN" : draft.topicName(),
+                reason == null || reason.isBlank() ? "unknown" : reason));
+    }
+
+    private void recordRunSuppressedDraft(ResearchCycleService.InFlightDraft draft, String reason) {
+        if (draft == null || draft.paperId() == null || draft.paperId().isBlank()) {
+            return;
+        }
+        runSuppressedDrafts.putIfAbsent(draft.paperId(), new RunSuppressedDraft(
+                draft.paperId(),
+                draft.domain() == null || draft.domain().isBlank() ? "UNKNOWN" : draft.domain(),
+                draft.topic() == null || draft.topic().isBlank() ? "UNKNOWN" : draft.topic(),
                 reason == null || reason.isBlank() ? "unknown" : reason));
     }
 

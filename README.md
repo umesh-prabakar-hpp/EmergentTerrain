@@ -104,6 +104,11 @@ and final workflow status). It also lists intentionally suppressed drafts and
 any still-active drafts with their last recorded narration phase, so a hard
 budget stop cannot hide a paper-ID sequence gap. It reports an explicit empty
 paper summary when none were created; historical database papers are never included.
+On a hard cap, shutdown first waits up to 30 seconds for tracked drafts, then records
+each unresolved ID and phase as an intentional suppression and closes the publication
+gate (up to 5 more seconds) before Spring closes JPA/Hikari. This prevents a paper
+transaction from racing datasource teardown. If that gate cannot close, the process
+fails closed without Spring context teardown rather than reporting a half-persisted paper.
 
 Phase 35 literature retrieval deterministically drops generic connective,
 ordinal, measurement-framing, comparative model-prose, and numeric/coefficient fragments before issuing FTS5 queries. Full-text fallback also requires its source title to contain a distinctive query-subject anchor, so a generic body overlap such as “density” cannot issue evidence for an unrelated domain. Each
@@ -117,6 +122,19 @@ fallback still issues only a process-scoped `HF...` key and requires
 also capped before it is passed to the model/proxy, so an anomalously large
 indexed record cannot make the next tool turn fail at the operating-system
 argument-size limit.
+
+Run `./scripts/run-phase35-artifact-smoke.sh` after rebuilding or changing the
+local literature index. It executes a fixed, real-index controlled paper artifact
+smoke test: a search-only trace must fail the publication label, while the same
+trace with an issued key, successful `read_reference`, and matching Related Work
+citation must produce a temporary artifact-backed candidate bundle. It makes no
+LLM request, database write, or persistent research output.
+
+After every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`.
+It regenerates [the paper-to-literature key map](docs/paper-literature-key-map.md) from current
+and archived final artifacts, retaining only keys that were safely issued, successfully read, and
+cited in the corresponding Related Work section. Search hits, unread sources, failed reads, and
+uncited snippets are deliberately excluded; the raw paper and tool trace remain authoritative.
 
 A paper whose recorded literature searches return no relevance-safe evidence may
 say so in Related Work, but cannot publish a claim that outside theory, prior
@@ -217,6 +235,13 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 7. **Cross-topic anomaly context** — the formulation prompt surfaces anomalous papers from adjacent topics in the same domain, enabling the LLM to reason across papers when exploring new parameter regions.
 8. **Durable draft identity** — every paper ID is reserved before narration in the append-only ledger at `simulation-history/research-paper-ids/`. Suppressed, timed-out, and interrupted drafts consume an ID even when they create neither a DB row nor a markdown file, so a restart or archived `research/` directory cannot recycle an audit identity. The ledger is allocation metadata only; it is not scientific evidence and never enters publication or promotion decisions.
 9. **Computational-publication tiers** — workflow status is separate from the reader-facing publication label. Every paper receives an audit bundle under `research/<room>/artifacts/<paper-id>/`; only `PUBLISHED` papers with a locked discovery/confirmation plan, sensitivity and reproduction declarations, an executed trace, and source-grounded related work are labeled artifact-backed computational-paper candidates. The gate requires a successful `read_reference` result for a key returned by `search_literature`, and that same key must appear in the related-work text. Artifact metadata is written from the final paper label. `./scripts/bootstrap-hf-math-literature.sh` downloads the fast theorem-search corpus by default and records both requested and resolved dataset revisions; set `HF_DATASET=marin-community/ar5iv-no-problem-markdown` for the complementary full-text source used to read and position claims. `python3 -m pip install --user pyarrow` followed by `./scripts/prepare-hf-math-index.py --stage metadata`, `--stage theorems`, and resumable `--stage fulltext --fulltext-shard-limit 20` builds the separate local SQLite/FTS5 staging index under `~/.emergentterrain/indexes/math-literature/`; the shard pass stores source text first and bulk-builds then optimizes `fulltext_fts` only after every shard is committed, avoiding costly per-record FTS rewrites. For an already-complete immutable index, run `./scripts/prepare-hf-math-index.py --stage optimize` once; it merges both theorem and full-text FTS segments and records the completion time without changing documents. It records raw-input SHA-256 values, dataset revisions, and importer provenance and retains broad source data for future subjects while mathematics remains the current query-time scope. The completed-index adapter is enabled through `app.research.literature.phase34-sqlite.enabled`. Its Phase 35 path is explicitly controlled by `app.research.literature.phase34-sqlite.phase35-retrieval.enabled` (currently `true`); it uses limited `ORDER BY rank` FTS5 retrieval, validated exact subject phrases for multi-anchor claims, and `search-timeout-ms` (currently 15 seconds). Each candidate first checks `initial-candidates` (currently 64) and only then widens to the established 512-result range when no evidence is found, so every paper retains the same complete eligibility range under the same fail-soft deadline. Completion logs record elapsed time, attempted candidates, batches, inspected rows, result count, and the last expression without logging passage text. Set the flag to `false` to restore the former Phase 34 all-terms-then-OR query. Both modes return only sources with indexed full text. Full-paper promotions use that same adapter first for their related-work search and up to two source reads; the older BM25/core route is fallback-only. Its fixed claim-set acceptance suite is still required before treating live retrieval as publication-ready. Neither corpus alone proves novelty.
+
+**Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
+`HF...` evidence but the professor omitted every `read_reference` call,
+`app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled` (currently
+`true`) appends one bounded read of the first issued key before student revision. It does not
+choose a source, judge relevance, edit Related Work, or upgrade a label; the student revision
+must still cite that exact key for the normal publication gate to pass.
 
 Phase 35 relevance safety needs no additional index stage. The enabled adapter
 uses only validated adjacent subject phrases, fails closed rather than issuing
