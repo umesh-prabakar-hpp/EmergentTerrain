@@ -133,6 +133,10 @@ public final class ScalarOpenness {
             Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.15443, Convergence.FAST)),
             // omega_ek_ratio → 1: Erdős–Kac variance, glacial (~1/√ln ln x) → SLOW.
             Map.entry("omega_ek_ratio",      new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.0, Convergence.SLOW)),
+            // The Cramér-normalised maximum-gap ratio is a slow constant-limit measurement.  Its
+            // stored affine row may carry the miner's `_constant_` scaffold, which is not a valid
+            // verify_conjecture scalar and must never be allocated as an affine study.
+            Map.entry("cramer_gap_ratio",    new MeasurementSpec(MeasurementFrame.CONSTANT, null, null, Convergence.SLOW)),
             // twin_vs_prime_sq → 2C₂ (Hardy–Littlewood twin constant): a clean window-independent limit,
             // glacial (~1/ln x) → SLOW. Registered 2026-06-17 (Stage 1f) — was demoted by title-drift
             // manifest_miss (run-13 P-710, 0.697) as an UNregistered bound; now framed as a measurement.

@@ -749,8 +749,6 @@ public class ResearchCycleService {
             com.emergentterrain.research.conjecture.Conjecture conjecture,
             long gameTick,
             Context ctx) {
-        String paperId = ctx.nextPaperId(roomId);
-        String topicName = "conjecture/" + conjecture.lhs();
         // measurement-frame-default.md Stage 1f — a registered measurement object (CONSTANT/OSCILLATION/
         // GROWTH) is framed as a MEASUREMENT, not a bound. run-13: dirichlet_error was titled "bound on
         // ..." and frontier-framed, so the professor tested the seed bound instead of laddering the
@@ -761,6 +759,15 @@ public class ResearchCycleService {
                 measurementFrameDefault
                         ? com.emergentterrain.research.conjecture.ScalarOpenness.measurementFrame(conjecture.lhs())
                         : null;
+        ConjectureInvestigationProtocol.Allocation allocation =
+                ConjectureInvestigationProtocol.allocate(conjecture, measurementSpec);
+        if (!allocation.allocatable()) {
+            log.warn("conjecture investigation skipped before draft allocation: lhs={} reason={}",
+                    conjecture.lhs(), allocation.reason());
+            return;
+        }
+        String paperId = ctx.nextPaperId(roomId);
+        String topicName = "conjecture/" + conjecture.lhs();
         String title = measurementSpec != null
                 ? String.format("Measurement of %s (%s across scales)",
                         conjecture.lhs(), measurementFrameWord(measurementSpec.frame()))
@@ -828,7 +835,8 @@ public class ResearchCycleService {
                 // A measurement investigation normally has a different registered object; max_prime_gap
                 // is the explicit exception because its growth-bound investigation now owns a locked
                 // fit/holdout design rather than the miner's affine scaffold.
-                preRegistrationFor(conjecture, measurementSpec),
+                allocation.registration() != null ? allocation.registration()
+                        : preRegistrationFor(conjecture, measurementSpec),
                 ResultClassification.SUPPORTED,
                 null,
                 PaperKind.CONJECTURE_INVESTIGATION,

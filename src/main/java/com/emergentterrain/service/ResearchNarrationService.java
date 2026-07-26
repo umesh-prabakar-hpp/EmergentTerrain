@@ -2,6 +2,7 @@ package com.emergentterrain.service;
 
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.ConjecturePreRegistration;
+import com.emergentterrain.research.ConstantLimitPreRegistration;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
@@ -545,6 +546,15 @@ public class ResearchNarrationService {
                 + "held-out call using exactly: " + directive + ". Do not substitute a tool-suggested "
                 + "coefficient or intercept. Any different relation is a separately labelled sensitivity "
                 + "analysis and cannot replace this confirmatory call.";
+    }
+
+    static String buildConstantLimitPreRegistrationNote(PreRegistration registration) {
+        String directive = ConstantLimitPreRegistration.exactTestDirective(registration);
+        if (directive.isBlank()) return "";
+        return "\n\nCONSTANT-LIMIT PRE-REGISTRATION NOTE — the miner's affine scaffold is not "
+                + "the confirmatory claim. Before exploratory bounds or prose synthesis, execute exactly: "
+                + directive + ". The completed scale ladder is the registered evidence; an unavailable, "
+                + "partial, or single-window result cannot replace it.";
     }
 
     static String buildPredicateBaselineSensitivityNote(PaperDraft draft) {
@@ -2644,6 +2654,8 @@ public class ResearchNarrationService {
                     + establishedConstantNote(draft)   // survivor-aware fallback guard (cite, don't re-measure)
                     + (ConjecturePreRegistration.isLocked(draft.preRegistration())
                             ? buildExactPreRegistrationNote(draft.preRegistration()) : "")
+                    + (ConstantLimitPreRegistration.isLocked(draft.preRegistration())
+                            ? buildConstantLimitPreRegistrationNote(draft.preRegistration()) : "")
                     + (PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                             ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
                     + (MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())

@@ -1308,6 +1308,14 @@ public class UniversityService {
                             + "(selected trace lacks the exact locked conjecture relation)",
                     draft.paperId());
         }
+        boolean constantLimitPreRegistrationUncovered = ConstantLimitPreRegistration.isLocked(draft.preRegistration())
+                && !ConstantLimitPreRegistration.hasExactEvidence(
+                        draft.preRegistration(), narration.toolCallTrace());
+        if (constantLimitPreRegistrationUncovered) {
+            log.warn("constant-limit pre-registration check failed paperId={} "
+                            + "(selected trace lacks the completed locked verify_constant scale ladder)",
+                    draft.paperId());
+        }
         boolean predicateStudyPreRegistrationUncovered = predicateStudyPreRegistrationGateEnabled
                 && PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                 && !PredicateStudyPreRegistration.hasExactEvidence(
@@ -1848,6 +1856,9 @@ public class UniversityService {
             // sensitivity or binding probe is not confirmatory evidence.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (constantLimitPreRegistrationUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (predicateStudyPreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2038,6 +2049,11 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:predicate_study_preregistration_uncovered→needs_revision"
                     : persistedCallPath + " → publish:predicate_study_preregistration_uncovered→needs_revision";
+        }
+        if (constantLimitPreRegistrationUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:constant_limit_preregistration_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:constant_limit_preregistration_uncovered→needs_revision";
         }
         if (maxPrimeGapMultiScalePreRegistrationUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
