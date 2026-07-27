@@ -123,6 +123,18 @@ also capped before it is passed to the model/proxy, so an anomalously large
 indexed record cannot make the next tool turn fail at the operating-system
 argument-size limit.
 
+Question-served follow-up studies are also screened before a draft ID is allocated. Each newly
+harvested question keeps its source paper's locked pre-registration mapping fingerprint. When that
+question is served back to the same conjecture family, an exact normalized fingerprint match is
+declined before reservation or narration; a changed preregistered window, holdout, or other design
+remains eligible. Questions harvested before this field existed have no fingerprint and deliberately
+remain eligible, rather than being retroactively suppressed by a topic-only heuristic.
+For a host-database smoke without an autonomous research batch, start with
+`--app.research.question-serve.clone-smoke.enabled=true --app.university.enabled=false
+--spring.task.scheduling.enabled=false`; the dormant runner writes one temporary exact-clone
+question, requires allocation to decline it before draft-ID creation, logs the result, and removes
+the temporary row.
+
 Run `./scripts/run-phase35-artifact-smoke.sh` after rebuilding or changing the
 local literature index. It executes a fixed, real-index controlled paper artifact
 smoke test: a search-only trace must fail the publication label, while the same
@@ -310,6 +322,7 @@ Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performa
 - `ConjecturePreRegistrationTest`, `MaxPrimeGapMultiScalePreRegistrationTest`, `MaxPrimeGapProtocolStateExecutorTest`, `MaxDivisorCountMeasurementPreRegistrationTest`, `AffineBindingClaimValidatorTest`, `AffineBindingIndependentGridValidatorTest`, `BindingExtensionPolicyTest`, and `PivotNoteTest` — a two-term binding sensitivity cannot replace the locked coefficients/intercept; `max_prime_gap` and `max_divisor_count` additionally lock their fit/holdout grid designs before computation. The max-prime executor carries tool-supplied values through the registered sequence without refitting; the max-divisor study also requires a searched, read, and cited Wigert source before workflow promotion. Selected evidence retains both the exact registered verification and later corrective calls, and a tight pair needs its deterministic independent-grid replication as well as its same-grid hold/refute pair.
 - `PredicateBaselineSensitivityValidatorTest` — a baseline predicate comparison needs three scans with one unchanged baseline, two widths, and an overlapping offset pair; adjacent equal-width windows alone route for revision.
 - `DynamicDirectionalClassificationTest` and `PredicateStudyPreRegistrationTest` — a dynamic predicate study locks its baseline, expected relation, primary range, overlapping offset, and second-width range before its first census. An `APPROXIMATELY_EQUAL` study also requires a positive absolute `comparisonTolerance`, which is repeated by every registered scan; omitted tolerance prevents new study allocation. Above/below studies are classified by their registered inequality; approximate studies are `SUPPORTED` inside the locked band and `REFUTED` outside it, without a broad post-hoc partial band. Every registered scan must appear in the selected trace.
+- `QuestionServedProtocolCloneGuardTest` and `OpenQuestionHarvestServiceTest` — open questions persist their source protocol fingerprint. Serving an exact same-family locked protocol declines the work before it reserves a question, allocates a draft ID, or starts narration; changed protocols, different families, and legacy fingerprint-less rows remain eligible.
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
 - `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Use `scripts/run-real-gpu-e2e.sh` on Fedora and `pwsh ./scripts/run-real-gpu-e2e.ps1` on Windows. Expected time: ~30-60s after startup.

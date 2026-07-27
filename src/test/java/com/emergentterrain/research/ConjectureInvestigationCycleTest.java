@@ -1,17 +1,23 @@
 package com.emergentterrain.research;
 
 import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.repo.PaperOpenQuestionRepository;
 import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.research.conjecture.ConjectureQueue;
 import com.emergentterrain.research.conjecture.ConjectureTopicProvider;
+import com.emergentterrain.research.question.PaperOpenQuestion;
+import com.emergentterrain.research.question.QuestionServedProtocolCloneGuard;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -232,6 +238,25 @@ class ConjectureInvestigationCycleTest {
                 "with the flag off, even a mertens conjecture stays in-range: " + draft.rawFindings());
     }
 
+    @Test
+    void questionServedIdenticalProtocolStopsBeforeDraftIdReservationOrNarration() throws Exception {
+        ResearchCycleService svc = new ResearchCycleService();
+        Conjecture c = buildConjecture("abundant_density", "happy_density", 0.0, 0.2515, 8, -0.004);
+        PaperOpenQuestion question = new PaperOpenQuestion("P-source", "abundant_density",
+                "Does the original relationship hold on a further range?", "SCOPE",
+                QuestionServedProtocolCloneGuard.fingerprint(ConjecturePreRegistration.from(c)));
+        PaperOpenQuestionRepository repo = questionRepoServing(question);
+        setField(svc, "questionServeEnabled", true);
+        setField(svc, "openQuestionRepo", repo);
+        CapturingContext ctx = new CapturingContext();
+
+        svc.publishConjectureInvestigation(UUID.randomUUID(), researcher(), c, 1L, ctx);
+
+        assertEquals(0, ctx.paperIdCalls.get(), "clone screen must run before nextPaperId");
+        assertNull(ctx.lastDraft.get(), "clone screen must not start narration or fallback publication");
+        assertNull(question.answeredByPaperId(), "declined question must stay servable");
+    }
+
     // ---------- helpers ----------
 
     private static Researcher researcher() {
@@ -257,11 +282,32 @@ class ConjectureInvestigationCycleTest {
         return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
     }
 
+    private static PaperOpenQuestionRepository questionRepoServing(PaperOpenQuestion question) {
+        return (PaperOpenQuestionRepository) Proxy.newProxyInstance(
+                ConjectureInvestigationCycleTest.class.getClassLoader(),
+                new Class<?>[] {PaperOpenQuestionRepository.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "findByAnsweredByPaperIdIsNotNullAndAnsweredAtIsNull" -> List.of();
+                    case "findByFamilyAndAnsweredByPaperIdIsNull" -> List.of(question);
+                    default -> null;
+                });
+    }
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        Field field = ResearchCycleService.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
     /** Captures the most recent dispatched draft for assertion. */
     private static final class CapturingContext implements ResearchCycleService.Context {
         final AtomicReference<PaperDraft> lastDraft = new AtomicReference<>();
+        final AtomicInteger paperIdCalls = new AtomicInteger();
 
-        @Override public String nextPaperId(UUID roomId) { return "P-test-" + roomId.toString().substring(0, 4); }
+        @Override public String nextPaperId(UUID roomId) {
+            paperIdCalls.incrementAndGet();
+            return "P-test-" + roomId.toString().substring(0, 4);
+        }
         @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) { return new ArrayList<>(); }
         @Override public void publishPaper(PaperDraft draft, NarrationResult narration) {
             lastDraft.set(draft);

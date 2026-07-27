@@ -1,5 +1,7 @@
 package com.emergentterrain.research;
 
+import com.emergentterrain.research.question.PaperOpenQuestion;
+import com.emergentterrain.research.question.QuestionServedProtocolCloneGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,10 +56,11 @@ public class ResearchCycleService {
     /**
      * Phase 33 lane T2 (2026-07-05) — serve the ledger's open questions back onto their family's
      * topics. v1 is RIDE-ALONG: when rotation serves family X, X's top unanswered self-harvested
-     * question is appended to the hypothesis as the preferred load-bearing claim, and marked
-     * answered-by the serving paper (served-once semantics; a coverage-checked "actually
-     * answered" refinement is T2b). An explicit question-driven selection source stays deferred
-     * until ride-along proves too slow. Repos are always-present beans; the flags gate behavior.
+     * question is appended to the hypothesis as the preferred load-bearing claim. Its source
+     * protocol is screened before draft-ID allocation: an identical same-family study is declined;
+     * an accepted study is then reserved and becomes answered only on publication. An explicit
+     * question-driven selection source stays deferred until ride-along proves too slow. Repos are
+     * always-present beans; the flags gate behavior.
      */
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.question-serve.enabled:false}")
@@ -766,8 +769,9 @@ public class ResearchCycleService {
                     conjecture.lhs(), allocation.reason());
             return;
         }
-        String paperId = ctx.nextPaperId(roomId);
         String topicName = "conjecture/" + conjecture.lhs();
+        PreRegistration candidateRegistration = allocation.registration() != null
+                ? allocation.registration() : preRegistrationFor(conjecture, measurementSpec);
         String title = measurementSpec != null
                 ? String.format("Measurement of %s (%s across scales)",
                         conjecture.lhs(), measurementFrameWord(measurementSpec.frame()))
@@ -789,7 +793,18 @@ public class ResearchCycleService {
         // Phase 33 lanes T2 + C1 (2026-07-05) — cross-run context rides on the served topic:
         // the family's most recent VERIFIED results (data for cross-scale/rate claims) and its
         // top unanswered self-harvested open question (the preferred load-bearing claim).
-        hypothesis = appendCrossRunContext(hypothesis, conjecture.lhs(), paperId);
+        CrossRunContext crossRunContext = appendCrossRunContext(hypothesis, conjecture.lhs());
+        hypothesis = crossRunContext.hypothesis();
+        if (QuestionServedProtocolCloneGuard.isClone(
+                crossRunContext.question(), conjecture.lhs(), candidateRegistration)) {
+            log.info("question-serve: declined identical locked protocol before draft allocation "
+                            + "family={} sourcePaperId={} mappingNotes={}",
+                    conjecture.lhs(), crossRunContext.question().paperId(),
+                    candidateRegistration.mappingNotes());
+            return;
+        }
+        String paperId = ctx.nextPaperId(roomId);
+        reserveQuestion(crossRunContext.question(), paperId);
         // 2026-07-05 (P-b72c-77627773) — under the measurement frame, the findings/conclusion
         // seeds must not carry the row's affine bound either: the seeded "dirichlet_error ≤
         // 0.0016" leaked through the FINDINGS seed and the professor spent a call "refuting" an
@@ -835,8 +850,7 @@ public class ResearchCycleService {
                 // A measurement investigation normally has a different registered object; max_prime_gap
                 // is the explicit exception because its growth-bound investigation now owns a locked
                 // fit/holdout design rather than the miner's affine scaffold.
-                allocation.registration() != null ? allocation.registration()
-                        : preRegistrationFor(conjecture, measurementSpec),
+                candidateRegistration,
                 ResultClassification.SUPPORTED,
                 null,
                 PaperKind.CONJECTURE_INVESTIGATION,
@@ -1017,13 +1031,15 @@ public class ResearchCycleService {
         }
     }
 
-    private String appendCrossRunContext(String hypothesis, String family, String paperId) {
+    private record CrossRunContext(String hypothesis, PaperOpenQuestion question) {}
+
+    private CrossRunContext appendCrossRunContext(String hypothesis, String family) {
         try {
             java.util.List<com.emergentterrain.research.question.VerifiedResult> results =
                     (resultsLedgerServeEnabled && verifiedResultRepo != null)
                             ? verifiedResultRepo.findTop6ByFamilyOrderByCreatedAtDesc(family)
                             : java.util.List.of();
-            com.emergentterrain.research.question.PaperOpenQuestion question = null;
+            PaperOpenQuestion question = null;
             if (questionServeEnabled && openQuestionRepo != null) {
                 sweepStaleReservations();
                 // Two-phase answering (2026-07-06): servable = never reserved. A reservation
@@ -1032,21 +1048,31 @@ public class ResearchCycleService {
                 var open = openQuestionRepo.findByFamilyAndAnsweredByPaperIdIsNull(family);
                 question = open.stream()
                         .max(java.util.Comparator.comparing(
-                                com.emergentterrain.research.question.PaperOpenQuestion::createdAt))
+                                PaperOpenQuestion::createdAt))
                         .orElse(null);
             }
             String rendered = renderCrossRunBlocks(hypothesis, results, question);
-            if (question != null && !rendered.equals(hypothesis)) {
-                question.reserve(paperId);
-                openQuestionRepo.save(question);
-                log.info("question-serve: family={} question from {} served to {} (kind={})",
-                        family, question.paperId(), paperId, question.kind());
-            }
-            return rendered;
+            return new CrossRunContext(rendered, rendered.equals(hypothesis) ? null : question);
         } catch (RuntimeException e) {
             log.warn("cross-run context append failed family={} (topic unaffected): {}",
                     family, e.getMessage());
-            return hypothesis;
+            return new CrossRunContext(hypothesis, null);
+        }
+    }
+
+    /** Reserve only after the allocation-time protocol screen accepts the served question. */
+    private void reserveQuestion(PaperOpenQuestion question, String paperId) {
+        if (question == null || openQuestionRepo == null) {
+            return;
+        }
+        try {
+            question.reserve(paperId);
+            openQuestionRepo.save(question);
+            log.info("question-serve: family={} question from {} served to {} (kind={})",
+                    question.family(), question.paperId(), paperId, question.kind());
+        } catch (RuntimeException e) {
+            log.warn("question-serve reservation failed paperId={} sourcePaperId={}: {}",
+                    paperId, question.paperId(), e.getMessage());
         }
     }
 
@@ -1054,7 +1080,7 @@ public class ResearchCycleService {
     static String renderCrossRunBlocks(
             String hypothesis,
             java.util.List<com.emergentterrain.research.question.VerifiedResult> results,
-            com.emergentterrain.research.question.PaperOpenQuestion question) {
+            PaperOpenQuestion question) {
         StringBuilder sb = new StringBuilder(hypothesis == null ? "" : hypothesis);
         if (results != null && !results.isEmpty()) {
             sb.append("\n\nPRIOR VERIFIED RESULTS for this family (cross-run ledger, newest "

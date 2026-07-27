@@ -2570,7 +2570,7 @@ public class UniversityService {
         // structural defect). Failure-soft inside the service; bean absent when the flag is off.
         if (questionHarvest != null && !"REJECTED".equals(String.valueOf(paperStatus))) {
             questionHarvest.harvest(draft.paperId(), draft.topicName(),
-                    narration.findings(), narration.conclusion());
+                    narration.findings(), narration.conclusion(), draft.preRegistration());
         }
         // Two-phase answering (2026-07-06) — the paper persisted, so confirm any question
         // reserved for it at serve time (run-28 + P-809: serve-time marking burned questions

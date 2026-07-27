@@ -1,6 +1,7 @@
 package com.emergentterrain.research.question;
 
 import com.emergentterrain.repo.PaperOpenQuestionRepository;
+import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.service.LlmRouter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +52,15 @@ public class OpenQuestionHarvestService {
      * failure is contained here.
      */
     public void harvest(String paperId, String topicName, String findings, String conclusion) {
+        harvest(paperId, topicName, findings, conclusion, null);
+    }
+
+    /**
+     * Persist open questions with their source study's locked protocol fingerprint when present.
+     * A later question-served allocation can then reject an identical protocol before narration.
+     */
+    public void harvest(String paperId, String topicName, String findings, String conclusion,
+                        PreRegistration sourceRegistration) {
         try {
             String body = ((findings == null ? "" : findings) + "\n"
                     + (conclusion == null ? "" : conclusion)).strip();
@@ -63,8 +73,8 @@ public class OpenQuestionHarvestService {
                 body = "…" + body.substring(body.length() - MAX_INPUT_CHARS);
             }
             String raw = router.callForRole("fast-audit", buildPrompt(body));
-            List<PaperOpenQuestion> questions =
-                    parse(raw, paperId, familyOf(topicName), mapper);
+            List<PaperOpenQuestion> questions = parse(raw, paperId, familyOf(topicName), mapper,
+                    QuestionServedProtocolCloneGuard.fingerprint(sourceRegistration));
             if (questions.isEmpty()) {
                 return;
             }
@@ -111,6 +121,11 @@ public class OpenQuestionHarvestService {
      */
     static List<PaperOpenQuestion> parse(String raw, String paperId, String family,
                                           ObjectMapper mapper) {
+        return parse(raw, paperId, family, mapper, null);
+    }
+
+    static List<PaperOpenQuestion> parse(String raw, String paperId, String family,
+                                          ObjectMapper mapper, String protocolFingerprint) {
         List<PaperOpenQuestion> out = new ArrayList<>();
         if (raw == null) {
             return out;
@@ -135,7 +150,7 @@ public class OpenQuestionHarvestService {
                 }
                 String kind = n.path("kind").asText("OTHER").toUpperCase(java.util.Locale.ROOT);
                 out.add(new PaperOpenQuestion(paperId, family,
-                        q, KINDS.contains(kind) ? kind : "OTHER"));
+                        q, KINDS.contains(kind) ? kind : "OTHER", protocolFingerprint));
             }
         } catch (Exception e) {
             return List.of();   // parse miss = harvest nothing; never throw

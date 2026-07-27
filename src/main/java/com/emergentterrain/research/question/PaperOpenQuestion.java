@@ -47,6 +47,10 @@ public class PaperOpenQuestion {
     @Column(nullable = false, length = 24)
     private String kind;
 
+    /** Locked source-study mapping used to stop an identical question-served re-run at allocation. */
+    @Column(name = "protocol_fingerprint", length = 2048)
+    private String protocolFingerprint;
+
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -58,10 +62,16 @@ public class PaperOpenQuestion {
     protected PaperOpenQuestion() {}   // JPA
 
     public PaperOpenQuestion(String paperId, String family, String question, String kind) {
+        this(paperId, family, question, kind, null);
+    }
+
+    public PaperOpenQuestion(String paperId, String family, String question, String kind,
+                             String protocolFingerprint) {
         this.paperId = paperId;
         this.family = family;
         this.question = question;
         this.kind = kind;
+        this.protocolFingerprint = protocolFingerprint;
     }
 
     public UUID id()                  { return id; }
@@ -69,6 +79,7 @@ public class PaperOpenQuestion {
     public String family()            { return family; }
     public String question()          { return question; }
     public String kind()              { return kind; }
+    public String protocolFingerprint() { return protocolFingerprint; }
     public Instant createdAt()        { return createdAt; }
     public String answeredByPaperId() { return answeredByPaperId; }
     public Instant answeredAt()       { return answeredAt; }

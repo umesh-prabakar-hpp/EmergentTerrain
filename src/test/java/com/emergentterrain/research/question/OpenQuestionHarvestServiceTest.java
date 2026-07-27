@@ -46,4 +46,15 @@ class OpenQuestionHarvestServiceTest {
                 .isEqualTo("Pendulum Breakdown");
         assertThat(OpenQuestionHarvestService.familyOf(null)).isEqualTo("unknown");
     }
+
+    @Test
+    void parserPreservesSourceProtocolFingerprintForFutureQuestionServing() {
+        List<PaperOpenQuestion> questions = OpenQuestionHarvestService.parse(
+                "[{\"question\":\"Does the fixed design survive its holdout?\",\"kind\":\"SCOPE\"}]",
+                "P-1", "max_divisor_count", OM, "locked-max-divisor-count-measurement:v1;fit=1;");
+
+        assertThat(questions).singleElement()
+                .extracting(PaperOpenQuestion::protocolFingerprint)
+                .isEqualTo("locked-max-divisor-count-measurement:v1;fit=1;");
+    }
 }
