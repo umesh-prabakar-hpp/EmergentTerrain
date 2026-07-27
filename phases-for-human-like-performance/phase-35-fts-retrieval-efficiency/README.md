@@ -394,6 +394,32 @@ inequality` pass. Other materials/physics markers retain their existing behavior
 This change is deliberately local to the marker: it does not loosen the cross-domain gate for
 actual composite-material claims or modify the INTERDISCIPLINARY exemption.
 
+### Paper-quality follow-ons from the timeout-recovery review
+
+The timeout path is a retrieval-state repair, not a substitute for the paper-quality controls
+around it. The offline refresh and normal-path resume are specified once above and are exercised
+by the first validation milestone below; the following additional requirements apply before a
+recovered or ordinary draft can be treated as a human-quality paper candidate:
+
+1. **Screen clone/protocol fingerprints before narration.** Before allocating the costly
+   professor/revision/panel cascade, compare a draft's locked study kind, scalar or affine
+   relation, grids/windows, and planned verifier calls with recent persisted papers. A near match
+   must either cite and explain a genuinely independent distinction or be withheld before
+   narration. The terminal content-hash deduplicator remains the final safety firewall, but it is
+   too late to prevent an uncited duplicate from consuming a full cascade.
+2. **Validate trace-to-prose availability claims.** The final-prose validator must compare claims
+   that a formula, logarithm base, window construction, preregistered scan, or other instrument
+   detail is unavailable against the selected tool trace and locked registration. If that material
+   is present, the draft must either state it accurately in Methods or route to `NEEDS_REVISION`.
+   This complements numeric grounding: it prevents prose from denying reproducibility details that
+   the executed evidence actually records.
+3. **Pre-register independent confirmations.** A single geometric scale ladder is a finite
+   measurement, not evidence that a pattern is robust to window placement, width, or allocation.
+   Constant-limit studies must lock a second location, width, or sampling allocation before
+   execution and report it alongside the primary ladder. Affine studies must retain their
+   preregistered independent grids/holdouts with unchanged registered parameters. A source-backed
+   related-work chain does not replace these computational independence checks.
+
 ## Acceptance suite
 
 Before enabling the changes live:
@@ -420,18 +446,28 @@ Before enabling the changes live:
    successful-read, and Related Work requirements.
 7. Run `CrossDomainHypothesisGateTest` after changing domain markers. It pins both mathematical
    `composite inequality` acceptance and composite-material rejection.
+8. Add an allocation-time clone/protocol-fingerprint regression: a study equivalent to a recent
+   paper must stop before narration unless its recorded distinction is cited and independently
+   executable. Add final-prose regressions for both false absence claims and accurate definitions,
+   plus constant-ladder and affine tests that reject a missing preregistered independent
+   confirmation.
 
 ## Next validation and quality milestones
 
-1. Run one real recovery cycle end to end: induce or observe a Phase 35 timeout, confirm that
-   OpenAlex discovery journals only non-evidentiary candidates, run the offline core/index refresh,
-   and verify that the changed fingerprint resumes the held paper through normal local retrieval.
+1. Run one real recovery cycle end to end using the held P43 job: confirm that OpenAlex discovery
+   journals only non-evidentiary candidates, run the offline core/index refresh outside an active
+   paper request, and verify that the changed fingerprint resumes the stored draft through normal
+   local `search_literature → read_reference → Related Work` processing.
 2. Track timeout-recovery latency (timeout to successful resume or terminal pending state), OpenAlex
    discovery success rate, and the share of resumed papers that ultimately obtain source-grounded
    Related Work through an issued local key and successful `read_reference`.
 3. Add reviewer checks that distinguish a genuine, completed no-evidence search from unresolved
    retrieval. A pending/timeout paper must never receive novelty credit for “no prior work,” while a
    completed relevance-safe no-match may state that limited absence accurately.
+4. Measure the fraction of allocations stopped by clone/protocol screening, definition-availability
+   contradictions caught before publication, and completed studies with their preregistered
+   independent confirmation. These are quality controls, not substitutes for the existing
+   source-grounded Related Work measure.
 
 ## Rollout and rollback
 
