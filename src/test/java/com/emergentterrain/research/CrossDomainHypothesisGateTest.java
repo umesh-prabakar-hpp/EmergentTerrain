@@ -30,6 +30,27 @@ class CrossDomainHypothesisGateTest {
     }
 
     @Test
+    void mathDomainCompositeNumberPasses() {
+        String hypothesis = "The density of composite numbers in the sampled interval will be measured.";
+        assertThat(CrossDomainHypothesisGate.validate("MATHEMATICS", hypothesis)).isEmpty();
+    }
+
+    @Test
+    void mathDomainCompositeInequalityPasses() {
+        // P42: "composite" modifies a mathematical inequality, not a material.
+        String hypothesis = "The composite inequality remains bounded over the locked scan grid.";
+        assertThat(CrossDomainHypothesisGate.validate("MATHEMATICS", hypothesis)).isEmpty();
+    }
+
+    @Test
+    void mathDomainCompositeMaterialMarkerFlaggedWhenItIsTheOnlyOtherDomainMarker() {
+        String hypothesis = "Goldbach partitions will correlate with composite laminate fatigue.";
+        Optional<String> result = CrossDomainHypothesisGate.validate("MATHEMATICS", hypothesis);
+        assertThat(result).isPresent();
+        assertThat(result.get()).contains("composite laminate");
+    }
+
+    @Test
     void mathDomainPureMathHypothesisPasses() {
         String hypothesis = "Twin prime density in [N, 2N) will converge to the Hardy-Littlewood asymptotic.";
         Optional<String> result = CrossDomainHypothesisGate.validate("MATHEMATICS", hypothesis);

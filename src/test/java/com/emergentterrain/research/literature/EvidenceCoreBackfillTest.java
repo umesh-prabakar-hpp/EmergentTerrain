@@ -38,4 +38,18 @@ class EvidenceCoreBackfillTest {
         assertThat(keys).containsExactlyInAnyOrder("W1111111111", "W3333333333");
         assertThat(EvidenceCoreBackfill.scanKeys(research.resolve("nope"))).isEmpty();
     }
+
+    @Test
+    void scanRecoveryCandidates_usesOnlyDiscoveredBackfillJobs() throws Exception {
+        Files.writeString(research.resolve("P-timeout.json"), """
+                {"state":"AWAITING_INDEX_BACKFILL","candidates":[
+                  {"workId":"W2909857905"},{"workId":"not-a-work"}]}
+                """);
+        Files.writeString(research.resolve("P-waiting.json"), """
+                {"state":"AWAITING_DISCOVERY","candidates":[{"workId":"W4230159862"}]}
+                """);
+
+        assertThat(EvidenceCoreBackfill.scanRecoveryCandidates(research))
+                .containsExactly("W2909857905");
+    }
 }

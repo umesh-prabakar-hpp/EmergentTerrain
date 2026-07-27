@@ -1367,6 +1367,16 @@ public class ResearchNarrationService {
     private com.emergentterrain.research.GateRetryQueue gateRetryQueue;
 
     /**
+     * Holds a draft before publication when its Phase 35 literature search
+     * timed out. The durable recovery lane performs OpenAlex discovery only as
+     * an offline-backfill hint, then re-enters this service after the local
+     * immutable index changes; it never turns an external hit into evidence.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.LiteratureTimeoutRecoveryQueue
+            literatureTimeoutRecoveryQueue;
+
+    /**
      * Phase 7 F7.2 — multi-reviewer panel. Runs after the professor stage's
      * synthesis and stamps a {@link com.emergentterrain.research.PanelOutcome}
      * onto the returned {@link NarrationResult}. Optional dependency so tests
@@ -1718,6 +1728,9 @@ public class ResearchNarrationService {
                         }
                     });
         }
+        if (literatureTimeoutRecoveryQueue != null) {
+            literatureTimeoutRecoveryQueue.wireRetryDispatch(this::enqueueNarration);
+        }
     }
 
     // --- Paper narration ---
@@ -1983,6 +1996,18 @@ public class ResearchNarrationService {
         // metrics emission as pre-29.
         NarrationResult result = produceBestCandidate(draft, orchestrationStartedAt);
 
+        // A bounded local FTS timeout is not a no-match. Keep this exact draft
+        // out of publication while the durable recovery queue records an
+        // OpenAlex backfill hint and waits for an operator-driven local-index
+        // refresh. The resumed draft still must earn local HF evidence, a read,
+        // and a matching Related Work citation through the normal path.
+        if (literatureTimeoutRecoveryQueue != null
+                && literatureTimeoutRecoveryQueue.deferIfTimedOut(draft, result)) {
+            updateDraftPhase(draft, "literature:pending_backfill");
+            firstPassCheckpoints.remove(draft.paperId());
+            return;
+        }
+
         // rec #8 — the full result supersedes any first-pass checkpoint; drop it
         // before publishing so a racing timeout hook can't re-publish the partial.
         firstPassCheckpoints.remove(draft.paperId());
@@ -2006,6 +2031,13 @@ public class ResearchNarrationService {
         // to preserve the "re-hit gate keeps queue entry" semantics.
         if (gateRetryQueue != null && !result.isSuppressed()) {
             gateRetryQueue.markCompleted(draft.paperId());
+        }
+        if (literatureTimeoutRecoveryQueue != null) {
+            if (result.isSuppressed()) {
+                literatureTimeoutRecoveryQueue.retryDidNotSettle(draft.paperId());
+            } else {
+                literatureTimeoutRecoveryQueue.markCompleted(draft.paperId());
+            }
         }
     }
 

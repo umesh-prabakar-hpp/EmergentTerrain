@@ -59,7 +59,16 @@ public final class CrossDomainHypothesisGate {
     /** Markers that strongly indicate MATERIALS or PHYSICS. */
     private static final List<Pattern> MAT_PHYS_MARKERS = compile(
             "\\bthermal\\s+stress\\b", "\\bfibre\\b", "\\bfiber\\b",
-            "\\bcomposite\\b", "\\bCTE\\b",
+            // "composite" is also ordinary number-theory vocabulary (for example,
+            // "a composite number"). Treat it as a materials marker only when its
+            // immediate context identifies a composite material or its mechanics.
+            "\\b(?:fibre|fiber|polymer(?:-matrix)?|matrix|laminate(?:d)?|reinforced|"
+                    + "reinforcement|ceramic|metal(?:-matrix)?|epoxy|resin|carbon|glass)\\s+composite\\b",
+            "\\bcomposite\\s+(?:material|layer(?:s)?|panel(?:s)?|laminate(?:s)?|matrix|"
+                    + "fibre|fiber|reinforcement|stress|strain|strength|modulus|stiffness|"
+                    + "fracture|failure|fatigue|geometry|hull(?:s)?|wall(?:s)?|beam(?:s)?|"
+                    + "plate(?:s)?|volume\\s+fraction)\\b",
+            "\\bCTE\\b",
             "\\bRLC\\b", "\\binductance\\b", "\\bcapacitance\\b",
             "\\bpendulum\\b", "\\bprojectile\\s+drag\\b",
             "\\bVan\\s+der\\s+Waals\\b", "\\bdiffraction\\b",

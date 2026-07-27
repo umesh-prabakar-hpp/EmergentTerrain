@@ -23,6 +23,9 @@ import java.util.stream.Stream;
  * scan the research output (papers + llm-traces) for the [W…] keys search_literature
  * actually returned, and fetch ar5iv HTML cores for exactly those works — converting the
  * hit rate on RECURRING matches to near-certainty.
+ * It also consumes non-evidentiary OpenAlex candidates from the durable Phase 35 timeout
+ * recovery journal. Those candidates are discovery/backfill inputs only: the subsequent offline
+ * import and normal local search must still issue an HF key before a paper can cite them.
  *
  * <p>Post-run / nightly, NEVER while the app is live (mvn compile under a live JVM —
  * [[project_app_runs_from_target_classes]]). Reuses the L1b extraction pipeline verbatim
@@ -44,11 +47,14 @@ public final class EvidenceCoreBackfill {
         Path corpus = Path.of(env("CORPUS_DIR",
                 System.getProperty("user.home") + "/.emergentterrain/corpus-nt"));
         Path research = Path.of(env("RESEARCH_DIR", "research"));
+        Path recovery = Path.of(env("LITERATURE_RECOVERY_DIR",
+                "simulation-history/research-literature-recovery"));
         Path out = corpus.resolve("cores-html");
         Files.createDirectories(out);
         Path pdfDir = corpus.resolve("cores");
 
         Set<String> wanted = scanKeys(research);
+        wanted.addAll(scanRecoveryCandidates(recovery));
         Set<String> missing = new LinkedHashSet<>();
         for (String id : wanted) {
             if (!Files.isRegularFile(out.resolve(id + ".txt"))
@@ -154,6 +160,36 @@ public final class EvidenceCoreBackfill {
                     // unreadable file (binary, permission) — skip; scan is best-effort
                 }
             });
+        }
+        return keys;
+    }
+
+    /**
+     * Extracts OpenAlex work ids from durable timeout-recovery jobs that have
+     * completed discovery. The journal is intentionally the only bridge here:
+     * no app request writes a core or touches the immutable Phase 34 index.
+     */
+    static Set<String> scanRecoveryCandidates(Path recovery) throws Exception {
+        Set<String> keys = new LinkedHashSet<>();
+        if (!Files.isDirectory(recovery)) {
+            return keys;
+        }
+        try (Stream<Path> files = Files.list(recovery)) {
+            files.filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .forEach(path -> {
+                        try {
+                            JsonNode root = OM.readTree(Files.readString(path));
+                            if (!"AWAITING_INDEX_BACKFILL".equals(root.path("state").asText())) {
+                                return;
+                            }
+                            root.path("candidates").forEach(candidate -> {
+                                String id = candidate.path("workId").asText("");
+                                if (WORK_KEY.matcher(id).matches()) keys.add(id);
+                            });
+                        } catch (Exception ignored) {
+                            // A malformed recovery record cannot stop a nightly backfill.
+                        }
+                    });
         }
         return keys;
     }

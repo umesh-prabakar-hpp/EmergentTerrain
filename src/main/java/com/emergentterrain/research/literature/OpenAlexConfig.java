@@ -10,10 +10,10 @@ import java.nio.file.Path;
 /**
  * Phase 32 §32.5 step 1 — Spring wiring for the OpenAlex client (phase-32-openalex-corpus.md
  * item A). Dormant by default: nothing constructs unless
- * {@code app.research.literature.openalex.enabled=true}, and no runtime consumer exists yet —
- * §32.5 step 4 (search_literature grounding mode) and the deferred 30.4 resolver are the future
- * callers. The offline corpus builder ({@link NtCorpusBuilder}) constructs its own client from
- * env vars and does not need Spring.
+ * {@code app.research.literature.openalex.enabled=true}. The timeout-recovery worker may use it
+ * asynchronously to discover open-access backfill candidates; that worker never treats an
+ * OpenAlex response as evidence. The offline corpus builder ({@link NtCorpusBuilder}) constructs
+ * its own client from env vars and does not need Spring.
  *
  * <p>The API key arrives via the secrets-file convention ({@code ${OPENALEX_API_KEY:}} — resolved
  * by ExternalSecretsEnvironmentPostProcessor from {@code ~/.emergentterrain/secrets.enc}; blank =

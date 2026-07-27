@@ -333,6 +333,67 @@ write Related Work, or change a label. The purpose is only to expose already val
 text to the student revision. The normal successful-read plus matching-`[HF...]` citation gate
 remains mandatory for an artifact-backed paper candidate. Set the flag false for rollback.
 
+## 2026-07-26 — timeout recovery and cross-domain wording hardening
+
+### Durable timeout recovery
+
+The bounded 15-second Phase 35 budget remains the interactive guard. A result saying
+`Phase 34 SQLite retrieval exceeded` is now a third outcome, distinct from both a safe
+no-match and relevance-safe evidence:
+
+```text
+Phase 35 timeout
+  → hold the draft before publication
+  → journal the exact semantic request and ReworkDraftSnapshot
+  → asynchronously discover possible OA backfill targets through OpenAlex
+  → run the ordinary offline core/index backfill
+  → local index fingerprint changes
+  → re-narrate through local search → read_reference → Related Work
+```
+
+`LiteratureTimeoutRecoveryQueue` persists jobs under
+`simulation-history/research-literature-recovery/`; a process restart reloads the journal and
+re-arms any retry that was in flight. The job records the original claim, two proposed subject
+anchors, relation/rationale, pre-backfill index fingerprint, retry state, and a compact
+`ReworkDraftSnapshot`. It never serializes a live entity graph.
+
+The worker is configured by:
+
+```yaml
+app.research.literature.timeout-recovery:
+  enabled: true
+  state-dir: simulation-history/research-literature-recovery
+  max-discovery-attempts: 3
+  max-queue-size: 100
+  poll-interval-ms: 60000
+```
+
+OpenAlex is enabled only for this bounded, cached, credit-ledgered background discovery lane.
+Its work records are explicitly **not evidence**: they do not produce an `HF...` capability,
+cannot be cited, cannot satisfy `read_reference`, and cannot change workflow status or the
+artifact-backed label. `EvidenceCoreBackfill` consumes only `AWAITING_INDEX_BACKFILL` candidate
+work IDs from that journal on its next offline run (`LITERATURE_RECOVERY_DIR` can override the
+default journal path). It still fetches/extracts offline and the normal importer must build the
+immutable local index. There is no request-time SQLite mutation.
+
+The worker releases a held draft only after the local index file's size/mtime fingerprint changes.
+The retry then executes the unchanged normal narration path, so an artifact-backed candidate
+still requires local relevance-safe evidence, a successful read of the issued key, and a matching
+Related Work citation. An unavailable OpenAlex client or exhausted discovery attempts leaves an
+auditable pending job; it never degrades a timeout into “no literature exists.”
+
+### Context-sensitive `composite` cross-domain marker
+
+The cross-domain hypothesis gate previously treated a bare `composite` as materials/physics
+vocabulary. This falsely rejected valid mathematics wording such as P42's “composite inequality.”
+The marker now fires only when its immediate phrase identifies a composite material or mechanics
+(for example `composite laminate fatigue`, `polymer composite`, `composite stiffness`, or
+`composite volume fraction`). Mathematical phrases such as `composite number` and `composite
+inequality` pass. Other materials/physics markers retain their existing behavior.
+
+This change is deliberately local to the marker: it does not loosen the cross-domain gate for
+actual composite-material claims or modify the INTERDISCIPLINARY exemption.
+
 ## Acceptance suite
 
 Before enabling the changes live:
@@ -352,6 +413,25 @@ Before enabling the changes live:
    `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE` only if its issued key,
    `read_reference` result, related-work citation, artifact, and workflow
    status still agree.
+6. For timeout recovery, run `LiteratureTimeoutRecoveryQueueTest` to pin timeout-only
+   deferral plus journal restoration, and `EvidenceCoreBackfillTest` to pin that only completed
+   discovery jobs contribute candidate work IDs to offline backfill. Run
+   `./scripts/run-phase35-artifact-smoke.sh`; OpenAlex candidates must not bypass its issued-key,
+   successful-read, and Related Work requirements.
+7. Run `CrossDomainHypothesisGateTest` after changing domain markers. It pins both mathematical
+   `composite inequality` acceptance and composite-material rejection.
+
+## Next validation and quality milestones
+
+1. Run one real recovery cycle end to end: induce or observe a Phase 35 timeout, confirm that
+   OpenAlex discovery journals only non-evidentiary candidates, run the offline core/index refresh,
+   and verify that the changed fingerprint resumes the held paper through normal local retrieval.
+2. Track timeout-recovery latency (timeout to successful resume or terminal pending state), OpenAlex
+   discovery success rate, and the share of resumed papers that ultimately obtain source-grounded
+   Related Work through an issued local key and successful `read_reference`.
+3. Add reviewer checks that distinguish a genuine, completed no-evidence search from unresolved
+   retrieval. A pending/timeout paper must never receive novelty credit for “no prior work,” while a
+   completed relevance-safe no-match may state that limited absence accurately.
 
 ## Rollout and rollback
 

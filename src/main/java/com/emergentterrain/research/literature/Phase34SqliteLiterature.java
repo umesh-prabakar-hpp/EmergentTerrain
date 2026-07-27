@@ -113,6 +113,22 @@ public final class Phase34SqliteLiterature {
         }
     }
 
+    /**
+     * Stable-enough identity for the immutable index generation currently being
+     * served.  It is deliberately metadata only: recovery workers use it to
+     * notice that an operator has completed an offline backfill/import, never
+     * to mutate or reopen the index on the request path.
+     */
+    public String indexFingerprint() {
+        try {
+            if (!Files.isRegularFile(database)) return "unavailable";
+            return database + ":" + Files.size(database) + ":"
+                    + Files.getLastModifiedTime(database).toMillis();
+        } catch (Exception ignored) {
+            return "unavailable";
+        }
+    }
+
     public String search(String query) {
         return search(query, null);
     }
