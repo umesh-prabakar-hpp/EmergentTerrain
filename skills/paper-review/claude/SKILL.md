@@ -50,6 +50,56 @@ Do not retain raw search hits, unread keys, failed reads, snippets, or asserted 
 Compare generated rows with `literature-audit.json` `citedReadKeys` and, when available,
 `citedReadReviewedKeys`; any disagreement is a review finding.
 
+## Default literature-backfill discovery
+
+Run this preparation on every review pass; it is part of the default workflow and does **not**
+require a `--prepare-literature-backfill` switch. It is discovery and offline-import preparation,
+not a new evidence tool.
+
+1. Inspect only the app run that produced the review batch and preserve every Phase 35 plan,
+   associated virtual-thread paper ID, and raw query terms in a provenance manifest. A multi-run
+   or seven-day sweep is an explicit one-time backfill activity, never the recurring default.
+2. Infer the paper's mathematical subject from its locked registration, title, and trace. Search
+   the web with the logged terms paired with that subject; never search a weak narration fragment
+   such as `held out` or `composite inequality` alone.
+3. Run the same subject query against the UW theorem index and record whether title candidates
+   have indexed full text. A missing companion is a coverage state, not a literature-absence claim.
+4. Download source text only (TeX, plain text, BibTeX, and styles needed to read TeX) into an
+   idempotent temporary staging directory; no PDFs. Record canonical URL, query, paper mapping,
+   timestamp, size, and SHA-256.
+5. Screen after download. Rank each candidate against the actual mathematical subject, retain only
+   relevant sources for import, and retain rejected/low-relevance candidates only in provenance.
+6. Do not mutate the live index during review, issue an `HF...` key, cite a staged source, or
+   upgrade any label. A source becomes evidence only after normal offline import followed by the
+   existing indexed search/read/Related Work chain.
+
+The manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
+`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`. Reuse a matching SHA-256 source on later
+review passes rather than downloading it again.
+
+## End-of-review offline-import handoff
+
+When the review created one or more `RETAINED_FOR_IMPORT` entries, end the review response with
+this executable handoff, replacing `<manifest>` with the emitted staging manifest path. Do not run
+it while an index writer is active; it is an operator-owned offline step.
+
+```bash
+python3 scripts/prepare-hf-math-index.py --stage staged-text \
+  --corpus-dir /home/fedorauser/.emergentterrain/corpus-hf-math \
+  --index-dir /home/fedorauser/.emergentterrain/indexes/math-literature \
+  --staged-text-manifest <manifest>
+
+stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature/literature.db
+```
+
+After the next normal paper run, show the verification command too; source grounding is complete
+only when the resulting artifact records the normal issued-key/read/citation chain.
+
+```bash
+jq '.gate | {sourceGroundedRelatedWork, workflowStatus, publicationLabel, citedReadKeys}' \
+  research/<room>/artifacts/<paper-id>/evidence/literature-audit.json
+```
+
 ## Log Discovery
 
 Resolve paths against the project root, not the paper directory. Walk up from `<research_dir>`

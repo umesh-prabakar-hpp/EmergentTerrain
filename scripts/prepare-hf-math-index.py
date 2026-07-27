@@ -46,10 +46,12 @@ DEFAULT_CORPUS_DIR = Path.home() / ".emergentterrain" / "corpus-hf-math"
 DEFAULT_INDEX_DIR = Path.home() / ".emergentterrain" / "indexes" / "math-literature"
 UW_DIRNAME = "uw-math-ai--theorem-search-dataset"
 MARIN_DIRNAME = "marin-community--ar5iv-no-problem-markdown"
-INDEX_FORMAT = "phase34-hf-math-sqlite-v2"
-IMPORTER_VERSION = "2026-07-15"
+INDEX_FORMAT = "phase34-hf-math-sqlite-v3"
+IMPORTER_VERSION = "2026-07-27"
 VERSION_RE = re.compile(r"v\d+$", re.IGNORECASE)
 AR5IV_SUFFIX_RE = re.compile(r"(?:\.html)?$")
+TEXT_SOURCE_EXTENSIONS = {".tex", ".txt", ".bib", ".bbl", ".sty"}
+INDEXABLE_TEXT_SOURCE_EXTENSIONS = {".tex", ".txt"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         help=f"destination for derived SQLite index (default: {DEFAULT_INDEX_DIR})",
     )
     parser.add_argument(
-        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts", "optimize"),
+        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts", "staged-text", "optimize"),
         help="stage to prepare; all runs metadata, theorems, then fulltext and its final FTS rebuild",
     )
     parser.add_argument(
@@ -73,6 +75,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--force", action="store_true",
         help="rebuild a completed metadata/theorems stage; fulltext remains shard-resumable",
+    )
+    parser.add_argument(
+        "--staged-text-manifest", type=Path,
+        help=("provenance manifest produced by paper-review source staging; required for "
+              "--stage staged-text and imports only RETAINED_FOR_IMPORT entries"),
     )
     return parser.parse_args()
 
@@ -84,6 +91,7 @@ def connect(index_dir: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA temp_store=FILE")
     conn.execute("PRAGMA cache_size=-131072")  # bounded ~128 MiB page cache
+    conn.execute("PRAGMA busy_timeout=60000")  # offline import waits rather than racing a reader/checkpointer
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -105,6 +113,11 @@ def connect(index_dir: Path) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS processed_shards (
           shard TEXT PRIMARY KEY, source_bytes INTEGER NOT NULL, completed_at TEXT NOT NULL,
           matched_records INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS staged_text_imports (
+          source_key TEXT PRIMARY KEY, manifest_sha256 TEXT NOT NULL, arxiv_id TEXT NOT NULL,
+          paper_id TEXT NOT NULL, canonical_source_url TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+          source_files_json TEXT NOT NULL, imported_at TEXT NOT NULL
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS theorem_fts USING fts5(
           theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body,
@@ -376,6 +389,167 @@ def prepare_fulltext(conn: sqlite3.Connection, marin_dir: Path, limit: int) -> N
         rebuild_fulltext_fts(conn)
 
 
+def normalized_staged_text(text: str) -> str:
+    """Keep source prose searchable without pretending TeX is a rendered publication."""
+    without_comments = re.sub(r"(?<!\\)%(?:[^\n]*)", "", text)
+    return re.sub(r"\n{3,}", "\n\n", without_comments).strip()
+
+
+def staged_title(text: str, fallback: str) -> str:
+    match = re.search(r"\\title\s*\{(.{1,1000}?)\}", text, flags=re.DOTALL)
+    if not match:
+        return fallback
+    candidate = match.group(1)
+    candidate = re.sub(r"\\[A-Za-z]+\*?(?:\[[^]]*\])?", " ", candidate)
+    candidate = candidate.replace("{", " ").replace("}", " ")
+    candidate = re.sub(r"\s+", " ", candidate).strip()
+    return candidate[:500] or fallback
+
+
+def staged_source_url_to_abs(url: str, arxiv_id: str) -> str:
+    expected = f"https://export.arxiv.org/e-print/{arxiv_id}"
+    if url != expected:
+        raise SystemExit(f"staged source has unexpected canonical URL for {arxiv_id}: {url}")
+    return f"https://arxiv.org/abs/{arxiv_id}"
+
+
+def manifest_sha256(path: Path) -> str:
+    return sha256_file(path)
+
+
+def resolve_staged_paper(conn: sqlite3.Connection, arxiv_id: str, title: str) -> tuple[str, str, str]:
+    rows = conn.execute(
+        """SELECT paper_id, title, primary_category
+             FROM papers
+            WHERE lower(paper_id) = ? OR lower(paper_id) GLOB ?
+            ORDER BY length(paper_id) ASC""",
+        (arxiv_id.lower(), f"{arxiv_id.lower()}v*"),
+    ).fetchall()
+    if rows:
+        paper_id, metadata_title, category = rows[0]
+        return paper_id, metadata_title or title, category or "math.NT"
+    return arxiv_id, title, "math.NT"
+
+
+def read_retained_staged_sources(manifest_path: Path) -> list[dict]:
+    manifest_path = manifest_path.expanduser().resolve()
+    if not manifest_path.is_file():
+        raise SystemExit(f"staged text manifest is missing: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"staged text manifest is invalid JSON: {manifest_path}") from exc
+    if manifest.get("purpose", "").find("provenance-recorded text-source staging") < 0:
+        raise SystemExit("staged text manifest does not declare the expected provenance purpose")
+    base = manifest_path.parent.resolve()
+    retained: list[dict] = []
+    for subject in manifest.get("subjects", []):
+        if not isinstance(subject, dict):
+            raise SystemExit("staged text manifest has an invalid subject entry")
+        for source in subject.get("sources", []):
+            if not isinstance(source, dict) or source.get("status") != "RETAINED_FOR_IMPORT":
+                continue
+            arxiv_id = source.get("arxiv_id")
+            canonical_url = source.get("canonical_source_url")
+            text_files = source.get("text_files")
+            hashes = source.get("text_sha256")
+            if not isinstance(arxiv_id, str) or not arxiv_id or ".." in arxiv_id:
+                raise SystemExit("retained staged source has an invalid arXiv ID")
+            if not isinstance(canonical_url, str) or not isinstance(text_files, list) or not isinstance(hashes, dict):
+                raise SystemExit(f"retained staged source {arxiv_id} lacks provenance fields")
+            contents: list[str] = []
+            verified_files: list[str] = []
+            for raw_path in text_files:
+                if not isinstance(raw_path, str):
+                    raise SystemExit(f"retained staged source {arxiv_id} has a non-string source path")
+                relative = Path(raw_path)
+                candidate = (base / relative).resolve()
+                if candidate == base or base not in candidate.parents or candidate.suffix.lower() not in TEXT_SOURCE_EXTENSIONS:
+                    raise SystemExit(f"retained staged source {arxiv_id} has an unsafe source path: {raw_path}")
+                expected_hash = hashes.get(raw_path)
+                if not isinstance(expected_hash, str) or sha256_file(candidate) != expected_hash:
+                    raise SystemExit(f"retained staged source {arxiv_id} failed SHA-256 validation: {raw_path}")
+                verified_files.append(raw_path)
+                if candidate.suffix.lower() in INDEXABLE_TEXT_SOURCE_EXTENSIONS:
+                    contents.append(candidate.read_text(encoding="utf-8", errors="replace"))
+            text = normalized_staged_text("\n\n".join(contents))
+            if not text:
+                raise SystemExit(f"retained staged source {arxiv_id} has no indexable text")
+            retained.append({
+                "arxiv_id": arxiv_id,
+                "canonical_source_url": canonical_url,
+                "paper_ids": subject.get("paper_ids", []),
+                "reason": source.get("reason", ""),
+                "verified_files": verified_files,
+                "text": text,
+                "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            })
+    if not retained:
+        raise SystemExit("staged text manifest has no RETAINED_FOR_IMPORT sources")
+    return retained
+
+
+def prepare_staged_text(conn: sqlite3.Connection, manifest_path: Path) -> None:
+    """Import reviewed source text only after manifest and file hashes validate."""
+    if state(conn, "metadata_complete") != "true" or state(conn, "fulltext_complete") != "true":
+        raise SystemExit("staged-text import requires completed immutable metadata and full-text data")
+    manifest_path = manifest_path.expanduser().resolve()
+    source_manifest_sha = manifest_sha256(manifest_path)
+    sources = read_retained_staged_sources(manifest_path)
+    imported = 0
+    already_present = 0
+    for source in sources:
+        arxiv_id = source["arxiv_id"]
+        abs_url = staged_source_url_to_abs(source["canonical_source_url"], arxiv_id)
+        title = staged_title(source["text"], arxiv_id)
+        paper_id, title, category = resolve_staged_paper(conn, arxiv_id, title)
+        source_key = f"paper-review-stage:{source_manifest_sha}:{arxiv_id}"
+        existing = conn.execute(
+            "SELECT source_key, text_sha256 FROM fulltext WHERE paper_id = ?", (paper_id,)
+        ).fetchone()
+        if existing:
+            if existing == (source_key, source["text_sha256"]):
+                already_present += 1
+                continue
+            raise SystemExit(
+                f"staged text would replace existing full text for {paper_id}; refusing mutation"
+            )
+        conn.execute(
+            """INSERT INTO papers(paper_id, title, authors, link, last_updated, summary, journal_ref,
+                                  primary_category, categories, citations, source, license)
+               VALUES (?, ?, '', ?, '', ?, '', ?, ?, 0, 'paper-review-staged-text', '')
+               ON CONFLICT(paper_id) DO UPDATE SET
+                 title = CASE WHEN papers.title = '' THEN excluded.title ELSE papers.title END,
+                 link = CASE WHEN papers.link = '' THEN excluded.link ELSE papers.link END,
+                 primary_category = CASE WHEN papers.primary_category = '' THEN excluded.primary_category ELSE papers.primary_category END""",
+            (paper_id, title, abs_url, source["reason"], category, category),
+        )
+        conn.execute(
+            """INSERT INTO fulltext(paper_id, source_key, text, text_sha256, char_count,
+                                     primary_category, source_scope)
+               VALUES (?, ?, ?, ?, ?, ?, 'paper-review-staged-provenance')""",
+            (paper_id, source_key, source["text"], source["text_sha256"], len(source["text"]), category),
+        )
+        conn.execute(
+            """INSERT INTO staged_text_imports(source_key, manifest_sha256, arxiv_id, paper_id,
+                                                canonical_source_url, content_sha256, source_files_json, imported_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (source_key, source_manifest_sha, arxiv_id, paper_id, source["canonical_source_url"],
+             source["text_sha256"], json.dumps(source["verified_files"], sort_keys=True)),
+        )
+        imported += 1
+    needs_rebuild = imported > 0 or state(conn, "fulltext_fts_complete") != "true"
+    set_state(conn, "staged_text_last_manifest_sha256", source_manifest_sha)
+    set_state(conn, "staged_text_last_imported", str(imported))
+    set_state(conn, "staged_text_last_already_present", str(already_present))
+    if needs_rebuild:
+        set_state(conn, "fulltext_fts_complete", "false")
+    conn.commit()
+    if needs_rebuild:
+        rebuild_fulltext_fts(conn)
+    print(f"staged-text: imported={imported} already_present={already_present} manifest={manifest_path}")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -454,14 +628,19 @@ def input_provenance(conn: sqlite3.Connection, args: argparse.Namespace) -> dict
 
 
 def write_manifest(conn: sqlite3.Connection, index_dir: Path, args: argparse.Namespace) -> None:
+    manifest_started = time.perf_counter()
     counts = {
         "papers": conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0],
         "theorems": conn.execute("SELECT COUNT(*) FROM theorems").fetchone()[0],
         "fulltext_documents": conn.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0],
         "processed_fulltext_shards": conn.execute("SELECT COUNT(*) FROM processed_shards").fetchone()[0],
         "fulltext_fts_documents": conn.execute("SELECT COUNT(*) FROM fulltext_fts").fetchone()[0],
+        "staged_text_imports": conn.execute("SELECT COUNT(*) FROM staged_text_imports").fetchone()[0],
     }
+    provenance_started = time.perf_counter()
     provenance = input_provenance(conn, args)
+    print("timing: stage=manifest_provenance elapsed_seconds="
+          f"{time.perf_counter() - provenance_started:.3f}")
     set_state(conn, "index_format", INDEX_FORMAT)
     conn.commit()
     states = dict(conn.execute("SELECT key, value FROM metadata"))
@@ -491,6 +670,8 @@ def write_manifest(conn: sqlite3.Connection, index_dir: Path, args: argparse.Nam
         },
     }
     (index_dir / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print("timing: stage=manifest elapsed_seconds="
+          f"{time.perf_counter() - manifest_started:.3f}")
 
 
 def title_from_text(text: str) -> str:
@@ -503,6 +684,7 @@ def title_from_text(text: str) -> str:
 
 
 def main() -> int:
+    total_started = time.perf_counter()
     args = parse_args()
     source_dir = args.corpus_dir.expanduser().resolve()
     index_dir = args.index_dir.expanduser().resolve()
@@ -525,12 +707,20 @@ def main() -> int:
                     f"fulltext-fts requires all Marin shards first ({done_shards}/{total_shards} complete)"
                 )
             rebuild_fulltext_fts(conn)
+        if args.stage == "staged-text":
+            if args.staged_text_manifest is None:
+                raise SystemExit("--stage staged-text requires --staged-text-manifest")
+            prepare_staged_text(conn, args.staged_text_manifest)
         if args.stage == "optimize":
+            optimize_started = time.perf_counter()
             optimize_fts(conn)
+            print("timing: stage=fts_optimize elapsed_seconds="
+                  f"{time.perf_counter() - optimize_started:.3f}")
         write_manifest(conn, index_dir, args)
     finally:
         conn.close()
     print(f"index manifest: {index_dir / 'MANIFEST.json'}")
+    print(f"timing: stage=total elapsed_seconds={time.perf_counter() - total_started:.3f}")
     return 0
 
 

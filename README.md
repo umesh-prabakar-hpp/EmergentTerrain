@@ -250,6 +250,29 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 
 **Literature-timeout recovery** — a Phase 35 timeout is not treated as a no-match. With `app.research.literature.timeout-recovery.enabled=true`, the draft is held before publication and an exact semantic request plus a re-narration snapshot is durably journaled under `simulation-history/research-literature-recovery/`. The asynchronous worker uses the configured OpenAlex client only to record possible open-access backfill targets; `EvidenceCoreBackfill` consumes completed discovery records on its next offline run (override its journal path with `LITERATURE_RECOVERY_DIR`). Those candidates are non-evidentiary and cannot issue an `HF…` key, be cited, or alter a label. After an operator completes the normal offline core/index refresh, the changed index fingerprint releases the held draft through the normal local `search_literature → read_reference → Related Work` path. Do not mutate the SQLite index from this worker.
 
+**Index-maintenance timing** — `scripts/prepare-hf-math-index.py` emits machine-readable elapsed
+seconds for `fts_optimize`, `manifest_provenance`, `manifest`, and the total run. Retain those
+lines when validating a timeout recovery; FTS maintenance remains a single-writer offline task.
+
+**Paper-review literature backfill** — every paper-review pass now prepares a discovery manifest
+for the single app run that produced that review batch; no `--prepare-literature-backfill` switch
+is required. It pairs a logged retrieval phrase with the paper's locked mathematical subject,
+obtains text-only candidate sources, and relevance-screens them into a temporary import staging
+area. A multi-run or seven-day sweep is a separately requested one-time backfill. This is not a
+web evidence fallback: until an ordinary offline import/rebuild completes, staged sources are
+invisible to `search_literature`, cannot receive `HF...` keys, and cannot satisfy citation or
+publication-label gates. See the Phase 35 README for provenance and retention rules.
+
+Import retained entries offline with:
+
+```bash
+python3 scripts/prepare-hf-math-index.py --stage staged-text \
+  --staged-text-manifest /path/to/provenance-manifest.json
+```
+
+The stage validates source hashes, rejects non-retained entries and source replacement, journals
+source provenance in the index, and rebuilds FTS before normal local retrieval resumes.
+
 **Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
 `HF...` evidence but the professor omitted every `read_reference` call,
 `app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled` (currently

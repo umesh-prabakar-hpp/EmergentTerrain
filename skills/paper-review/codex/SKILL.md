@@ -65,6 +65,63 @@ finding. Do not retain raw search hits, unread keys, failed reads, snippets, or 
 asserted relevance alone. The generator scans both the current `research/` room and archived
 artifacts, and writes a `None yet` row when no paper satisfies the full evidence chain.
 
+## Default literature-backfill discovery
+
+Run this preparation on every review pass; it is part of the default workflow and does **not**
+require a `--prepare-literature-backfill` switch. It is a discovery and offline-import preparation
+lane, not a new evidence tool.
+
+1. Inspect only the application run that produced the review batch. Extract each Phase 35
+   literature plan, its virtual-thread paper ID, and its logged query terms. Preserve that raw
+   pairing in a provenance manifest. A multi-run or seven-day sweep is an explicit one-time
+   backfill activity, never the recurring review default.
+2. Infer the mathematical subject from the paper's locked registration, title, and trace. Search
+   the web with the logged terms *paired with that subject*. For example, a weak logged pair may
+   be useful when paired with `maximal prime gaps` or `Dirichlet divisor problem`; never search a
+   narration fragment such as `held out` or `composite inequality` by itself.
+3. Run the same subject query against the local UW theorem index and record whether its title
+   candidates have indexed full text. This is a diagnostic only; the old theorem corpus's lack of
+   a matching full-text companion must not be recorded as a literature absence.
+4. Download source text only (TeX, plain text, BibTeX, and styles needed to read TeX) for each
+   web candidate into an idempotent temporary staging directory. Do not download PDFs for this
+   lane. Record canonical URL, query, paper-ID mapping, timestamp, size, and SHA-256.
+5. Perform a relevance screen after download. Rank retained sources against the paper's actual
+   mathematical subject and state why each source is relevant. Record rejected or low-relevance
+   downloads in the same manifest, but do not offer them for import.
+6. Make only retained sources available to the offline importer with their provenance manifest.
+   Do not mutate the live index during review, expose a downloaded source through
+   `search_literature`, issue an `HF...` key, cite it in a paper, or upgrade a publication label.
+   Those actions remain possible only after a normal offline import and the ordinary indexed
+   `search_literature → read_reference → Related Work` chain.
+
+The staging manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`, and
+`REJECTED_LOW_RELEVANCE`. A network, source, or index failure is `UNRESOLVED_RETRIEVAL`, never
+evidence that the literature is absent. Reuse a matching SHA-256 source rather than downloading it
+again on the next 15-minute pass.
+
+## End-of-review offline-import handoff
+
+When the review created one or more `RETAINED_FOR_IMPORT` entries, end the review response with
+this executable handoff, replacing `<manifest>` with the emitted staging manifest path. Do not run
+it while an index writer is active; it is an operator-owned offline step.
+
+```bash
+python3 scripts/prepare-hf-math-index.py --stage staged-text \
+  --corpus-dir /home/fedorauser/.emergentterrain/corpus-hf-math \
+  --index-dir /home/fedorauser/.emergentterrain/indexes/math-literature \
+  --staged-text-manifest <manifest>
+
+stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature/literature.db
+```
+
+After the next normal paper run, show the verification command too; source grounding is complete
+only when the resulting artifact records the normal issued-key/read/citation chain.
+
+```bash
+jq '.gate | {sourceGroundedRelatedWork, workflowStatus, publicationLabel, citedReadKeys}' \
+  research/<room>/artifacts/<paper-id>/evidence/literature-audit.json
+```
+
 ## Log Auto-Discovery
 
 Unless `--no-logs` is set, find logs before reviewing papers.

@@ -382,6 +382,101 @@ still requires local relevance-safe evidence, a successful read of the issued ke
 Related Work citation. An unavailable OpenAlex client or exhausted discovery attempts leaves an
 auditable pending job; it never degrades a timeout into “no literature exists.”
 
+### Downloaded-text complement for an index that has not yet been rebuilt
+
+The bounded local index search is still the only evidence retrieval path. Its result can be
+complemented by a **review-time source-staging lane**, not by a request-time web fallback:
+
+```text
+bounded indexed search
+  → EVIDENCE / safe no-match / timeout (unchanged semantics)
+  → asynchronous review discovery using the logged query plus the paper's math subject
+  → text-only download + provenance + relevance screen
+  → retained staging corpus (not searchable by the app, not evidence)
+  → later offline import/rebuild
+  → normal indexed search → read_reference → Related Work
+```
+
+The discovery query must retain the original logged pair for audit but may add the locked
+mathematical subject. That is deliberate recall repair: `prime gap` plus `Cramér`, for example,
+is useful even when the model also emitted a weak narration pair. A bare weak phrase (`held out`,
+`composite inequality`, numeric fragments, or a cross-domain marker) is never a discovery query.
+
+The staging manifest records paper ID(s), raw pair, normalized subject, canonical URL, retrieval
+time, content SHA-256, source format, and one of `DISCOVERED`, `RETAINED_FOR_IMPORT`,
+`REJECTED_LOW_RELEVANCE`, or `UNRESOLVED_RETRIEVAL`. Text-only means TeX/plain-text/BibTeX and
+necessary TeX styles; PDFs are not part of this path. Relevance is screened after download and
+only retained material is handed to the importer. Rejected candidates remain auditable but cannot
+pollute the future corpus.
+
+Until the offline index is rebuilt, staging material is intentionally invisible to
+`search_literature`, cannot receive an `HF...` key, cannot be read by `read_reference`, cannot be
+cited as source-grounded Related Work, and cannot affect a publication label. A completed local
+no-match remains a completed local no-match; a timeout remains unresolved retrieval. This prevents
+the convenience lane from turning web metadata or unchecked source text into evidence.
+
+The paper-review skill performs this staging preparation by default on each pass without a
+`--prepare-literature-backfill` option. It must deduplicate by canonical source plus SHA-256 so the
+15-minute cadence does not repeatedly download the same source.
+
+The `prepare-hf-math-index.py --stage staged-text --staged-text-manifest <manifest>` importer is
+the only supported handoff for retained staging entries. It validates every listed SHA-256 before
+reading text, accepts only `RETAINED_FOR_IMPORT`, preserves canonical source URL and source-file
+provenance in `staged_text_imports`, assigns the distinct
+`paper-review-staged-provenance` source scope, refuses to overwrite existing full text, and
+rebuilds `fulltext_fts` offline. It must not be pointed at a staging directory as if it were a
+Marin shard. The resulting fingerprint change is real index maintenance; only after it can the
+ordinary local retrieval/read/citation chain consider the imported source.
+
+### P43 operator runbook — active 2026-07-27 validation
+
+P-b72c-77627943 is the first real durable timeout-recovery case. Its journal is
+`simulation-history/research-literature-recovery/P-b72c-77627943.json`; it was initially
+`AWAITING_INDEX_BACKFILL` and its one OpenAlex discovery returned zero candidates. After the
+operator's genuine `--stage optimize` run changed the index fingerprint, the recovery worker
+logged `index changed; re-dispatched paperId=P-b72c-77627943 for normal local retrieval` at
+2026-07-27 07:44 local time. The subsequent retrieval still timed out, so it remains an
+unresolved retrieval state, not a finding of literature absence or novelty.
+
+1. **Preflight — confirmed.** Confirm the application is stopped with
+   `./scripts/status-related-apps.sh`. Do not run index maintenance while the app is serving paper
+   work.
+2. **Baseline — confirmed.** Read the P43 journal and record the current local-index fingerprint:
+
+   ```bash
+   sed -n '1,80p' simulation-history/research-literature-recovery/P-b72c-77627943.json
+   stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature/literature.db
+   ```
+
+   Preserve the journal; do not alter it to force a retry.
+3. **Offline FTS maintenance — confirmed.** Run a genuine, post-run refresh against the completed
+   immutable index:
+
+   ```bash
+   python3 scripts/prepare-hf-math-index.py --stage optimize
+   ```
+
+   This requires completed theorem and full-text FTS stages. It must perform real SQLite FTS
+   maintenance; do not use a timestamp-only file change to simulate a refresh. P43 has no OpenAlex
+   candidate to import, so this step validates the durable resume path but cannot itself supply a
+   new source. Retain the script's `timing: stage=fts_optimize`,
+   `timing: stage=manifest_provenance`, `timing: stage=manifest`, and
+   `timing: stage=total` lines for the recovery-latency record.
+4. **Verify and resume.** Record the database fingerprint again. Only a changed fingerprint allows
+   the restarted app's recovery worker to redispatch P43; wait for the log entry
+   `index changed; re-dispatched paperId=P-b72c-77627943 for normal local retrieval` and then for
+   its terminal recovery entry. The resumed path remains
+   `search_literature → issued local HF key → read_reference → Related Work`.
+5. **Evaluate source grounding.** Inspect the final artifact's
+   `evidence/literature-audit.json` and final paper. Count P43 as source-grounded only if the same
+   local `HF...` key was issued by `search_literature`, returned by `read_reference`, and cited in
+   `## Related Work`. A resumed draft can correctly remain `NEEDS_REVISION` or `REJECTED`.
+
+Measure timeout-recovery latency from the P43 journal `createdAt` to redispatch/completion log
+time; discovery success as discovery jobs with one or more candidates; and resumed source-grounded
+related-work rate as resumed papers with the complete issued-key/read/citation chain divided by
+all resumed papers.
+
 ### Context-sensitive `composite` cross-domain marker
 
 The cross-domain hypothesis gate previously treated a bare `composite` as materials/physics
