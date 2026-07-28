@@ -121,7 +121,7 @@ public class RoomStateOrchestrator {
         cached.dirty = false;
         cached.lastFlushAt = now;
         cached.changesSinceFlush = 0;
-        log.info("roomStateFlush roomId={} updatedAt={} stateHash={}",
+        log.debug("roomStateFlush roomId={} updatedAt={} stateHash={}",
                 room.getId(), now, state.getStateHash());
         return true;
     }
