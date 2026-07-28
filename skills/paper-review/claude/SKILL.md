@@ -80,8 +80,13 @@ review passes rather than downloading it again.
 ## End-of-review offline-import handoff
 
 When the review created one or more `RETAINED_FOR_IMPORT` entries, end the review response with
-this executable handoff, replacing `<manifest>` with the emitted staging manifest path. Do not run
-it while an index writer is active; it is an operator-owned offline step.
+an explicit **Staged literature** summary before this executable handoff. List every retained
+source by title and stable identifier, the paper ID(s) it was matched to, and the emitted manifest
+path. State plainly that it is staged only: it is not in the live index, has no `HF...` key, is not
+paper evidence, and cannot change a publication label until a later normal run completes the
+indexed `search_literature → read_reference → Related Work` chain. Then give the operator these
+steps, replacing `<manifest>` with the emitted staging manifest path. Do not run the import while
+an index writer is active; it is an operator-owned offline step.
 
 ```bash
 python3 scripts/prepare-hf-math-index.py --stage staged-text \
@@ -99,6 +104,11 @@ only when the resulting artifact records the normal issued-key/read/citation cha
 jq '.gate | {sourceGroundedRelatedWork, workflowStatus, publicationLabel, citedReadKeys}' \
   research/<room>/artifacts/<paper-id>/evidence/literature-audit.json
 ```
+
+If no source was retained, end the review response with: `No relevant web-discovered source was
+staged for offline import in this review.` Do not turn that result into a claim that the literature
+is absent. A source or network failure must instead name the affected subject and say
+`UNRESOLVED_RETRIEVAL`.
 
 ## Log Discovery
 
