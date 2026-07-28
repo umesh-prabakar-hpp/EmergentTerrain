@@ -463,6 +463,11 @@ public class UniversityService {
             "${app.research.predicate-study-preregistration-gate.enabled:false}")
     private boolean predicateStudyPreRegistrationGateEnabled;
 
+    /** Prose cannot deny a definition or locked instrument that the selected evidence records. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.trace-definition-availability-gate.enabled:false}")
+    private boolean traceDefinitionAvailabilityGateEnabled;
+
     /** A max-prime-gap fit must retain its pre-registered scale-separated holdouts unchanged. */
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.max-prime-gap-multiscale-preregistration-gate.enabled:false}")
@@ -1342,6 +1347,17 @@ public class UniversityService {
             log.warn("predicate-study pre-registration check failed paperId={} "
                             + "(selected trace lacks one or more registered scans)", draft.paperId());
         }
+        List<String> traceDefinitionAvailabilityFailures = traceDefinitionAvailabilityGateEnabled
+                ? TraceDefinitionAvailabilityValidator.validate(
+                        hypothesis + "\n" + findings + "\n" + conclusion + "\n"
+                                + joinDiscussionAndRelatedWork(narration.discussion(), narration.relatedWork()),
+                        draft.preRegistration(), narration.toolCallTrace())
+                : List.of();
+        boolean traceDefinitionAvailabilityUncovered = !traceDefinitionAvailabilityFailures.isEmpty();
+        if (traceDefinitionAvailabilityUncovered) {
+            log.warn("trace-definition-availability check failed paperId={} reasons={}",
+                    draft.paperId(), traceDefinitionAvailabilityFailures);
+        }
         boolean maxPrimeGapTopic = "conjecture/max_prime_gap".equals(draft.topicName());
         boolean maxPrimeGapMultiScalePreRegistrationUncovered = maxPrimeGapMultiScalePreRegistrationGateEnabled
                 && maxPrimeGapTopic && (!MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
@@ -1877,6 +1893,9 @@ public class UniversityService {
         } else if (constantLimitPreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (traceDefinitionAvailabilityUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (predicateStudyPreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2129,6 +2148,11 @@ public class UniversityService {
                     ? "publish:constant_limit_preregistration_uncovered→needs_revision"
                     : persistedCallPath + " → publish:constant_limit_preregistration_uncovered→needs_revision";
         }
+        if (traceDefinitionAvailabilityUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:trace_definition_availability_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:trace_definition_availability_uncovered→needs_revision";
+        }
         if (maxPrimeGapMultiScalePreRegistrationUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:max_prime_gap_multiscale_preregistration_uncovered→needs_revision"
@@ -2327,6 +2351,9 @@ public class UniversityService {
         // audit record survives the JVM. Null when the professor stage didn't
         // run or ran without tool calls (e.g. JSON-path / Ollama fallback).
         paper.setToolCallTrace(serialiseToolCallTrace(narration.toolCallTrace()));
+        paper.setProtocolFingerprint(
+                com.emergentterrain.research.question.QuestionServedProtocolCloneGuard
+                        .fingerprint(draft.preRegistration()));
         // Phase 7 F7.2 — persist the multi-reviewer panel outcome. The full
         // PanelOutcome is JSON-serialised onto a TEXT column; the composite
         // agreement score is cached into its own DOUBLE column so DISPUTED

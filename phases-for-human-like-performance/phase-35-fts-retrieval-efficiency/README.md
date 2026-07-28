@@ -515,6 +515,21 @@ recovered or ordinary draft can be treated as a human-quality paper candidate:
    preregistered independent grids/holdouts with unchanged registered parameters. A source-backed
    related-work chain does not replace these computational independence checks.
 
+**Implemented 2026-07-27.** `ResearchPaper` now persists the normalized locked-protocol
+fingerprint and allocation compares that value with recent papers in the same topic before
+reserving an ID or invoking narration. `ConjecturePreRegistration` supplies a deterministic
+declared-only Maven reproduction command; the application and artifact writer never execute it.
+The planner retains validated claim-subject anchors even when its document-count estimate has not
+seen one, while the title/evidence gate remains responsible for issuing any `HF...` key. For a
+tight affine binding, the automatic policy now appends a changed-intercept `REFUTED` probe on the
+same deterministic independent grid as its unchanged-relation hold, and publication rejects a
+trace missing either confirmation. The enabled trace-definition-availability validator routes a
+paper to `NEEDS_REVISION` only if prose says that a formula, window construction, or registered
+instrument is unavailable while the selected trace or locked registration contains it. New
+constant-limit registrations are `v2`: they lock a primary 5,000×5 and width-changed 10,000×5
+`verify_constant` scale ladder, and either missing completion routes to `NEEDS_REVISION`. Legacy
+`v1` registrations remain readable under their original single-ladder contract.
+
 ## Acceptance suite
 
 Before enabling the changes live:

@@ -68,10 +68,10 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             return planValidatedProposal(claim, proposal);
         }
         List<String> extractedAnchors = extractAnchors(claim);
-        List<String> anchors = (documentCounts.isEmpty() ? extractedAnchors.stream()
-                : extractedAnchors.stream().filter(documentCounts::containsKey))
-                .limit(MAX_RARE_ANCHORS)
-                .toList();
+        // Preserve the claim's mathematical subject even when the index vocabulary estimate
+        // lacks one word: filtering first reduced "twin prime density" to "twin divisor".
+        // Title-anchor validation still owns evidence issuance.
+        List<String> anchors = extractedAnchors.stream().limit(MAX_RARE_ANCHORS).toList();
         if (anchors.size() < 2) return LiteratureQueryPlan.empty();
         boolean requireTitleAnchor = anchors.size() >= 3;
 

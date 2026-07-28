@@ -2371,6 +2371,45 @@ class PublishPaperTest {
     }
 
     @Test
+    void singleConstantLadderCannotReplaceTheLockedSecondAllocation() {
+        PreRegistration registration = ConstantLimitPreRegistration.from(
+                new com.emergentterrain.research.conjecture.Conjecture(
+                        "MATHEMATICS", "cramer_gap_ratio", "_constant_", 0.0, 0.36),
+                com.emergentterrain.research.conjecture.ScalarOpenness
+                        .measurementFrame("cramer_gap_ratio"));
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_constant",
+                        "{\"lhs\":\"cramer_gap_ratio\",\"scale_ladder\":true,"
+                                + "\"window_size\":5000,\"num_windows\":5}",
+                        "verify_constant scale-ladder: cramer_gap_ratio measured across 5 scales.", 0));
+
+        service.publishPaper(draftForTopicWithPreRegistration("MATHEMATICS", "conjecture/cramer_gap_ratio",
+                        ResultClassification.SUPPORTED, 0.5, registration),
+                narration(0.8).withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:constant_limit_preregistration_uncovered→needs_revision");
+    }
+
+    @Test
+    void traceDefinitionAvailabilityClaimRoutesToNeedsRevision() {
+        ReflectionTestUtils.setField(service, "traceDefinitionAvailabilityGateEnabled", true);
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"window_start\":1000000,\"window_size\":5000,\"num_windows\":10}",
+                        "HELD", 0));
+
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5),
+                new NarrationResult("Finite result.", "The window construction is not available.",
+                        "Finite conclusion.", null, null, 0.8, List.of()).withToolCallTrace(trace));
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:trace_definition_availability_uncovered→needs_revision");
+    }
+
+    @Test
     void suppressedNarrationIsRecordedForTheEndOfRunSummary() {
         PaperDraft draft = draftForTopic("MATHEMATICS", "conjecture/omega_Omega_gap",
                 ResultClassification.SUPPORTED, 0.5);
@@ -2405,7 +2444,8 @@ class PublishPaperTest {
         ReflectionTestUtils.setField(service, "predicateStudyPreRegistrationGateEnabled", true);
         PreRegistration registration = PredicateStudyPreRegistration.from(new DynamicProblem(
                 "d-1", "abundant finite density", 350, 850,
-                "isAbundant", "fraction_satisfying", 0.22, "Finite comparison."));
+                "isAbundant", "fraction_satisfying", 0.22, "Finite comparison.",
+                DynamicProblem.ExpectedRelation.ABOVE_BASELINE));
         service.publishPaper(draftWithTemplate(ResultClassification.SUPPORTED,
                         "Finite comparison.", "Finite conclusion.", 0.5, registration),
                 new NarrationResult("Finite comparison.", "Exact finite result.", "Finite conclusion.",

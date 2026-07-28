@@ -1093,6 +1093,29 @@ public class GenericOpenAICompatPool implements LlmPool {
                                                 + "replication fn={} call_id={} result_len={}",
                                         cfg.providerKey(), call.functionName(), replicationCallId,
                                         replicationResult.length());
+                                // The hold alone establishes transport but not whether the independent
+                                // grid has a nearby boundary. Reuse the verifier-selected intercept as
+                                // an explicitly labelled sensitivity probe on that locked grid.
+                                String independentProbeArgs = withForcedIntercept(replicationArgs.get(), call.intercept());
+                                String independentProbeResult;
+                                try {
+                                    independentProbeResult = executor.apply(mapper.writeValueAsString(
+                                            mapper.createObjectNode()
+                                                    .put("name", call.functionName())
+                                                    .set("arguments", mapper.readTree(independentProbeArgs))));
+                                } catch (Exception ex) {
+                                    if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                                    independentProbeResult = "Tool error: " + ex.getMessage();
+                                }
+                                String independentProbeCallId = "call_" + (trace.size() + 1);
+                                trace.add(new com.emergentterrain.llm.ToolInvocation(
+                                        call.functionName(), independentProbeArgs, independentProbeResult,
+                                        round, independentProbeCallId));
+                                messages.addObject().put("role", "user").put("content",
+                                        "An evidence-completion policy executed the independent-grid "
+                                                + "binding sensitivity probe [" + independentProbeCallId + "]: "
+                                                + independentProbeResult
+                                                + "\nThis probe is sensitivity evidence, not a replacement hypothesis.");
                             } else {
                                 log.warn("GenericOpenAICompatPool({}) tools: could not derive deterministic "
                                                 + "independent-grid replication from binding call arguments",

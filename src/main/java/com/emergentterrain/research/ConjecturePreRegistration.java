@@ -23,7 +23,7 @@ public final class ConjecturePreRegistration {
                 "Held-out verifier windows, separate from the miner's confirmed configurations.",
                 "Keep the registered lhs, rhs term(s), coefficients, and intercept fixed for the confirmatory verifier call.",
                 "Any changed coefficient, intercept, or window selection used to locate a binding regime is a sensitivity analysis and cannot replace the registered test.",
-                "");
+                "mvn test -Dtest=ConjecturePreRegistrationTest");
         return new PreRegistration(
                 "Confirm the exact registered conjecture " + relation + ".",
                 "At least one held-out verify_conjecture call using the exact registered relation is recorded before any sensitivity analysis.",

@@ -38,9 +38,19 @@ class ConjectureInvestigationProtocolTest {
         assertThat(ConstantLimitPreRegistration.isLocked(allocation.registration())).isTrue();
         assertThat(ConstantLimitPreRegistration.exactTestDirective(allocation.registration()))
                 .contains("verify_constant").contains("lhs=\"cramer_gap_ratio\"")
-                .contains("scale_ladder=true").doesNotContain("_constant_");
+                .contains("scale_ladder=true").contains("window_size=5000").contains("window_size=10000")
+                .doesNotContain("_constant_");
         assertThat(ConstantLimitPreRegistration.hasExactEvidence(allocation.registration(), List.of(
-                new ToolInvocation("verify_constant", "{\"lhs\":\"cramer_gap_ratio\",\"scale_ladder\":true}",
+                new ToolInvocation("verify_constant", "{\"lhs\":\"cramer_gap_ratio\",\"scale_ladder\":true,"
+                        + "\"window_size\":5000,\"num_windows\":5}",
+                        "verify_constant scale-ladder: cramer_gap_ratio measured across 5 scales.", 0))))
+                .isFalse();
+        assertThat(ConstantLimitPreRegistration.hasExactEvidence(allocation.registration(), List.of(
+                new ToolInvocation("verify_constant", "{\"lhs\":\"cramer_gap_ratio\",\"scale_ladder\":true,"
+                        + "\"window_size\":5000,\"num_windows\":5}",
+                        "verify_constant scale-ladder: cramer_gap_ratio measured across 5 scales.", 0),
+                new ToolInvocation("verify_constant", "{\"lhs\":\"cramer_gap_ratio\",\"scale_ladder\":true,"
+                        + "\"window_size\":10000,\"num_windows\":5}",
                         "verify_constant scale-ladder: cramer_gap_ratio measured across 5 scales.", 0))))
                 .isTrue();
     }

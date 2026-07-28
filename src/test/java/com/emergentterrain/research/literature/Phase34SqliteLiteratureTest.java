@@ -318,6 +318,16 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35PreservesClaimSubjectWhenDocumentCountsMissOneAnchor() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "twin prime density related to divisor density", java.util.Map.of("twin", 10, "divisor", 20));
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .contains("\"twin prime\"", "\"prime density\"")
+                .doesNotContain("\"twin divisor\"");
+    }
+
+    @Test
     void phase35RejectsComparativeProseButRetainsTheAbundantNumberSubjectPair() {
         LiteratureQueryPlan generic = new DeterministicLiteratureQueryPlanner().plan(
                 "elevated relative local baseline remains below asymptotically like decreases across",

@@ -135,6 +135,18 @@ For a host-database smoke without an autonomous research batch, start with
 question, requires allocation to decline it before draft-ID creation, logs the result, and removes
 the temporary row.
 
+**Allocation and evidence hardening (2026-07-27)** — Persisted papers now retain their normalized
+locked-study fingerprint, so an identical same-topic future protocol is declined before ID allocation
+or narration; legacy rows remain eligible for the existing terminal content screen. The trusted affine
+pre-registration declares, but the server never runs, `mvn test -Dtest=ConjecturePreRegistrationTest`.
+Phase 35 preserves claim-subject anchors even when a document-count estimate omits one. A tight
+affine binding additionally needs an unchanged-relation independent-grid hold and a changed-intercept
+`REFUTED` sensitivity probe on that same locked grid; the probe is evidence, never a replacement hypothesis.
+Constant-limit studies now pre-register both a primary and width-changed confirmation ladder, and
+must execute both. The live trace-definition-availability gate routes a paper to revision if its
+prose says a formula, window construction, or registered instrument is unavailable while the selected
+trace or locked registration records it.
+
 Run `./scripts/run-phase35-artifact-smoke.sh` after rebuilding or changing the
 local literature index. It executes a fixed, real-index controlled paper artifact
 smoke test: a search-only trace must fail the publication label, while the same

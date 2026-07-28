@@ -34,5 +34,7 @@ class ConjecturePreRegistrationTest {
                 List.of(substitutedIntercept, registeredRelation))).isTrue();
         assertThat(ConjecturePreRegistration.exactTestDirective(registration))
                 .contains("c=-362.2958").contains("rhs2=\"max_divisor_count\"");
+        assertThat(registration.computationalStudyPlan().reproductionCommand())
+                .isEqualTo("mvn test -Dtest=ConjecturePreRegistrationTest");
     }
 }

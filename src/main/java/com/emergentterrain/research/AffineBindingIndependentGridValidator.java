@@ -31,7 +31,9 @@ public final class AffineBindingIndependentGridValidator {
                 continue;
             }
             tightDocumentedPair = true;
-            if (hasLockedIndependentHold(held, trace)) return false;
+            if (hasLockedIndependentHold(held, trace) && hasLockedIndependentSensitivityProbe(held, trace)) {
+                return false;
+            }
         }
         return tightDocumentedPair;
     }
@@ -55,13 +57,38 @@ public final class AffineBindingIndependentGridValidator {
         return false;
     }
 
+    /** The independent hold must be accompanied by a changed-intercept probe on that same grid. */
+    private static boolean hasLockedIndependentSensitivityProbe(HeldBound held, List<ToolInvocation> trace) {
+        if (trace == null) return false;
+        OptionalLong expectedStart = BindingExtensionPolicy.independentWindowStart(
+                held.windowStart(), held.windowSize(), held.numWindows());
+        if (expectedStart.isEmpty()) return false;
+        for (ToolInvocation invocation : trace) {
+            if (invocation == null || !"verify_conjecture".equals(invocation.functionName())
+                    || invocation.argsJson() == null || invocation.resultJson() == null
+                    || !invocation.resultJson().contains(" REFUTED across ")) continue;
+            try {
+                JsonNode args = JSON.readTree(invocation.argsJson());
+                if (matchesLockedTermsAndGrid(held, expectedStart.getAsLong(), args)
+                        && !same(held.c(), number(args, "c"))) return true;
+            } catch (Exception ignored) {
+                // A malformed invocation cannot evidence an independent sensitivity probe.
+            }
+        }
+        return false;
+    }
+
     private static boolean matchesLockedReplication(HeldBound held, long expectedStart, JsonNode args) {
+        return matchesLockedTermsAndGrid(held, expectedStart, args)
+                && same(held.c(), number(args, "c"));
+    }
+
+    private static boolean matchesLockedTermsAndGrid(HeldBound held, long expectedStart, JsonNode args) {
         return held.lhs().equals(text(args, "lhs"))
                 && held.rhs().equals(text(args, "rhs"))
                 && sameOptionalText(held.rhs2(), args, "rhs2")
                 && same(held.k(), number(args, "k"))
                 && sameOptionalSecondCoefficient(held, args)
-                && same(held.c(), number(args, "c"))
                 && expectedStart == wholeNumber(args, "window_start")
                 && held.windowSize() == wholeNumber(args, "window_size")
                 && held.numWindows() == wholeNumber(args, "num_windows");

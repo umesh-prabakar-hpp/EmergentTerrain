@@ -180,6 +180,10 @@ public class ResearchPaper {
     @Column(name = "tool_call_trace", columnDefinition = "text")
     private String toolCallTrace;
 
+    /** Canonical locked-study identity retained for allocation-time clone screening. */
+    @Column(name = "protocol_fingerprint", length = 2048)
+    private String protocolFingerprint;
+
     /**
      * Phase 7 F7.2 — multi-reviewer panel outcome serialised as JSON. Carries the
      * aggregated median grades, agreement score, consensus cited/contradiction
@@ -361,6 +365,7 @@ public class ResearchPaper {
     public String       discussion()               { return discussion; }
     public String       relatedWork()              { return relatedWork; }
     public String       toolCallTrace()            { return toolCallTrace; }
+    public String       protocolFingerprint()       { return protocolFingerprint; }
     public String       panelOutcome()             { return panelOutcome; }
     public Double       reviewerAgreement()        { return reviewerAgreement; }
     public java.time.Instant narrationStartedAt()   { return narrationStartedAt; }
@@ -392,6 +397,7 @@ public class ResearchPaper {
     public void setDiscussion(String discussion)     { this.discussion = discussion; }
     public void setRelatedWork(String relatedWork)   { this.relatedWork = relatedWork; }
     public void setToolCallTrace(String toolCallTrace) { this.toolCallTrace = toolCallTrace; }
+    public void setProtocolFingerprint(String value) { this.protocolFingerprint = value; }
     public void setPanelOutcome(String panelOutcome)   { this.panelOutcome = panelOutcome; }
     public void setReviewerAgreement(Double v)         { this.reviewerAgreement = v; }
     // Phase 20.4 — narration envelope setters; called from UniversityService.publishPaper.

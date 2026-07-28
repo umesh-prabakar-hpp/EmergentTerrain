@@ -803,6 +803,16 @@ public class ResearchCycleService {
                     candidateRegistration.mappingNotes());
             return;
         }
+        String candidateFingerprint = QuestionServedProtocolCloneGuard.fingerprint(candidateRegistration);
+        boolean priorProtocolClone = candidateFingerprint != null
+                && ctx.getPublishedPapers(roomId, 80).stream().anyMatch(prior ->
+                        topicName.equals(prior.topic())
+                                && candidateFingerprint.equals(prior.protocolFingerprint()));
+        if (priorProtocolClone) {
+            log.info("protocol-clone: declined identical locked protocol before draft allocation family={} mappingNotes={}",
+                    conjecture.lhs(), candidateRegistration.mappingNotes());
+            return;
+        }
         String paperId = ctx.nextPaperId(roomId);
         reserveQuestion(crossRunContext.question(), paperId);
         // 2026-07-05 (P-b72c-77627773) — under the measurement frame, the findings/conclusion

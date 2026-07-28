@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
@@ -257,6 +258,24 @@ class ConjectureInvestigationCycleTest {
         assertNull(question.answeredByPaperId(), "declined question must stay servable");
     }
 
+    @Test
+    void persistedIdenticalProtocolStopsBeforeDraftIdReservationOrNarration() {
+        ResearchCycleService svc = new ResearchCycleService();
+        Conjecture c = buildConjecture("abundant_density", "happy_density", 0.0, 0.2515, 8, -0.004);
+        CapturingContext ctx = new CapturingContext();
+        ResearchPaper prior = new ResearchPaper("P-prior", UUID.randomUUID(), "prior-bot", "math",
+                "conjecture/abundant_density", "prior", "h", "EMPIRICAL", "f", "c",
+                List.of(), 0.8, "PUBLISHED", 1L, Instant.now(), 1, 0.0, null, null);
+        prior.setProtocolFingerprint(QuestionServedProtocolCloneGuard.fingerprint(
+                ConjecturePreRegistration.from(c)));
+        ctx.publishedPapers.add(prior);
+
+        svc.publishConjectureInvestigation(UUID.randomUUID(), researcher(), c, 1L, ctx);
+
+        assertEquals(0, ctx.paperIdCalls.get(), "persisted clone screen must run before nextPaperId");
+        assertNull(ctx.lastDraft.get(), "an identical locked study must not enter narration");
+    }
+
     // ---------- helpers ----------
 
     private static Researcher researcher() {
@@ -303,12 +322,15 @@ class ConjectureInvestigationCycleTest {
     private static final class CapturingContext implements ResearchCycleService.Context {
         final AtomicReference<PaperDraft> lastDraft = new AtomicReference<>();
         final AtomicInteger paperIdCalls = new AtomicInteger();
+        final List<ResearchPaper> publishedPapers = new ArrayList<>();
 
         @Override public String nextPaperId(UUID roomId) {
             paperIdCalls.incrementAndGet();
             return "P-test-" + roomId.toString().substring(0, 4);
         }
-        @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) { return new ArrayList<>(); }
+        @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) {
+            return new ArrayList<>(publishedPapers);
+        }
         @Override public void publishPaper(PaperDraft draft, NarrationResult narration) {
             lastDraft.set(draft);
         }
