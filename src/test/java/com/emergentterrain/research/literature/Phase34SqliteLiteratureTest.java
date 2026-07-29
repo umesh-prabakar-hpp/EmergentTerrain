@@ -6,11 +6,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,6 +41,26 @@ class Phase34SqliteLiteratureTest {
         return new Phase34SqliteLiterature(indexDir, true, 15_000);
     }
 
+    private Phase34SqliteLiterature indexedAdapterWithPaperReviewScreenedIndex() throws Exception {
+        indexedAdapter();
+        Path screenedDir = indexDir.resolve("paper-review-screened");
+        Files.createDirectories(screenedDir);
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + screenedDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+            sql.execute("CREATE TABLE papers (paper_id TEXT PRIMARY KEY, title TEXT, authors TEXT, primary_category TEXT)");
+            sql.execute("CREATE TABLE fulltext (paper_id TEXT PRIMARY KEY, source_key TEXT)");
+            sql.execute("CREATE VIRTUAL TABLE fulltext_fts USING fts5(paper_id UNINDEXED, title, text)");
+            sql.execute("INSERT INTO metadata VALUES ('fulltext_fts_complete', 'true')");
+            sql.execute("INSERT INTO papers VALUES ('1709.04799', 'Prime gaps and bounds from a screened review source', 'C. Reviewer', 'math.NT')");
+            sql.execute("INSERT INTO fulltext VALUES ('1709.04799', 'paper-review-screened:test:1709.04799')");
+            sql.execute("INSERT INTO fulltext_fts VALUES ('1709.04799', 'Prime gaps and bounds from a screened review source', "
+                    + "'The screened source provides a confirmed prime gap bound and its finite range.')");
+        }
+        return new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                new DeterministicLiteratureQueryPlanner(), new PaperReviewScreenedLiterature(screenedDir));
+    }
+
     @Test
     void theoremSearchReturnsHarnessKeyAndReadReturnsIndexedPassage() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
@@ -57,6 +79,22 @@ class Phase34SqliteLiteratureTest {
                 .contains("ACCEPTED RELEVANT");
         assertThat(adapter.assessRelevance(key.group(1), "made-up wording not returned by the source", "RELEVANT"))
                 .contains("supporting_excerpt must be a focused passage");
+    }
+
+    @Test
+    void phase35MergesPaperReviewScreenedAndPrimaryMatchesAndReadsTheIssuedScreenedKey() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapterWithPaperReviewScreenedIndex();
+
+        String search = adapter.search("prime gap bound");
+        List<String> keys = new ArrayList<>();
+        Matcher matcher = Pattern.compile("\\[(HF[0-9A-F]+)]").matcher(search);
+        while (matcher.find()) keys.add(matcher.group(1));
+
+        assertThat(search).contains("Prime gap bounds", "screened review source", "index: primary",
+                "index: paper-review-screened");
+        assertThat(keys).hasSize(2);
+        assertThat(adapter.read(keys.get(1), "confirmed prime gap bound"))
+                .contains("paper-review-screened literature index", "confirmed prime gap bound");
     }
 
     @Test

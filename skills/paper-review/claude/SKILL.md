@@ -89,12 +89,11 @@ steps, replacing `<manifest>` with the emitted staging manifest path. Do not run
 an index writer is active; it is an operator-owned offline step.
 
 ```bash
-python3 scripts/prepare-hf-math-index.py --stage staged-text \
-  --corpus-dir /home/fedorauser/.emergentterrain/corpus-hf-math \
-  --index-dir /home/fedorauser/.emergentterrain/indexes/math-literature \
+python3 scripts/prepare-paper-review-screened-literature-index.py \
   --staged-text-manifest <manifest>
 
-stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature/literature.db
+stat -c '%n:%s:%Y' \
+  /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
 ```
 
 After the next normal paper run, show the verification command too; source grounding is complete

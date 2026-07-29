@@ -266,24 +266,28 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 seconds for `fts_optimize`, `manifest_provenance`, `manifest`, and the total run. Retain those
 lines when validating a timeout recovery; FTS maintenance remains a single-writer offline task.
 
-**Paper-review literature backfill** — every paper-review pass now prepares a discovery manifest
-for the single app run that produced that review batch; no `--prepare-literature-backfill` switch
-is required. It pairs a logged retrieval phrase with the paper's locked mathematical subject,
-obtains text-only candidate sources, and relevance-screens them into a temporary import staging
-area. A multi-run or seven-day sweep is a separately requested one-time backfill. This is not a
-web evidence fallback: until an ordinary offline import/rebuild completes, staged sources are
-invisible to `search_literature`, cannot receive `HF...` keys, and cannot satisfy citation or
-publication-label gates. See the Phase 35 README for provenance and retention rules.
+**Paper-review-screened literature** — every paper-review pass prepares a discovery manifest for
+the single app run that produced that review batch; no `--prepare-literature-backfill` switch is
+required. It pairs logged retrieval terms with the paper's locked mathematical subject, obtains
+text-only candidates, and relevance-screens them into a temporary staging area. A retained source
+can be imported into the separate, incremental paper-review-screened SQLite/FTS5 index instead of
+rebuilding the large primary Phase 34 FTS index. When
+`app.research.literature.paper-review-screened.enabled=true`, Phase 35 combines primary and
+screened matches under the same planner/title gates; raw FTS ranks are not compared across
+databases. A screened hit still needs the ordinary issued-key → `read_reference` → Related Work
+chain before it supports a citation or publication label. See the
+[Phase 37 design](phases-for-human-like-performance/phase-37-paper-review-screened-literature/README.md)
+for provenance and rollout rules.
 
-Import retained entries offline with:
+Import retained entries into the screened index offline with:
 
 ```bash
-python3 scripts/prepare-hf-math-index.py --stage staged-text \
+python3 scripts/prepare-paper-review-screened-literature-index.py \
   --staged-text-manifest /path/to/provenance-manifest.json
 ```
 
-The stage validates source hashes, rejects non-retained entries and source replacement, journals
-source provenance in the index, and rebuilds FTS before normal local retrieval resumes.
+The importer validates source hashes, rejects non-retained entries and source replacement, records
+source provenance, and performs only incremental FTS inserts. It does not modify the primary index.
 
 **Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
 `HF...` evidence but the professor omitted every `read_reference` call,

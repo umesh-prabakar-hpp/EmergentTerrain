@@ -23,6 +23,11 @@ python3 scripts/prepare-hf-math-index.py --stage theorems
 systemd-run --user --unit emergentterrain-phase34-marin-index --collect --same-dir /usr/bin/python3 "$PWD/scripts/prepare-hf-math-index.py" --stage fulltext
 # One fulltext writer only. The final FTS build is automatic; see phase-34-computational-publication/README.md.
 
+# 0d. Paper-review-screened literature index (only when the manifest has RETAINED_FOR_IMPORT)
+python3 scripts/prepare-paper-review-screened-literature-index.py \
+  --staged-text-manifest research/b72c4e10/literature-staging/staging-manifest.json
+stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
+
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
 

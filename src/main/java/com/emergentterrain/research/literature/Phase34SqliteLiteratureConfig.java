@@ -21,8 +21,14 @@ public class Phase34SqliteLiteratureConfig {
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:15000}")
             long searchTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.initial-candidates:64}")
-            int initialCandidates) {
+            int initialCandidates,
+            @Value("${app.research.literature.paper-review-screened.enabled:false}")
+            boolean paperReviewScreenedEnabled,
+            @Value("${app.research.literature.paper-review-screened.index-dir:${user.home}/.emergentterrain/indexes/math-literature-paper-review-screened}")
+            String paperReviewScreenedIndexDir) {
+        PaperReviewScreenedLiterature paperReviewScreened = paperReviewScreenedEnabled
+                ? new PaperReviewScreenedLiterature(Path.of(paperReviewScreenedIndexDir)) : null;
         return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
-                initialCandidates, new DeterministicLiteratureQueryPlanner());
+                initialCandidates, new DeterministicLiteratureQueryPlanner(), paperReviewScreened);
     }
 }

@@ -59,9 +59,10 @@ public final class Phase34SqliteLiterature {
     private final long searchTimeoutMs;
     private final int initialSearchCandidates;
     private final LiteratureQueryPlanner queryPlanner;
-    private final Map<String, String> paperForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
+    private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
+    private final Map<String, IssuedSource> sourceForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, IssuedSource> eldest) {
             return size() > MAX_ISSUED_KEYS;
         }
     });
@@ -82,21 +83,29 @@ public final class Phase34SqliteLiterature {
      */
     public Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs) {
         this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES,
-                new DeterministicLiteratureQueryPlanner());
+                new DeterministicLiteratureQueryPlanner(), null);
     }
 
     Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
                             LiteratureQueryPlanner queryPlanner) {
-        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES, queryPlanner);
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES,
+                queryPlanner, null);
     }
 
     Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
                             int initialSearchCandidates, LiteratureQueryPlanner queryPlanner) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, initialSearchCandidates, queryPlanner, null);
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
+                            PaperReviewScreenedLiterature paperReviewScreenedLiterature) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
         this.phase35RetrievalEnabled = phase35RetrievalEnabled;
         this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
         this.initialSearchCandidates = Math.clamp(initialSearchCandidates, 1, SEARCH_CANDIDATES);
         this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
+        this.paperReviewScreenedLiterature = paperReviewScreenedLiterature;
     }
 
     public boolean available() {
@@ -226,9 +235,8 @@ public final class Phase34SqliteLiterature {
                                 if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
                                         rows.getString(7), rows.getString(8), candidate)) continue;
                                 String key = keyFor(paperId);
-                                paperForKey.put(key, paperId);
                                 distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
-                                        rows.getString(3), rows.getString(4), rows.getString(5)));
+                                        rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
                             }
                         }
                         telemetry.lastBatchElapsedMs = (System.nanoTime() - batchStarted) / 1_000_000L;
@@ -247,16 +255,23 @@ public final class Phase34SqliteLiterature {
             } finally {
                 if (budget != null) budget.close();
             }
-            if (distinct.isEmpty()) {
+            // The screened index is a peer retrieval surface, not a fallback. Query both and
+            // merge their separately ranked result lists without comparing raw FTS/BM25 ranks
+            // across databases.
+            mergePaperReviewScreenedResults(candidateQueries, distinct);
+            List<Citation> merged = mergeIndexResults(distinct.values());
+            if (merged.isEmpty()) {
                 logSearchTelemetry(telemetry, "no_match", 0);
                 return "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.";
             }
-            StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite index): "
+            StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite + paper-review-screened indexes): "
                     + "EVIDENCE — cite only the returned [HF…] keys.\n");
-            for (Citation citation : distinct.values()) {
+            for (Citation citation : merged) {
+                sourceForKey.put(citation.key(), new IssuedSource(citation.paperId(), citation.sourceIndex()));
                 StringBuilder rendered = new StringBuilder("- [").append(citation.key()).append("] ")
                         .append(blankAs(citation.title(), "Untitled record"))
-                        .append(" (source: ").append(citation.paperId()).append(")");
+                        .append(" (source: ").append(citation.paperId()).append(", index: ")
+                        .append(citation.sourceIndex().label).append(")");
                 if (!citation.authors().isBlank()) rendered.append(" — ").append(citation.authors());
                 if (!citation.category().isBlank()) rendered.append(" [category: ").append(citation.category()).append("]");
                 if (!citation.snippet().isBlank()) rendered.append("\n  ")
@@ -276,7 +291,7 @@ public final class Phase34SqliteLiterature {
                 }
                 output.append(rendered);
             }
-            logSearchTelemetry(telemetry, "evidence", distinct.size());
+            logSearchTelemetry(telemetry, "evidence", merged.size());
             return truncate(output.toString().stripTrailing(), MAX_SEARCH_TOOL_RESULT_CHARS);
         } catch (Exception e) {
             if (isInterrupted(e)) {
@@ -375,9 +390,8 @@ public final class Phase34SqliteLiterature {
                                 continue;
                             }
                             String key = keyFor(paperId);
-                            paperForKey.put(key, paperId);
                             distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
-                                    rows.getString(3), rows.getString(4), rows.getString(5)));
+                                    rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
                         }
                     }
                     telemetry.lastBatchElapsedMs = (System.nanoTime() - batchStarted) / 1_000_000L;
@@ -387,7 +401,7 @@ public final class Phase34SqliteLiterature {
         }
     }
 
-    private static String fullTextExpression(SearchCandidate candidate) {
+    static String fullTextExpression(SearchCandidate candidate) {
         StringBuilder expression = new StringBuilder(candidate.expression());
         candidate.evidenceAnchors().stream()
                 .filter(anchor -> !candidate.queryAnchors().contains(anchor))
@@ -395,10 +409,53 @@ public final class Phase34SqliteLiterature {
         return expression.toString();
     }
 
+    private void mergePaperReviewScreenedResults(List<SearchCandidate> candidateQueries,
+                                                 Map<String, Citation> distinct) {
+        if (!phase35RetrievalEnabled || paperReviewScreenedLiterature == null
+                || !paperReviewScreenedLiterature.available()) {
+            return;
+        }
+        for (PaperReviewScreenedLiterature.Match match
+                : paperReviewScreenedLiterature.search(candidateQueries, SEARCH_RESULTS)) {
+            String identity = "paper-review-screened:" + match.paperId();
+            distinct.putIfAbsent(identity, new Citation(keyFor(identity), match.paperId(), match.title(),
+                    match.authors(), match.category(), match.snippet(), SourceIndex.PAPER_REVIEW_SCREENED));
+        }
+    }
+
+    /**
+     * SQLite rank values are corpus-specific and must not be compared across the primary and
+     * paper-review-screened databases. This stable interleave preserves each source's local rank
+     * and gives the primary index deterministic precedence only on a tied ordinal.
+     */
+    private static List<Citation> mergeIndexResults(java.util.Collection<Citation> citations) {
+        List<Citation> primary = citations.stream().filter(citation -> citation.sourceIndex() == SourceIndex.PRIMARY)
+                .toList();
+        List<Citation> screened = citations.stream()
+                .filter(citation -> citation.sourceIndex() == SourceIndex.PAPER_REVIEW_SCREENED).toList();
+        List<Citation> merged = new ArrayList<>(SEARCH_RESULTS);
+        for (int ordinal = 0; merged.size() < SEARCH_RESULTS
+                && (ordinal < primary.size() || ordinal < screened.size()); ordinal++) {
+            if (ordinal < primary.size()) merged.add(primary.get(ordinal));
+            if (merged.size() < SEARCH_RESULTS && ordinal < screened.size()) merged.add(screened.get(ordinal));
+        }
+        Map<String, Citation> deduplicatedByPaperId = new LinkedHashMap<>();
+        for (Citation citation : merged) deduplicatedByPaperId.putIfAbsent(citation.paperId(), citation);
+        return List.copyOf(deduplicatedByPaperId.values());
+    }
+
     public String read(String key, String query) {
-        String paperId = key == null ? null : paperForKey.get(key.strip());
-        if (paperId == null) {
+        IssuedSource issued = key == null ? null : sourceForKey.get(key.strip());
+        if (issued == null) {
             return "read_reference: unknown Phase 34 key — call search_literature first and pass its [HF…] key exactly.";
+        }
+        if (issued.sourceIndex() == SourceIndex.PAPER_REVIEW_SCREENED) {
+            if (paperReviewScreenedLiterature == null || !paperReviewScreenedLiterature.available()) {
+                return "read_reference: paper-review-screened literature index is not available.";
+            }
+            String output = paperReviewScreenedLiterature.read(key.strip(), issued.paperId(), query);
+            if (output.startsWith("read_reference " + key.strip())) readOutputForKey.put(key.strip(), output);
+            return output;
         }
         if (!available()) {
             return "read_reference: Phase 34 SQLite index is not available.";
@@ -422,14 +479,14 @@ public final class Phase34SqliteLiterature {
                         AND fulltext_fts MATCH ?
                       LIMIT 1
                      """)) {
-            statement.setString(1, paperId);
+            statement.setString(1, issued.paperId());
             statement.setString(2, ftsQuery);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) {
                     return "read_reference: no matching full-text passage is currently indexed for " + key + ".";
                 }
-                String title = blankAs(row.getString(1), paperId);
-                String sourceKey = blankAs(row.getString(2), paperId);
+                String title = blankAs(row.getString(1), issued.paperId());
+                String sourceKey = blankAs(row.getString(2), issued.paperId());
                 String passage = blankAs(row.getString(3), "No passage text was returned.");
                 if (passage.length() > MAX_PASSAGE_CHARS) passage = passage.substring(0, MAX_PASSAGE_CHARS) + "…";
                 String output = "read_reference " + key + " — " + title
@@ -452,7 +509,7 @@ public final class Phase34SqliteLiterature {
     public String assessRelevance(String key, String supportingExcerpt, String verdict) {
         String normalizedKey = key == null ? "" : key.strip();
         String readOutput = readOutputForKey.get(normalizedKey);
-        if (!paperForKey.containsKey(normalizedKey) || readOutput == null) {
+        if (!sourceForKey.containsKey(normalizedKey) || readOutput == null) {
             return "reference_relevance_assessment: rejected — key must be issued and successfully read first.";
         }
         String normalizedExcerpt = normalizeEvidenceText(supportingExcerpt);
@@ -493,7 +550,7 @@ public final class Phase34SqliteLiterature {
         return focusedQuery.equals(ftsQuery) ? List.of(ftsQuery) : List.of(focusedQuery, ftsQuery);
     }
 
-    private static String legacyFtsQuery(String input) {
+    static String legacyFtsQuery(String input) {
         List<String> tokens = new ArrayList<>();
         Matcher matcher = TOKEN.matcher(input == null ? "" : input);
         while (matcher.find() && tokens.size() < 8) tokens.add(matcher.group());
@@ -545,8 +602,8 @@ public final class Phase34SqliteLiterature {
      * phrase terms are distinctive; this admits a specific title-less source without reopening
      * generic body-only matches.
      */
-    private static boolean hasSufficientFullTextEvidence(String metadataTitle, String indexedTitle, String text,
-                                                         SearchCandidate candidate) {
+    static boolean hasSufficientFullTextEvidence(String metadataTitle, String indexedTitle, String text,
+                                                 SearchCandidate candidate) {
         if (candidate.evidenceAnchors().isEmpty()) return true;
         List<String> titleTerms = new ArrayList<>(normalizedTokenTerms(metadataTitle));
         titleTerms.addAll(normalizedTokenTerms(indexedTitle));
@@ -628,7 +685,20 @@ public final class Phase34SqliteLiterature {
     }
 
     private record Citation(String key, String paperId, String title, String authors,
-                            String category, String snippet) {}
+                            String category, String snippet, SourceIndex sourceIndex) {}
+
+    private record IssuedSource(String paperId, SourceIndex sourceIndex) {}
+
+    private enum SourceIndex {
+        PRIMARY("primary"),
+        PAPER_REVIEW_SCREENED("paper-review-screened");
+
+        private final String label;
+
+        SourceIndex(String label) {
+            this.label = label;
+        }
+    }
 
     static record SearchCandidate(String expression, List<String> queryAnchors, List<String> evidenceAnchors,
                                  int minimumEvidenceMatches, List<String> requiredTitleAnchors) {
