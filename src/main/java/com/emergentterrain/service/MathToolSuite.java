@@ -3120,8 +3120,8 @@ public class MathToolSuite {
 
     /**
      * 2026-06-10 (lever D, frame 1) — verify_constant: the two-sided constant-convergence companion to
-     * verify_conjecture. For a scalar whose real content is a LIMIT (a normalized ratio that plateaus —
-     * twin_vs_prime_sq → 2C₂, cramer_gap_ratio → a Cramér constant), this measures the value across
+     * verify_conjecture. For a scalar whose real content is a LIMIT (for example
+     * twin_vs_prime_sq → 2C₂), this measures the value across
      * held-out failure-region windows and tests {@code |lhs − target|} (or the spread, if no target),
      * instead of forcing a one-sided {@code lhs ≤ k·rhs + c} bound the quantity doesn't fit. Same WORK
      * and RANGE caps as verify_conjecture; failures returned as plain text (no throw) for the tool loop.

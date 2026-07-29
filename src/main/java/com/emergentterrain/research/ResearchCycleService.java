@@ -1010,6 +1010,7 @@ public class ResearchCycleService {
             case CONSTANT -> "limit";
             case OSCILLATION -> "envelope";
             case GROWTH -> "growth law";
+            case ENVELOPE -> "finite-window envelope";
         };
     }
 
@@ -1207,6 +1208,12 @@ public class ResearchCycleService {
                     + "choose. Report the measured growth constant, its cross-scale trajectory, and how close "
                     + "it is to its asymptotic value at reachable x.",
                     lhs, spec.growthScale(), spec.growthScale());
+            case ENVELOPE -> String.format(
+                    "This paper measures the finite-window envelope of `%s`, an extreme-value statistic. "
+                    + "It does NOT test convergence to a constant. Execute the locked discovery, far-location, "
+                    + "offset, and width measurements exactly as registered with verify_constant and "
+                    + "scale_ladder:false. Preserve each requested effective width; report all window values and "
+                    + "make only a finite-envelope statement.", lhs);
         };
         // All three frames now have the auto scale-ladder built into their verify_* tool
         // (scale_ladder:true). GROWTH still keeps the manual-ladder note below: its ladderNote wording

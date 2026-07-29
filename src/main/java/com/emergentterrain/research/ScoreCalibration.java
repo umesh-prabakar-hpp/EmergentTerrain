@@ -190,8 +190,7 @@ public final class ScoreCalibration {
             "omega_ek_ratio", "1 (Erdős–Kac)",
             "squarefree_density", "6/π² ≈ 0.60793",
             "abundant_density", "≈ 0.2476",
-            "twin_vs_prime_sq", "2C₂ ≈ 1.32032",
-            "cramer_gap_ratio", "a Cramér-type constant");
+            "twin_vs_prime_sq", "2C₂ ≈ 1.32032");
 
     /**
      * True when a constant-framed conjecture was tested as an affine bound but

@@ -269,8 +269,9 @@ lines when validating a timeout recovery; FTS maintenance remains a single-write
 **Paper-review-screened literature** — every paper-review pass prepares a discovery manifest for
 the single app run that produced that review batch; no `--prepare-literature-backfill` switch is
 required. It pairs logged retrieval terms with the paper's locked mathematical subject, obtains
-text-only candidates, and relevance-screens them into a temporary staging area. A retained source
-can be imported into the separate, incremental paper-review-screened SQLite/FTS5 index instead of
+text-only candidates, and relevance-screens them into a temporary staging area. After validating a
+`RETAINED_FOR_IMPORT` entry and confirming that no primary or screened index writer is active, the
+review imports it into the separate incremental paper-review-screened SQLite/FTS5 index instead of
 rebuilding the large primary Phase 34 FTS index. When
 `app.research.literature.paper-review-screened.enabled=true`, Phase 35 combines primary and
 screened matches under the same planner/title gates; raw FTS ranks are not compared across
@@ -279,7 +280,8 @@ chain before it supports a citation or publication label. See the
 [Phase 37 design](phases-for-human-like-performance/phase-37-paper-review-screened-literature/README.md)
 for provenance and rollout rules.
 
-Import retained entries into the screened index offline with:
+The paper-review skill performs this safe incremental import. To diagnose a deferred import or
+rerun an idempotent import after the writer is idle:
 
 ```bash
 python3 scripts/prepare-paper-review-screened-literature-index.py \
@@ -288,6 +290,11 @@ python3 scripts/prepare-paper-review-screened-literature-index.py \
 
 The importer validates source hashes, rejects non-retained entries and source replacement, records
 source provenance, and performs only incremental FTS inserts. It does not modify the primary index.
+
+**Prime-gap study protocol** — `cramer_gap_ratio` is a finite, window-dependent extreme-value
+measurement, not a registered constant limit. New investigations lock one discovery grid plus
+unchanged far-location, offset, and width holdouts; a missing grid or a scale-ladder substitute
+stays `NEEDS_REVISION`. The result may describe only the measured finite envelope.
 
 **Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
 `HF...` evidence but the professor omitted every `read_reference` call,

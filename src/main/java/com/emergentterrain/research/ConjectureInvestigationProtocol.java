@@ -23,6 +23,10 @@ public final class ConjectureInvestigationProtocol {
                 PreRegistration registration = ConstantLimitPreRegistration.from(conjecture, measurementSpec);
                 return new Allocation(Route.CONSTANT_LIMIT, registration, "registered_constant_limit");
             }
+            if (measurementSpec.frame() == ScalarOpenness.MeasurementFrame.ENVELOPE) {
+                return new Allocation(Route.REGISTERED_MEASUREMENT,
+                        CramerGapEnvelopePreRegistration.from(conjecture), "registered_finite_envelope_measurement");
+            }
             return new Allocation(Route.REGISTERED_MEASUREMENT, null,
                     "registered_" + measurementSpec.frame().name().toLowerCase() + "_measurement");
         }

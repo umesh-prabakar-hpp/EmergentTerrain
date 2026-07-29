@@ -21,13 +21,18 @@ paper-review web discovery
   → ordinary publication gate
 ```
 
-The first two arrows are offline operator work. The database is read-only on the application
-request path; no web download, source mutation, or index write happens during a paper run.
+Discovery, staging, and the incremental screened-index import run in the post-run paper-review
+workflow. The skill imports only a validated retained manifest after confirming no primary or
+screened index writer is active; otherwise it leaves the manifest pending safe import. The database
+is read-only on the application request path; no web download, source mutation, or index write
+happens during a paper run.
 
 ## Import
 
-Run this only after the paper-review manifest contains one or more `RETAINED_FOR_IMPORT` sources.
-It does not require or rebuild the primary Phase 34 corpus index.
+The paper-review skill runs this automatically after a manifest contains one or more
+`RETAINED_FOR_IMPORT` sources and the no-writer preflight passes. It does not require or rebuild
+the primary Phase 34 corpus index. Run it manually only to recover a deferred import or to perform
+an idempotent retry after the writer is idle.
 
 ```bash
 python3 scripts/prepare-paper-review-screened-literature-index.py \

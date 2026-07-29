@@ -3,8 +3,9 @@ package com.emergentterrain.research.conjecture;
 /**
  * 2026-06-10 (lever D, frame 1 — constant-convergence). The result-frame for a scalar whose real
  * content is a LIMIT, not a one-sided bound: a normalized ratio that plateaus to a constant
- * (e.g. {@code twin_vs_prime_sq} → the Hardy–Littlewood twin constant 2C₂ ≈ 1.32032;
- * {@code cramer_gap_ratio} → a Cramér-type constant). The conjecture pipeline's {@code lhs ≤ k·rhs + c}
+ * (e.g. {@code twin_vs_prime_sq} → the Hardy–Littlewood twin constant 2C₂ ≈ 1.32032).
+ * Window-maximal prime-gap ratios are deliberately excluded: they are finite envelope statistics,
+ * not registered constant-limit measurements. The conjecture pipeline's {@code lhs ≤ k·rhs + c}
  * frame can only express "q → C" as a degenerate {@code k=0} bound its own identifiability /
  * rhs-near-constant gates reject — so such quantities never become survivors despite being genuinely
  * interesting. This is the two-sided assessment ({@code |q − C|} small) those quantities actually need.

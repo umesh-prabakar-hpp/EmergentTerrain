@@ -1344,6 +1344,13 @@ public class UniversityService {
                             + "(selected trace lacks the completed locked verify_constant scale ladder)",
                     draft.paperId());
         }
+        boolean cramerGapEnvelopeUncovered = "conjecture/cramer_gap_ratio".equals(draft.topicName())
+                && (!CramerGapEnvelopePreRegistration.isLocked(draft.preRegistration())
+                || !CramerGapEnvelopePreRegistration.hasExactEvidence(draft.preRegistration(), narration.toolCallTrace()));
+        if (cramerGapEnvelopeUncovered) {
+            log.warn("cramer-gap envelope pre-registration check failed paperId={} (exact finite holdouts missing)",
+                    draft.paperId());
+        }
         boolean predicateStudyPreRegistrationUncovered = predicateStudyPreRegistrationGateEnabled
                 && PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                 && !PredicateStudyPreRegistration.hasExactEvidence(
@@ -1899,6 +1906,9 @@ public class UniversityService {
         } else if (constantLimitPreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (cramerGapEnvelopeUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (traceDefinitionAvailabilityUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2057,7 +2067,7 @@ public class UniversityService {
             publicationDeficits.add(PublicationStateResolver.Deficit.CITATION);
         }
         if (predicateBaselineSensitivityUncovered || exactPreRegistrationUncovered
-                || constantLimitPreRegistrationUncovered || predicateStudyPreRegistrationUncovered
+                || constantLimitPreRegistrationUncovered || cramerGapEnvelopeUncovered || predicateStudyPreRegistrationUncovered
                 || maxPrimeGapMultiScalePreRegistrationUncovered
                 || maxDivisorCountMeasurementPreRegistrationUncovered) {
             publicationDeficits.add(PublicationStateResolver.Deficit.SENSITIVITY);
@@ -2153,6 +2163,11 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:constant_limit_preregistration_uncovered→needs_revision"
                     : persistedCallPath + " → publish:constant_limit_preregistration_uncovered→needs_revision";
+        }
+        if (cramerGapEnvelopeUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:cramer_gap_envelope_preregistration_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:cramer_gap_envelope_preregistration_uncovered→needs_revision";
         }
         if (traceDefinitionAvailabilityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

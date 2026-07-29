@@ -69,32 +69,36 @@ not a new evidence tool.
    timestamp, size, and SHA-256.
 5. Screen after download. Rank each candidate against the actual mathematical subject, retain only
    relevant sources for import, and retain rejected/low-relevance candidates only in provenance.
-6. Do not mutate the live index during review, issue an `HF...` key, cite a staged source, or
-   upgrade any label. A source becomes evidence only after normal offline import followed by the
-   existing indexed search/read/Related Work chain.
+6. Validate the manifest, then import `RETAINED_FOR_IMPORT` sources into the separate incremental
+   paper-review-screened index before ending the review. First confirm no primary or screened
+   index writer is active; do not run either importer concurrently.
+
+   ```bash
+   pgrep -af 'prepare-hf-math-index.py|prepare-paper-review-screened-literature-index.py' || true
+   python3 scripts/prepare-paper-review-screened-literature-index.py \
+     --staged-text-manifest <manifest>
+   stat -c '%n:%s:%Y' \
+     /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
+   ```
+
+   If a writer is active, leave the validated manifest staged and pending safe import; do not wait,
+   retry, or invoke the primary importer. The separate import never mutates the primary index,
+   issues no `HF...` key, cites no paper, and upgrades no label. A source becomes evidence only
+   after a later normal indexed search/read/Related Work chain.
 
 The manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
 `REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`. Reuse a matching SHA-256 source on later
 review passes rather than downloading it again.
 
-## End-of-review offline-import handoff
+## End-of-review screened-index result
 
 When the review created one or more `RETAINED_FOR_IMPORT` entries, end the review response with
-an explicit **Staged literature** summary before this executable handoff. List every retained
-source by title and stable identifier, the paper ID(s) it was matched to, and the emitted manifest
-path. State plainly that it is staged only: it is not in the live index, has no `HF...` key, is not
-paper evidence, and cannot change a publication label until a later normal run completes the
-indexed `search_literature → read_reference → Related Work` chain. Then give the operator these
-steps, replacing `<manifest>` with the emitted staging manifest path. Do not run the import while
-an index writer is active; it is an operator-owned offline step.
-
-```bash
-python3 scripts/prepare-paper-review-screened-literature-index.py \
-  --staged-text-manifest <manifest>
-
-stat -c '%n:%s:%Y' \
-  /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
-```
+an explicit **Staged and indexed review literature** summary. List each source, identifier,
+matched paper ID(s), manifest, import result, and index path. State that it is in the separate
+review index only, has no `HF...` key, is not paper evidence, and cannot change a publication label
+until a later normal `search_literature → read_reference → Related Work` chain. If an active writer
+deferred import, instead say **Staged literature awaiting safe import**, name it, and provide the
+exact import command for after it exits.
 
 After the next normal paper run, show the verification command too; source grounding is complete
 only when the resulting artifact records the normal issued-key/read/citation chain.
@@ -105,8 +109,8 @@ jq '.gate | {sourceGroundedRelatedWork, workflowStatus, publicationLabel, citedR
 ```
 
 If no source was retained, end the review response with: `No relevant web-discovered source was
-staged for offline import in this review.` Do not turn that result into a claim that the literature
-is absent. A source or network failure must instead name the affected subject and say
+staged or imported in this review.` Do not turn that result into a claim that the literature is
+absent. A source or network failure must instead name the affected subject and say
 `UNRESOLVED_RETRIEVAL`.
 
 ## Log Discovery

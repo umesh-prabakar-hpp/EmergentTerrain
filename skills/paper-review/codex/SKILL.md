@@ -88,35 +88,41 @@ lane, not a new evidence tool.
 5. Perform a relevance screen after download. Rank retained sources against the paper's actual
    mathematical subject and state why each source is relevant. Record rejected or low-relevance
    downloads in the same manifest, but do not offer them for import.
-6. Make only retained sources available to the offline importer with their provenance manifest.
-   Do not mutate the live index during review, expose a downloaded source through
-   `search_literature`, issue an `HF...` key, cite it in a paper, or upgrade a publication label.
-   Those actions remain possible only after a normal offline import and the ordinary indexed
-   `search_literature → read_reference → Related Work` chain.
+6. Validate the staging manifest, then import its retained sources into the separate incremental
+   paper-review-screened index before ending the review. First confirm that no primary or screened
+   index writer is active; do not run either importer concurrently. Run:
+
+   ```bash
+   pgrep -af 'prepare-hf-math-index.py|prepare-paper-review-screened-literature-index.py' || true
+   python3 scripts/prepare-paper-review-screened-literature-index.py \
+     --staged-text-manifest <manifest>
+   stat -c '%n:%s:%Y' \
+     /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
+   ```
+
+   If the preflight finds an active index writer, do not wait, retry, or start an import; record
+   the manifest as staged and pending safe import. Never invoke `prepare-hf-math-index.py` here.
+   The separate import must validate hashes and contain only `RETAINED_FOR_IMPORT` entries. It does
+   not mutate the primary index, expose a downloaded source through `search_literature`, issue an
+   `HF...` key, cite it in a paper, or upgrade a publication label. Those actions remain possible
+   only after a later normal run completes indexed `search_literature → read_reference → Related
+   Work`.
 
 The staging manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`, and
 `REJECTED_LOW_RELEVANCE`. A network, source, or index failure is `UNRESOLVED_RETRIEVAL`, never
 evidence that the literature is absent. Reuse a matching SHA-256 source rather than downloading it
 again on the next 15-minute pass.
 
-## End-of-review offline-import handoff
+## End-of-review screened-index result
 
 When the review created one or more `RETAINED_FOR_IMPORT` entries, end the review response with
-an explicit **Staged literature** summary before this executable handoff. List every retained
-source by title and stable identifier, the paper ID(s) it was matched to, and the emitted manifest
-path. State plainly that it is staged only: it is not in the live index, has no `HF...` key, is not
+an explicit **Staged and indexed review literature** summary. List every retained source by title
+and stable identifier, mapped paper ID(s), manifest path, import result, and screened-index path.
+State plainly that the source is in the separate review index only: it has no `HF...` key, is not
 paper evidence, and cannot change a publication label until a later normal run completes the
-indexed `search_literature → read_reference → Related Work` chain. Then give the operator these
-steps, replacing `<manifest>` with the emitted staging manifest path. Do not run the import while
-an index writer is active; it is an operator-owned offline step.
-
-```bash
-python3 scripts/prepare-paper-review-screened-literature-index.py \
-  --staged-text-manifest <manifest>
-
-stat -c '%n:%s:%Y' \
-  /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
-```
+indexed `search_literature → read_reference → Related Work` chain. If import was deferred because
+an index writer was active, instead say **Staged literature awaiting safe import**, name the active
+writer, and give the exact command to run after it exits.
 
 After the next normal paper run, show the verification command too; source grounding is complete
 only when the resulting artifact records the normal issued-key/read/citation chain.
@@ -127,8 +133,8 @@ jq '.gate | {sourceGroundedRelatedWork, workflowStatus, publicationLabel, citedR
 ```
 
 If no source was retained, end the review response with: `No relevant web-discovered source was
-staged for offline import in this review.` Do not turn that result into a claim that the literature
-is absent. A source or network failure must instead name the affected subject and say
+staged or imported in this review.` Do not turn that result into a claim that the literature is
+absent. A source or network failure must instead name the affected subject and say
 `UNRESOLVED_RETRIEVAL`.
 
 ## Log Auto-Discovery

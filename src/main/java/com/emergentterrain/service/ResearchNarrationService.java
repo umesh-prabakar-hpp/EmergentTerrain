@@ -3,6 +3,7 @@ package com.emergentterrain.service;
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.ConjecturePreRegistration;
 import com.emergentterrain.research.ConstantLimitPreRegistration;
+import com.emergentterrain.research.CramerGapEnvelopePreRegistration;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
@@ -555,6 +556,11 @@ public class ResearchNarrationService {
                 + "the confirmatory claim. Before exploratory bounds or prose synthesis, execute exactly: "
                 + directive + ". The completed scale ladder is the registered evidence; an unavailable, "
                 + "partial, or single-window result cannot replace it.";
+    }
+
+    static String buildCramerGapEnvelopePreRegistrationNote(PreRegistration registration) {
+        String directive = CramerGapEnvelopePreRegistration.exactTestDirective(registration);
+        return directive.isBlank() ? "" : "\n\nCRAMER-GAP ENVELOPE PRE-REGISTRATION NOTE — " + directive;
     }
 
     static String buildPredicateBaselineSensitivityNote(PaperDraft draft) {
@@ -2086,14 +2092,16 @@ public class ResearchNarrationService {
                 break;
             }
             NarrationResult candidate = produceNarrationCandidate(draft, orchestrationStartedAt);
-            log.info("best-of-n paperId={} candidate {}/{} score={} suppressed={}",
-                    draft.paperId(), i + 1, bestOfNCandidates,
+            String candidateId = "candidate-" + (i + 1);
+            candidate = candidate.withCallPath(candidateId + " → " + candidate.callPath());
+            log.info("best-of-n paperId={} candidateId={} candidate {}/{} score={} suppressed={}",
+                    draft.paperId(), candidateId, i + 1, bestOfNCandidates,
                     String.format("%.4f", scoreCandidate(candidate)), candidate.isSuppressed());
             candidates.add(candidate);
         }
         NarrationResult best = selectBest(candidates);
-        log.info("best-of-n paperId={} selected winner score={}",
-                draft.paperId(), String.format("%.4f", scoreCandidate(best)));
+        log.info("best-of-n paperId={} selected winner candidateId={} score={}", draft.paperId(),
+                best == null ? "none" : best.callPath().split(" → ", 2)[0], String.format("%.4f", scoreCandidate(best)));
         return best;
     }
 
@@ -2143,14 +2151,16 @@ public class ResearchNarrationService {
                 break;
             }
             NarrationResult candidate = finishCandidate(draft, orchestrationStartedAt, fp);
-            log.info("cascade paperId={} finished candidate score={} suppressed={}",
-                    draft.paperId(), String.format("%.4f", scoreCandidate(candidate)),
+            String candidateId = "candidate-" + (finished.size() + 1);
+            candidate = candidate.withCallPath(candidateId + " → " + candidate.callPath());
+            log.info("cascade paperId={} candidateId={} finished candidate score={} suppressed={}",
+                    draft.paperId(), candidateId, String.format("%.4f", scoreCandidate(candidate)),
                     candidate.isSuppressed());
             finished.add(candidate);
         }
         NarrationResult best = selectBest(finished);
-        log.info("cascade paperId={} selected winner score={}",
-                draft.paperId(), String.format("%.4f", scoreCandidate(best)));
+        log.info("cascade paperId={} selected winner candidateId={} score={}", draft.paperId(),
+                best == null ? "none" : best.callPath().split(" → ", 2)[0], String.format("%.4f", scoreCandidate(best)));
         return best;
     }
 
@@ -2725,6 +2735,8 @@ public class ResearchNarrationService {
                             ? buildExactPreRegistrationNote(draft.preRegistration()) : "")
                     + (ConstantLimitPreRegistration.isLocked(draft.preRegistration())
                             ? buildConstantLimitPreRegistrationNote(draft.preRegistration()) : "")
+                    + (CramerGapEnvelopePreRegistration.isLocked(draft.preRegistration())
+                            ? buildCramerGapEnvelopePreRegistrationNote(draft.preRegistration()) : "")
                     + (PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                             ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
                     + (MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())

@@ -239,11 +239,13 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   plans only for the single app run that produced that review batch; no
   `--prepare-literature-backfill` flag is required. Pair each logged term with the paper's locked
   mathematical subject, download only text sources, and record URL/query/paper mapping/SHA-256.
-  Only `RETAINED_FOR_IMPORT` entries may be imported with
-  `prepare-paper-review-screened-literature-index.py --staged-text-manifest <manifest>`. That
-  separate incremental SQLite/FTS5 index validates every file hash, refuses source-text
-  replacement, records manifest provenance, and does not rebuild or mutate the primary Phase 34
-  index. Its staged directory is never a request-time search surface. The screened index becomes
+  After validating `RETAINED_FOR_IMPORT` entries, the paper-review skill imports them with
+  `prepare-paper-review-screened-literature-index.py --staged-text-manifest <manifest>` unless a
+  primary or screened index writer is active; it then leaves the manifest staged pending safe
+  import rather than running writers concurrently. That separate incremental SQLite/FTS5 index
+  validates every file hash, refuses source-text replacement, records manifest provenance, and
+  does not rebuild or mutate the primary Phase 34 index. Its staged directory is never a
+  request-time search surface. The screened index becomes
   searchable only when `app.research.literature.paper-review-screened.enabled=true`; Phase 35 then
   combines it with primary results using the same planner, title/record relevance gates, opaque
   `HF...` capabilities, and `read_reference` flow. Never compare raw FTS rank values across the
@@ -253,6 +255,12 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   absent. See `phase-37-paper-review-screened-literature/README.md` before changing this lane.
 - **Paper-to-literature key map** — after every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`. It regenerates `docs/paper-literature-key-map.md` from final artifacts in both `research/` and `research/archive/`; retain only a key issued by `search_literature` in `EVIDENCE`, successfully returned by `read_reference`, and cited in that paper's `## Related Work`. Never retain a search hit, snippet, failed read, or model relevance assertion alone. The map is a reviewer index; raw paper/trace artifacts remain authoritative. Both Codex and Claude paper-review skill copies require this regeneration.
 - **Phase 35 deterministic post-search read** — with `app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled=true`, the professor trace gets one bounded read only when it has an `EVIDENCE` result with an issued `HF...` key and no earlier `read_reference` attempt. It selects the first issued key in trace order and uses that search call's structured claim as the focused query; it does not search again, retry a failed read, make a relevance judgment, alter Related Work, or upgrade a label. The read is appended before student revision so the model can cite it, but `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE` still requires the final Related Work to contain that same key. Set the flag false for rollback.
+- **Cramér gap ratio protocol** — `cramer_gap_ratio` is a finite, window-dependent maximum-gap
+  envelope, never a `verify_constant` convergence target. `CramerGapEnvelopePreRegistration`
+  locks discovery plus far-location, offset, and width holdouts with `scale_ladder=false`; every
+  requested effective width must survive to the executed trace. The publication gate demotes an
+  incomplete protocol to `NEEDS_REVISION`; report only the finite envelope, never a limiting
+  constant or theorem.
 - **Phase 35 relevance-safe planning** — no additional index stage is required. `DeterministicLiteratureQueryPlanner` considers only adjacent non-generic lexical subject phrases from the claim, dropping generic connective, ordinal, measurement-framing, comparative/relation prose, and numeric/coefficient terms (for example `has`, `order`, `consecutive`, `requiring`, `elevated`, `discriminate`, `between`, `minus`, or `0000`) before candidate generation. A pair made entirely of weak measurement words such as `number density` is also invalid. Each candidate keeps its pair plus one early independent anchor, so later interpretive qualifiers do not discard a source that establishes the core subject/result. The adapter searches theorem-record FTS first; multi-anchor theorem matches need both pair anchors in the paper title plus the full candidate evidence in the returned record. A two-anchor `AND_PAIR` now also needs both case/plural-normalized subject anchors in title-level metadata before it can issue an evidence key; this rejects body-only coincidences such as the observed prime-gap/geometry false positive. If theorem search has no qualifying source, it searches the indexed full text with the same pair plus the independent corroborating anchor; a metadata or indexed full-text title must satisfy that same two-anchor rule, so generic body wording alone cannot issue a key. A title-less companion record is the narrow exception for a three-anchor exact phrase: it needs two non-weak phrase terms and all anchors in its indexed text. The fallback may issue a key only for that safe full-text match and still requires `read_reference`; it never accepts raw model FTS syntax. No valid source means no evidence/key. `LiteratureQueryPlanner` / `LiteratureQueryPlan` is the future AI-tool boundary: any model-proposed query must be one validated `EXACT_PHRASE` or `AND_PAIR` with two safe anchors and cannot bypass record-evidence/title-anchor validation before querying.
 - **No-evidence related-work and zero-panel safeguards (2026-07-24)** — when every recorded
   `search_literature` call returns no relevance-safe evidence, Related Work may state that absence
