@@ -387,6 +387,28 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @org.junit.jupiter.api.Test
+    void knownLocalDivisorLimitRejectsTheCumulativeTargetBeforeComputation() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+
+        String result = suite.buildExecutor(stubDraft(), metrics).apply(mapper.writeValueAsString(Map.of(
+                "name", "verify_constant",
+                "arguments", Map.of(
+                        "lhs", "mean_divisor_excess",
+                        "target", 0.1544313298030657,
+                        "window_start", 200_000,
+                        "window_size", 500,
+                        "num_windows", 3))));
+
+        assertThat(result).startsWith("verify_constant target rejected:")
+                .contains("cumulative observable")
+                .contains("2*gamma-1");
+        assertThat(metrics.verifyConstantSuccessCount()).isZero();
+    }
+
+    @org.junit.jupiter.api.Test
     void tightHold_namesTheLiteralRefutingIntercept_p796() throws Exception {
         // run-26 rec 2: a TIGHT hold previously got NO hint (LOOSE branches fire on large slack
         // only) — P-796 reached rel-slack 0.0026 and spent its extension re-holding. The tool

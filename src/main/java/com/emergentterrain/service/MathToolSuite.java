@@ -11,6 +11,7 @@ import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.SandboxEngine;
 import com.emergentterrain.research.SymbolicEngine;
 import com.emergentterrain.research.SymbolicStaticChecker;
+import com.emergentterrain.research.conjecture.KnownLimitRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -3135,6 +3136,10 @@ public class MathToolSuite {
         }
         Double target = args.has("target") && !args.path("target").isNull()
                 ? args.path("target").asDouble() : null;
+        String targetValidationError = KnownLimitRegistry.targetValidationError(lhs, target);
+        if (targetValidationError != null) {
+            return "verify_constant target rejected: " + targetValidationError;
+        }
         double tol = args.path("tol").asDouble(0.05);
         // measurement-frame-default.md — scale-ladder mode: the TOOL picks a geometric ladder of starts
         // (the range leaves the LLM's hands, which three runs showed it won't push high on its own), so a

@@ -129,8 +129,9 @@ public final class ScalarOpenness {
             Map.entry("dirichlet_error",     new MeasurementSpec(MeasurementFrame.OSCILLATION, null, null, Convergence.SLOW)),
             // omega_Omega_gap → Σ1/p(p−1): prime-sum tail, NULL'd unconverged at 2e7 → SLOW.
             Map.entry("omega_Omega_gap",     new MeasurementSpec(MeasurementFrame.CONSTANT, null, 0.77316, Convergence.SLOW)),
-            // mean_divisor_excess → 2γ: divisor average converges ~x^{-1/2} (Dirichlet) → FAST.
-            Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.15443, Convergence.FAST)),
+            // mean_divisor_excess → 2γ: the local divisor-window average converges ~x^{-1/2} → FAST.
+            Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null,
+                    KnownLimitRegistry.TWO_EULER_GAMMA, Convergence.FAST)),
             // omega_ek_ratio → 1: Erdős–Kac variance, glacial (~1/√ln ln x) → SLOW.
             Map.entry("omega_ek_ratio",      new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.0, Convergence.SLOW)),
             // The Cramér-normalised maximum-gap ratio is a slow constant-limit measurement.  Its

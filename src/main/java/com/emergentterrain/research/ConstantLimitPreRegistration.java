@@ -2,6 +2,7 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.llm.ToolInvocation;
 import com.emergentterrain.research.conjecture.Conjecture;
+import com.emergentterrain.research.conjecture.KnownLimitRegistry;
 import com.emergentterrain.research.conjecture.ScalarOpenness;
 import com.emergentterrain.research.publication.ComputationalStudyPlan;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -13,6 +14,7 @@ import java.util.List;
 public final class ConstantLimitPreRegistration {
     private static final String PREFIX_V1 = "locked-constant-limit:v1;";
     private static final String PREFIX_V2 = "locked-constant-limit:v2;";
+    private static final String PREFIX_V3 = "locked-constant-limit:v3;";
     private static final int PRIMARY_WINDOW_SIZE = 5_000;
     private static final int PRIMARY_NUM_WINDOWS = 5;
     private static final int CONFIRMATION_WINDOW_SIZE = 10_000;
@@ -28,7 +30,9 @@ public final class ConstantLimitPreRegistration {
     public static PreRegistration from(Conjecture conjecture, ScalarOpenness.MeasurementSpec spec) {
         if (conjecture == null || spec == null
                 || spec.frame() != ScalarOpenness.MeasurementFrame.CONSTANT) return null;
-        String target = spec.target() == null ? "" : Double.toString(spec.target());
+        KnownLimitRegistry.KnownLimit knownLimit = KnownLimitRegistry.find(conjecture.lhs()).orElse(null);
+        Double registeredTarget = knownLimit == null ? spec.target() : Double.valueOf(knownLimit.target());
+        String target = registeredTarget == null ? "" : Double.toString(registeredTarget);
         ComputationalStudyPlan plan = new ComputationalStudyPlan(
                 "Run verify_constant with scale_ladder=true for " + conjecture.lhs()
                         + " before interpreting the miner's affine scaffold.",
@@ -41,7 +45,8 @@ public final class ConstantLimitPreRegistration {
                 "Successful primary and width-changed confirmation verify_constant ladders record the observed trajectory"
                         + (target.isBlank() ? "." : " relative to target=" + target + "."),
                 "The constant-limit study is incomplete when either registered scale ladder is absent or fails.",
-                PREFIX_V2 + "lhs=" + conjecture.lhs() + ";target=" + target + ";scale_ladder=true;"
+                PREFIX_V3 + "lhs=" + conjecture.lhs() + ";target=" + target + ";"
+                        + "known_limit=" + (knownLimit == null ? "" : knownLimit.id()) + ";scale_ladder=true;"
                         + "primary_window_size=" + PRIMARY_WINDOW_SIZE + ";primary_num_windows=" + PRIMARY_NUM_WINDOWS + ";"
                         + "confirmation_window_size=" + CONFIRMATION_WINDOW_SIZE + ";confirmation_num_windows=" + CONFIRMATION_NUM_WINDOWS + ";",
                 plan);
@@ -50,7 +55,8 @@ public final class ConstantLimitPreRegistration {
     public static boolean isLocked(PreRegistration registration) {
         return registration != null && registration.mappingNotes() != null
                 && (registration.mappingNotes().startsWith(PREFIX_V1)
-                || registration.mappingNotes().startsWith(PREFIX_V2));
+                || registration.mappingNotes().startsWith(PREFIX_V2)
+                || registration.mappingNotes().startsWith(PREFIX_V3));
     }
 
     /** True only for a completed registered ladder, never a disabled, partial, or failed attempt. */
@@ -104,8 +110,10 @@ public final class ConstantLimitPreRegistration {
 
     private static Specification parse(PreRegistration registration) {
         if (!isLocked(registration)) return null;
-        boolean requiresConfirmation = registration.mappingNotes().startsWith(PREFIX_V2);
-        String prefix = requiresConfirmation ? PREFIX_V2 : PREFIX_V1;
+        boolean requiresConfirmation = registration.mappingNotes().startsWith(PREFIX_V2)
+                || registration.mappingNotes().startsWith(PREFIX_V3);
+        String prefix = registration.mappingNotes().startsWith(PREFIX_V3) ? PREFIX_V3
+                : requiresConfirmation ? PREFIX_V2 : PREFIX_V1;
         String lhs = null;
         Double target = null;
         Integer primaryWindowSize = null, primaryNumWindows = null;

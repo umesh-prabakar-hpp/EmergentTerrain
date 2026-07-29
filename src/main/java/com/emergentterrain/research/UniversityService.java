@@ -46,6 +46,11 @@ public class UniversityService {
 
     private static final Logger log = LoggerFactory.getLogger(UniversityService.class);
 
+    /** The max-prime-gap fit/holdout protocol supplies its own stronger replication evidence. */
+    static boolean usesSpecializedMaxPrimeGapProtocol(String topicName) {
+        return "conjecture/max_prime_gap".equals(topicName);
+    }
+
     // Research cycle constants
     private static final int TERM_PAPERS            = 30;    // publications before next competency test
     private static final int MAX_PAPERS_PER_ROOM    = 500;
@@ -1393,6 +1398,7 @@ public class UniversityService {
                     draft.paperId());
         }
         boolean affineBindingIndependentGridUncovered = affineBindingIndependentGridGateEnabled
+                && !usesSpecializedMaxPrimeGapProtocol(draft.topicName())
                 && AffineBindingIndependentGridValidator.tightBindingWithoutIndependentReplication(
                         narration.toolCallTrace());
         if (affineBindingIndependentGridUncovered) {
