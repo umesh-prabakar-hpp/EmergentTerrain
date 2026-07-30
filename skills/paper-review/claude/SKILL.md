@@ -59,16 +59,24 @@ not a new evidence tool.
 1. Inspect only the app run that produced the review batch and preserve every Phase 35 plan,
    associated virtual-thread paper ID, and raw query terms in a provenance manifest. A multi-run
    or seven-day sweep is an explicit one-time backfill activity, never the recurring default.
-2. Infer the paper's mathematical subject from its locked registration, title, and trace. Search
-   the web with the logged terms paired with that subject; never search a weak narration fragment
-   such as `held out` or `composite inequality` alone.
-3. Run the same subject query against the UW theorem index and record whether title candidates
-   have indexed full text. A missing companion is a coverage state, not a literature-absence claim.
-4. Download source text only (TeX, plain text, BibTeX, and styles needed to read TeX) into an
-   idempotent temporary staging directory; no PDFs. Record canonical URL, query, paper mapping,
-   timestamp, size, and SHA-256.
-5. Screen after download. Rank each candidate against the actual mathematical subject, retain only
-   relevant sources for import, and retain rejected/low-relevance candidates only in provenance.
+2. Infer the paper's mathematical subject from its locked registration, title, and trace. Build a
+   bounded **subject map**. Preserve the logged Phase 35 terms as provenance but use no more than
+   four lanes, each capped at five candidates: exact target/predicate; quantitative asymptotic or
+   distribution; finite-range method; and bias/normalization caveat. For an affine-density study,
+   search the exact quoted predicate and its underlying arithmetic functions before considering
+   the arbitrary mined relation. Pair every query with the locked subject; never search a weak
+   narration fragment such as `held out` or `composite inequality` alone.
+3. Run every lane against the UW theorem index. Record title candidates with indexed full text
+   separately from body-only matches. A missing companion, no title match, or rejected body match
+   is coverage state, not a literature-absence claim.
+4. Deduplicate across all lanes and earlier manifests by canonical URL, arXiv ID, and SHA-256.
+   Reuse matching validated text rather than downloading it again. Download only new source text
+   (TeX, plain text, BibTeX, and styles needed to read TeX) into an idempotent staging directory;
+   no PDFs. Record lane, canonical URL, query, paper mapping, timestamp, size, and SHA-256.
+5. Screen after download with a stated tier: `DIRECT_TARGET`, `METHOD_CONTEXT`,
+   `BACKGROUND_ONLY`, or `REJECTED_LOW_RELEVANCE`. Only direct-target and method-context sources
+   may be `RETAINED_FOR_IMPORT`; background sources remain provenance and cannot satisfy paper
+   grounding. A generic keyword match or asserted relevance is not enough.
 6. Validate the manifest, then import `RETAINED_FOR_IMPORT` sources into the separate incremental
    paper-review-screened index before ending the review. First confirm no primary or screened
    index writer is active; do not run either importer concurrently.
@@ -86,9 +94,10 @@ not a new evidence tool.
    issues no `HF...` key, cites no paper, and upgrades no label. A source becomes evidence only
    after a later normal indexed search/read/Related Work chain.
 
-The manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
-`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`. Reuse a matching SHA-256 source on later
-review passes rather than downloading it again.
+Write new subject-map manifests as `schema_version: 2`. The manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
+`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`, and preserve each candidate's subject-map
+lane and relevance tier. A network/source/index failure is unresolved retrieval, not a
+literature-absence claim.
 
 ## End-of-review screened-index result
 

@@ -237,8 +237,13 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - **Phase 35 artifact smoke** — run `./scripts/run-phase35-artifact-smoke.sh` against the completed real index after changing retrieval, evidence lifecycle, or publication-label code. It is deterministic and writes only a JUnit temporary bundle: it requires the exact lifecycle `search_literature` issued key → successful `read_reference` → matching `[HF...]` Related Work citation, and asserts that omitting the read cannot reach `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE`. It must not start the app, make an LLM request, or leave a research-room artifact behind.
 - **Paper-review-screened literature index** — on every paper-review pass, prepare Phase 35 log
   plans only for the single app run that produced that review batch; no
-  `--prepare-literature-backfill` flag is required. Pair each logged term with the paper's locked
-  mathematical subject, download only text sources, and record URL/query/paper mapping/SHA-256.
+  `--prepare-literature-backfill` flag is required. Use a bounded four-lane subject map (exact
+  target/predicate, quantitative context, finite method, caveat) paired with the locked
+  mathematical subject; do not treat the logged phrase or a mined affine coefficient as the
+  subject by itself. New `schema_version: 2` manifests record `discovery_lane` and
+  `relevance_tier`; only `DIRECT_TARGET` and `METHOD_CONTEXT` sources may be
+  `RETAINED_FOR_IMPORT`. Deduplicate by canonical URL, arXiv ID, and SHA-256, download only text
+  sources, and record URL/query/paper mapping/SHA-256.
   After validating `RETAINED_FOR_IMPORT` entries, the paper-review skill imports them with
   `prepare-paper-review-screened-literature-index.py --staged-text-manifest <manifest>` unless a
   primary or screened index writer is active; it then leaves the manifest staged pending safe

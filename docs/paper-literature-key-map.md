@@ -14,7 +14,7 @@ Regenerate after each paper-review pass with:
 
 | Paper | Literature key | Relevance basis | Artifact |
 |---|---|---|---|
-| _None yet_ | — | No reviewed artifact currently has an issued, read, and cited key. | — |
+| `P-b72c-77627970` | `HF20A94C6E8F45DBCAF99E` | issued + read + cited | [research/b72c4e10/artifacts/P-b72c-77627970](../research/b72c4e10/artifacts/P-b72c-77627970) |
 
 ## Review protocol
 

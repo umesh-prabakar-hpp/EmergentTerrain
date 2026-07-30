@@ -75,19 +75,37 @@ lane, not a new evidence tool.
    literature plan, its virtual-thread paper ID, and its logged query terms. Preserve that raw
    pairing in a provenance manifest. A multi-run or seven-day sweep is an explicit one-time
    backfill activity, never the recurring review default.
-2. Infer the mathematical subject from the paper's locked registration, title, and trace. Search
-   the web with the logged terms *paired with that subject*. For example, a weak logged pair may
-   be useful when paired with `maximal prime gaps` or `Dirichlet divisor problem`; never search a
-   narration fragment such as `held out` or `composite inequality` by itself.
-3. Run the same subject query against the local UW theorem index and record whether its title
-   candidates have indexed full text. This is a diagnostic only; the old theorem corpus's lack of
-   a matching full-text companion must not be recorded as a literature absence.
-4. Download source text only (TeX, plain text, BibTeX, and styles needed to read TeX) for each
-   web candidate into an idempotent temporary staging directory. Do not download PDFs for this
-   lane. Record canonical URL, query, paper-ID mapping, timestamp, size, and SHA-256.
-5. Perform a relevance screen after download. Rank retained sources against the paper's actual
-   mathematical subject and state why each source is relevant. Record rejected or low-relevance
-   downloads in the same manifest, but do not offer them for import.
+2. Infer the mathematical subject from the paper's locked registration, title, and trace. Build a
+   bounded **subject map**, retaining the Phase 35 terms as provenance but never letting those
+   terms be the whole search. Use at most four lanes and five candidates per lane:
+
+   | Lane | Constant/known-target study | Predicate or affine-density study |
+   | :--- | :--- | :--- |
+   | Target | exact named target/theorem or conjecture | exact predicate in quoted notation |
+   | Quantitative | counting function or asymptotic form | distribution of the underlying arithmetic functions |
+   | Finite method | numerical verification or finite-range measurement | finite-window/census methodology |
+   | Caveat | bias, normalization, or exceptional cases | structural relation only if independently meaningful |
+
+   For example, a twin-prime target may search the Hardy--Littlewood prime-pair conjecture,
+   numerical twin-prime counting, and residue-class bias separately. A predicate such as
+   `d(n) > omega(n)^2` must first search the divisor/prime-factor definitions and its exact quoted
+   predicate; do not search an arbitrary mined affine coefficient as though it were literature.
+   Pair every query with the locked mathematical subject. Never search narration fragments such as
+   `held out` or `composite inequality` alone.
+3. Run every lane's subject query against the local UW theorem index and record title candidates
+   with indexed full text separately from body-only matches. This is a diagnostic only; a missing
+   companion, no title match, or a rejected body match is coverage state, never literature absence.
+4. Deduplicate candidates across all lanes and earlier manifests by canonical URL, arXiv ID, and
+   SHA-256. Reuse an already validated matching text source instead of downloading it again.
+   Download source text only (TeX, plain text, BibTeX, and styles needed to read TeX) for each
+   new candidate into an idempotent temporary staging directory. Do not download PDFs. Record the
+   lane, canonical URL, query, paper-ID mapping, timestamp, size, and SHA-256.
+5. Screen after download using a stated tier: `DIRECT_TARGET` (the exact target/predicate),
+   `METHOD_CONTEXT` (a valid method or finite-range caveat), `BACKGROUND_ONLY`, or
+   `REJECTED_LOW_RELEVANCE`. Only the first two may be `RETAINED_FOR_IMPORT`; background sources
+   remain provenance and cannot satisfy paper grounding. A weak keyword match, generic prime or
+   divisor paper, or model assertion is not enough. State why each retained source bears on the
+   locked subject and why each rejected source does not.
 6. Validate the staging manifest, then import its retained sources into the separate incremental
    paper-review-screened index before ending the review. First confirm that no primary or screened
    index writer is active; do not run either importer concurrently. Run:
@@ -108,10 +126,10 @@ lane, not a new evidence tool.
    only after a later normal run completes indexed `search_literature → read_reference → Related
    Work`.
 
-The staging manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`, and
-`REJECTED_LOW_RELEVANCE`. A network, source, or index failure is `UNRESOLVED_RETRIEVAL`, never
-evidence that the literature is absent. Reuse a matching SHA-256 source rather than downloading it
-again on the next 15-minute pass.
+Write new subject-map manifests as `schema_version: 2`. The staging manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
+`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`, and preserve each candidate's subject-map
+lane and relevance tier. A network, source, or index failure is `UNRESOLVED_RETRIEVAL`, never
+evidence that the literature is absent.
 
 ## End-of-review screened-index result
 

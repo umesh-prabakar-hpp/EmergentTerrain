@@ -283,8 +283,12 @@ lines when validating a timeout recovery; FTS maintenance remains a single-write
 
 **Paper-review-screened literature** — every paper-review pass prepares a discovery manifest for
 the single app run that produced that review batch; no `--prepare-literature-backfill` switch is
-required. It pairs logged retrieval terms with the paper's locked mathematical subject, obtains
-text-only candidates, and relevance-screens them into a temporary staging area. After validating a
+required. It uses a bounded four-lane subject map (exact target/predicate, quantitative context,
+finite-range method, and caveat) rather than treating the logged retrieval phrase as the whole
+search. New schema-v2 manifests record each source's lane and relevance tier; only
+`DIRECT_TARGET` and `METHOD_CONTEXT` sources may be retained for import, while background and
+generic keyword matches remain provenance only. It obtains text-only candidates and
+relevance-screens them into a temporary staging area. After validating a
 `RETAINED_FOR_IMPORT` entry and confirming that no primary or screened index writer is active, the
 review imports it into the separate incremental paper-review-screened SQLite/FTS5 index instead of
 rebuilding the large primary Phase 34 FTS index. When

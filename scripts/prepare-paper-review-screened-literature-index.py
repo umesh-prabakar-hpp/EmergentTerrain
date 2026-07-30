@@ -18,6 +18,9 @@ from pathlib import Path
 DEFAULT_INDEX_DIR = Path.home() / ".emergentterrain" / "indexes" / "math-literature-paper-review-screened"
 TEXT_EXTENSIONS = {".tex", ".txt", ".bib", ".sty"}
 INDEXABLE_EXTENSIONS = {".tex", ".txt", ".bib"}
+SUBJECT_MAP_LANES = {"target", "quantitative", "finite_method", "caveat"}
+RELEVANCE_TIERS = {"DIRECT_TARGET", "METHOD_CONTEXT", "BACKGROUND_ONLY", "REJECTED_LOW_RELEVANCE"}
+IMPORTABLE_RELEVANCE_TIERS = {"DIRECT_TARGET", "METHOD_CONTEXT"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,13 +66,25 @@ def read_retained_sources(manifest_path: Path) -> list[dict]:
         raise SystemExit(f"staged text manifest is invalid JSON: {manifest_path}") from exc
     if "provenance-recorded text-source staging" not in manifest.get("purpose", ""):
         raise SystemExit("staged text manifest does not declare the expected provenance purpose")
+    schema_version = manifest.get("schema_version", 1)
+    if not isinstance(schema_version, int) or schema_version < 1:
+        raise SystemExit("staged text manifest has an invalid schema_version")
 
     base = manifest_path.parent
     sources: list[dict] = []
     for subject in manifest.get("subjects", []):
         for source in subject.get("sources", []):
+            if schema_version >= 2:
+                lane = source.get("discovery_lane")
+                tier = source.get("relevance_tier")
+                if lane not in SUBJECT_MAP_LANES:
+                    raise SystemExit(f"source has an invalid subject-map discovery_lane: {lane!r}")
+                if tier not in RELEVANCE_TIERS:
+                    raise SystemExit(f"source has an invalid relevance_tier: {tier!r}")
             if source.get("status") != "RETAINED_FOR_IMPORT":
                 continue
+            if schema_version >= 2 and source.get("relevance_tier") not in IMPORTABLE_RELEVANCE_TIERS:
+                raise SystemExit("only DIRECT_TARGET or METHOD_CONTEXT sources may be retained for import")
             arxiv_id = source.get("arxiv_id")
             canonical_url = source.get("canonical_source_url")
             file_names = source.get("text_files")
