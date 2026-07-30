@@ -446,6 +446,14 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(ResearchNarrationService.scoreCandidate(uncited)).isEqualTo(Double.NEGATIVE_INFINITY);
     }
 
+    @Test
+    void ungroundedNamedConstantTargetIsExcludedFromBestOfNScoring() {
+        NarrationResult ungrounded = new NarrationResult("h", "f", "c", null, "model", 0.99,
+                List.of(), "literature:required_target_not_grounded:demoted_to_needs_revision", List.of());
+
+        assertThat(ResearchNarrationService.scoreCandidate(ungrounded)).isEqualTo(Double.NEGATIVE_INFINITY);
+    }
+
     // ---- Novelty-lens follow-up: revision-stage novelty preservation ----
 
     @Test

@@ -552,17 +552,22 @@ public class ResearchNarrationService {
     static String buildConstantLimitPreRegistrationNote(PreRegistration registration) {
         String directive = ConstantLimitPreRegistration.exactTestDirective(registration);
         if (directive.isBlank()) return "";
-        boolean knownCalibration = registration != null && registration.mappingNotes() != null
-                && registration.mappingNotes().matches("(?s).*known_limit=[^;]+;.*");
+        boolean knownCalibration = ConstantLimitPreRegistration.isEstablishedCalibration(registration);
+        boolean sourceRequired = ConstantLimitPreRegistration.requiresSourceGrounding(registration);
+        String literatureSubject = ConstantLimitPreRegistration.literatureSubject(registration);
         return "\n\nCONSTANT-LIMIT PRE-REGISTRATION NOTE — the miner's affine scaffold is not "
                 + "the confirmatory claim. Before exploratory bounds or prose synthesis, execute exactly: "
                 + directive + ". The completed scale ladder is the registered evidence; an unavailable, "
-                + "partial, execution-collapsed, or single-window result cannot replace it."
+                + "partial, execution-collapsed, or single-window result cannot replace it. The output must report "
+                + "the disjoint-window sample standard deviation and standard error; do not turn a finite calibration into a theorem."
                 + (knownCalibration
                 ? " This is an established calibration target: do not claim novelty or a new theorem. "
-                        + "Before scoring, retain the normal search_literature → read_reference → Related Work citation chain "
-                        + "that identifies the analytic target."
-                : "");
+                        : " This is a named conjectural/open target: frame the result only as finite-window numerical "
+                                + "consistency, not as a proof, novelty claim, or establishment of the target.")
+                + (sourceRequired ? " Before candidate scoring, call search_literature for the locked subject \""
+                        + literatureSubject + "\"; it must issue EVIDENCE, then call read_reference and retain the exact "
+                        + "[HF...] key in Related Work. A target without this readable source chain is demoted before selection."
+                        : "");
     }
 
     static String buildCramerGapEnvelopePreRegistrationNote(PreRegistration registration) {
@@ -1592,6 +1597,10 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.ladder-rung-budget:0}")
     private long ladderRungBudgetFlag;
 
+    /** Smaller per-rung ceiling for the explicit locked deadline-aware constant ladder. */
+    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.ladder-deadline-budget:0}")
+    private long ladderDeadlineBudgetFlag;
+
     /** Phase 33 L2 — full-text core reader; bean exists only when read-reference.enabled. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.literature.ReferenceCoreReader referenceReader;
@@ -1627,6 +1636,7 @@ public class ResearchNarrationService {
             toolSuite.setScalarStatsToolEnabled(scalarStatsToolFlag);
             toolSuite.setVerifyInformCaveatsEnabled(verifyInformCaveatsFlag);
             toolSuite.setLadderRungBudget(ladderRungBudgetFlag);
+            toolSuite.setDeadlineAwareLadderRungBudget(ladderDeadlineBudgetFlag);
             toolSuite.setRangeChunkExecutor(rangeChunkExecutor);
             toolSuite.setLiteratureGrounding(groundingClient);
             toolSuite.setReferenceReader(referenceReader);
@@ -2246,6 +2256,10 @@ public class ResearchNarrationService {
                 && candidate.callPath().contains("literature:read_key_omitted:demoted_to_needs_revision")) {
             return Double.NEGATIVE_INFINITY;
         }
+        if (candidate.callPath() != null
+                && candidate.callPath().contains("literature:required_target_not_grounded:demoted_to_needs_revision")) {
+            return Double.NEGATIVE_INFINITY;
+        }
         com.emergentterrain.research.PanelOutcome panel = candidate.panelOutcome();
         if (panel == null || panel.isEmpty()) {
             return candidate.confidenceScore();
@@ -2446,6 +2460,13 @@ public class ResearchNarrationService {
                 log.warn("final literature positioning missing paperId={} readKeys={} — "
                                 + "demoting to NEEDS_REVISION",
                         draft.paperId(), readKeys);
+            }
+            if (ConstantLimitPreRegistration.requiresSourceGrounding(draft.preRegistration())
+                    && !com.emergentterrain.research.publication.ComputationalPublicationPhase
+                    .hasLiteraturePositioning(finalResult.relatedWork(), finalResult.toolCallTrace())) {
+                callPath.add("literature:required_target_not_grounded:demoted_to_needs_revision");
+                log.warn("required target grounding missing paperId={} subject={} — demoting to NEEDS_REVISION",
+                        draft.paperId(), ConstantLimitPreRegistration.literatureSubject(draft.preRegistration()));
             }
         }
 

@@ -373,6 +373,14 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @org.junit.jupiter.api.Test
+    void constantWindowUncertaintyReportsSampleStandardDeviationAndStandardError() {
+        assertThat(MathToolSuite.windowUncertainty(new double[]{1.0, 2.0, 3.0}))
+                .contains("n=3")
+                .contains("sd=1.0000")
+                .contains("se=0.57735");
+    }
+
+    @org.junit.jupiter.api.Test
     void scaleLadderFailsBeforeSchedulingWhenJuliaConjectureSidecarIsUnavailable() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         MathToolSuite suite = new MathToolSuite(

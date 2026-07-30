@@ -66,19 +66,23 @@ class ConjectureInvestigationProtocolTest {
 
         assertThat(allocation.route()).isEqualTo(ConjectureInvestigationProtocol.Route.CONSTANT_LIMIT);
         assertThat(allocation.registration().mappingNotes())
-                .startsWith("locked-constant-limit:v4;")
+                .startsWith("locked-constant-limit:v5;")
                 .contains("known_limit=mean_divisor_excess:local-window:v1")
                 .contains("target=1.1544313298030657")
                 .contains("primary_ladder_start=100000")
-                .contains("confirmation_ladder_start=500000");
+                .contains("location_holdout_start=1500000000")
+                .contains("width_holdout_start=1500100000")
+                .contains("deadline_aware=true");
         assertThat(ConstantLimitPreRegistration.exactTestDirective(allocation.registration()))
                 .contains("target=1.1544313298030657")
                 .contains("ladder_start=100000")
-                .contains("ladder_start=500000");
+                .contains("deadline_aware=true")
+                .contains("window_start=1500000000")
+                .contains("window_start=1500100000");
     }
 
     @Test
-    void constantLimitEvidenceRequiresDistinctRecordedLadderStarts() {
+    void constantLimitEvidenceRequiresDeadlineAwareLadderAndIndependentLocationAndWidthHoldouts() {
         Conjecture conjecture = new Conjecture("MATHEMATICS", "omega_Omega_gap",
                 "_constant_", 0.0, 0.0);
         var registration = ConstantLimitPreRegistration.from(conjecture,
@@ -86,19 +90,35 @@ class ConjectureInvestigationProtocolTest {
         List<ToolInvocation> trace = List.of(
                 new ToolInvocation("verify_constant",
                         "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
-                                + "\"window_size\":5000,\"num_windows\":5,\"ladder_start\":100000}",
+                                + "\"window_size\":5000,\"num_windows\":5,\"ladder_start\":100000,\"deadline_aware\":true}",
                         "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales.", 0),
                 new ToolInvocation("verify_constant",
-                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
-                                + "\"window_size\":10000,\"num_windows\":5,\"ladder_start\":500000}",
-                        "verify_constant scale-ladder: omega_Omega_gap ladder_start=500000 measured across 4 scales.", 0));
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500000000,"
+                                + "\"window_size\":5000,\"num_windows\":5}",
+                        "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 5000 starting at 1500000000.", 0),
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500100000,"
+                                + "\"window_size\":10000,\"num_windows\":5}",
+                        "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 10000 starting at 1500100000.", 0));
 
         assertThat(ConstantLimitPreRegistration.hasExactEvidence(registration, trace)).isTrue();
 
-        List<ToolInvocation> collapsed = List.of(trace.get(0), new ToolInvocation("verify_constant",
-                "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
-                        + "\"window_size\":10000,\"num_windows\":5,\"ladder_start\":100000}",
-                "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales.", 0));
+        List<ToolInvocation> collapsed = List.of(trace.get(0), trace.get(1), new ToolInvocation("verify_constant",
+                "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500000000,"
+                        + "\"window_size\":10000,\"num_windows\":5}",
+                "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 10000 starting at 1500000000.", 0));
         assertThat(ConstantLimitPreRegistration.hasExactEvidence(registration, collapsed)).isFalse();
+    }
+
+    @Test
+    void namedConjecturalConstantRequiresLockedLiteratureGrounding() {
+        var registration = ConstantLimitPreRegistration.from(
+                new Conjecture("MATHEMATICS", "twin_vs_prime_sq", "_constant_", 0.0, 0.0),
+                ScalarOpenness.measurementFrame("twin_vs_prime_sq"));
+
+        assertThat(ConstantLimitPreRegistration.requiresSourceGrounding(registration)).isTrue();
+        assertThat(ConstantLimitPreRegistration.isEstablishedCalibration(registration)).isFalse();
+        assertThat(ConstantLimitPreRegistration.literatureSubject(registration))
+                .isEqualTo("Hardy-Littlewood twin prime constant");
     }
 }

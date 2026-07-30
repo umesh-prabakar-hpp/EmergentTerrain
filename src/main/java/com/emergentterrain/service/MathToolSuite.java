@@ -510,8 +510,19 @@ public class MathToolSuite {
      */
     private volatile long ladderRungBudget = 0;
 
+    /**
+     * A smaller cap used only by a locked deadline-aware ladder.  It preserves the ordinary
+     * high-signal ladder budget, but keeps the confirmatory run below the Julia request deadline
+     * instead of turning its final high-x rung into an all-or-nothing timeout.
+     */
+    private volatile long deadlineAwareLadderRungBudget = 0;
+
     public void setLadderRungBudget(long budget) {
         this.ladderRungBudget = budget;
+    }
+
+    public void setDeadlineAwareLadderRungBudget(long budget) {
+        this.deadlineAwareLadderRungBudget = budget;
     }
 
     /**
@@ -1097,6 +1108,7 @@ public class MathToolSuite {
                     "tol":{"type":"number","description":"Relative tolerance for CONVERGED (worst |dev| / |target| ≤ tol). Default 0.05."},
                     "window_start":{"type":"integer","description":"First integer in the first window (single-slice mode). Ignored when scale_ladder is true."},
                     "ladder_start":{"type":"integer","description":"Optional first rung of a scale ladder (at least 100000). Use only when a locked protocol requires an independently placed ladder; default 100000."},
+                    "deadline_aware":{"type":"boolean","description":"Use only when a locked pre-registration explicitly requires it. It caps each rung's sample budget so a high-x confirmation completes within the Julia request deadline; it does not change the registered scalar or target."},
                     "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap). Default 5000 in scale_ladder mode."},
                     "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."},
                     "scale_ladder":{"type":"boolean","description":"SET TRUE for a MEASUREMENT across scales — the tool AUTO-EVALUATES the lhs at a GEOMETRIC ladder of window_starts (1e5, 1e6, 1e7, 1e8, up to near the trusted ceiling) and reports the per-scale trajectory + whether the gap to the limit is SHRINKING across scales. This is the load-bearing measurement. Use ladder_start only for a locked independent-placement confirmation; otherwise the canonical 100000 start is used."}
@@ -3155,7 +3167,8 @@ public class MathToolSuite {
             if (ladderStart < 100_000L) {
                 return "verify_constant scale-ladder rejected: ladder_start must be at least 100000.";
             }
-            return verifyConstantLadder(lhs, ladderSize, ladderNum, target, tol, ladderStart);
+            return verifyConstantLadder(lhs, ladderSize, ladderNum, target, tol, ladderStart,
+                    args.path("deadline_aware").asBoolean(false));
         }
         long windowStart = args.path("window_start").asLong(-1);
         int windowSize = args.path("window_size").asInt(-1);
@@ -3199,6 +3212,7 @@ public class MathToolSuite {
         sb.append(String.format(
                 "verify_constant: %s ~ %.5f over %d window(s) of size %d starting at %d. ",
                 lhs, a.mean(), windows.size(), windowSize, windowStart));
+        sb.append(windowUncertainty(values));
         if (target != null) {
             // Convergence is judged by the MEAN's deviation from the target (the limit), with the
             // per-window spread reported as sampling noise — a sparse quantity (twin primes) is noisy
@@ -3227,7 +3241,7 @@ public class MathToolSuite {
      * even when no single window is "converged".
      */
     private String verifyConstantLadder(String lhs, int windowSize, int numWindows, Double target, double tol,
-                                        long ladderStart) {
+                                        long ladderStart, boolean deadlineAware) {
         if (!conjectureVerifier.isConjectureSidecarAvailable()) {
             return "verify_constant scale-ladder unavailable: the Julia conjecture sidecar is not ready. "
                     + "No broad logical range or chunk was scheduled; restore the sidecar and retry the same request.";
@@ -3236,7 +3250,11 @@ public class MathToolSuite {
         // run-25 rec 1 — ladder rungs use their own sample budget (see ladderRungBudget): the
         // interactive WORK cap is a per-call guard, not a substrate limit, and second-order
         // deficit signals are unmeasurable at 100k integers/rung.
-        int rungWindowSize = ladderRungWindowSize(windowSize, numWindows, ladderRungBudget);
+        long configuredRungBudget = deadlineAware && deadlineAwareLadderRungBudget > 0
+                ? Math.min(ladderRungBudget <= 0 ? deadlineAwareLadderRungBudget : ladderRungBudget,
+                deadlineAwareLadderRungBudget)
+                : ladderRungBudget;
+        int rungWindowSize = ladderRungWindowSize(windowSize, numWindows, configuredRungBudget);
         long work = (long) rungWindowSize * numWindows;
         java.util.List<Long> starts = new java.util.ArrayList<>();
         for (long s = ladderStart; s + work <= maxN; ) {
@@ -3248,6 +3266,7 @@ public class MathToolSuite {
             return "verify_constant scale-ladder: no rung fits (window_size × num_windows too large for the range).";
         }
         double[] means = new double[starts.size()];
+        String[] uncertainties = new String[starts.size()];
         StringBuilder traj = new StringBuilder();
         int chunkedLogicalWindows = 0;
         int chunkCount = 0;
@@ -3306,11 +3325,20 @@ public class MathToolSuite {
                 n++;
             }
             means[i] = n > 0 ? sum / n : Double.NaN;
+            double[] values = new double[n];
+            for (int j = 0; j < n; j++) values[j] = ws.get(j).getOrDefault(lhs, 0.0);
+            uncertainties[i] = windowUncertainty(values).trim();
             traj.append(String.format("%s%d→%.5f", i == 0 ? "" : ", ", s, means[i]));
         }
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("verify_constant scale-ladder: %s ladder_start=%d measured across %d scales [%s]. ",
                 lhs, ladderStart, starts.size(), traj));
+        sb.append("uncertainty by rung [");
+        for (int i = 0; i < starts.size(); i++) {
+            if (i > 0) sb.append("; ");
+            sb.append(starts.get(i)).append(' ').append(uncertainties[i]);
+        }
+        sb.append("]. ");
         if (target != null) {
             double g0 = Math.abs(means[0] - target);
             double gN = Math.abs(means[means.length - 1] - target);
@@ -3351,7 +3379,24 @@ public class MathToolSuite {
                     " rung sample: %d window(s) × %,d = %,d integers per rung.",
                     numWindows, rungWindowSize, (long) numWindows * rungWindowSize));
         }
+        if (deadlineAware) {
+            sb.append(String.format(" deadline-aware rung budget=%,d; high-x completion is preferred to an "
+                            + "oversized rung timing out.", configuredRungBudget));
+        }
         return sb.toString();
+    }
+
+    /** Sample-standard-deviation and standard-error summary for a fixed set of disjoint windows. */
+    static String windowUncertainty(double[] values) {
+        if (values == null || values.length == 0) return "uncertainty unavailable";
+        double mean = 0.0;
+        for (double value : values) mean += value;
+        mean /= values.length;
+        double sumSquares = 0.0;
+        for (double value : values) sumSquares += (value - mean) * (value - mean);
+        double sd = values.length > 1 ? Math.sqrt(sumSquares / (values.length - 1)) : 0.0;
+        double se = sd / Math.sqrt(values.length);
+        return String.format("n=%d, sd=%.5g, se=%.5g", values.length, sd, se);
     }
 
     /**
