@@ -2002,6 +2002,12 @@ public class UniversityService {
             // the professor stage or by tightening the narrator prompt.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (callPath != null && callPath.contains("rev:parse_failed:demoted_to_needs_revision")) {
+            // A trace-only revision fallback preserves executed evidence but is not a completed
+            // narrated paper. It deliberately bypassed panel/best-of-N scoring and remains
+            // retryable only after a parseable student revision is produced.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.INCOMPLETE;
         } else if (callPath != null && callPath.contains(":demoted_to_needs_revision")) {
             // Phase 12 D4 / paper-review 2026-07-24 — degraded panels carry
             // `panel:n=N:degraded:demoted_to_needs_revision`; N=0 means no

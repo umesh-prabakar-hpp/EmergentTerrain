@@ -1096,9 +1096,10 @@ public class MathToolSuite {
                     "target":{"type":"number","description":"The conjectured limit (e.g. 1.32032 for twin_vs_prime_sq → 2C₂). Omit to estimate it empirically from the windows."},
                     "tol":{"type":"number","description":"Relative tolerance for CONVERGED (worst |dev| / |target| ≤ tol). Default 0.05."},
                     "window_start":{"type":"integer","description":"First integer in the first window (single-slice mode). Ignored when scale_ladder is true."},
+                    "ladder_start":{"type":"integer","description":"Optional first rung of a scale ladder (at least 100000). Use only when a locked protocol requires an independently placed ladder; default 100000."},
                     "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap). Default 5000 in scale_ladder mode."},
                     "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."},
-                    "scale_ladder":{"type":"boolean","description":"SET TRUE for a MEASUREMENT across scales — the tool AUTO-EVALUATES the lhs at a GEOMETRIC ladder of window_starts (1e5, 1e6, 1e7, 1e8, up to near the trusted ceiling) and reports the per-scale trajectory + whether the gap to the limit is SHRINKING across scales. This is the load-bearing measurement (window_start is ignored, the tool picks the scales). REQUIRED for a slow converger: a single low-x window understates convergence and a clean limit only emerges at high x. Use this rather than guessing high window_start values yourself."}
+                    "scale_ladder":{"type":"boolean","description":"SET TRUE for a MEASUREMENT across scales — the tool AUTO-EVALUATES the lhs at a GEOMETRIC ladder of window_starts (1e5, 1e6, 1e7, 1e8, up to near the trusted ceiling) and reports the per-scale trajectory + whether the gap to the limit is SHRINKING across scales. This is the load-bearing measurement. Use ladder_start only for a locked independent-placement confirmation; otherwise the canonical 100000 start is used."}
                   },
                   "required":["lhs"]
                 }
@@ -3143,12 +3144,18 @@ public class MathToolSuite {
         double tol = args.path("tol").asDouble(0.05);
         // measurement-frame-default.md — scale-ladder mode: the TOOL picks a geometric ladder of starts
         // (the range leaves the LLM's hands, which three runs showed it won't push high on its own), so a
-        // slow converger is measured across scales out to the ceiling. window_start is ignored here.
+        // slow converger is measured across scales out to the ceiling. A locked registration may supply
+        // ladder_start to create an independently placed confirmation ladder; ordinary callers retain
+        // the canonical 100k start.
         if (args.path("scale_ladder").asBoolean(false)) {
             int ladderSize = args.path("window_size").asInt(5000);
             int ladderNum = args.path("num_windows").asInt(5);
             if (ladderSize <= 0 || ladderNum <= 0) { ladderSize = 5000; ladderNum = 5; }
-            return verifyConstantLadder(lhs, ladderSize, ladderNum, target, tol);
+            long ladderStart = args.path("ladder_start").asLong(100_000L);
+            if (ladderStart < 100_000L) {
+                return "verify_constant scale-ladder rejected: ladder_start must be at least 100000.";
+            }
+            return verifyConstantLadder(lhs, ladderSize, ladderNum, target, tol, ladderStart);
         }
         long windowStart = args.path("window_start").asLong(-1);
         int windowSize = args.path("window_size").asInt(-1);
@@ -3219,7 +3226,8 @@ public class MathToolSuite {
      * cross-scale trajectory is the strong measurement, and a slow converger shows a tightening trend
      * even when no single window is "converged".
      */
-    private String verifyConstantLadder(String lhs, int windowSize, int numWindows, Double target, double tol) {
+    private String verifyConstantLadder(String lhs, int windowSize, int numWindows, Double target, double tol,
+                                        long ladderStart) {
         if (!conjectureVerifier.isConjectureSidecarAvailable()) {
             return "verify_constant scale-ladder unavailable: the Julia conjecture sidecar is not ready. "
                     + "No broad logical range or chunk was scheduled; restore the sidecar and retry the same request.";
@@ -3231,8 +3239,10 @@ public class MathToolSuite {
         int rungWindowSize = ladderRungWindowSize(windowSize, numWindows, ladderRungBudget);
         long work = (long) rungWindowSize * numWindows;
         java.util.List<Long> starts = new java.util.ArrayList<>();
-        for (long s = 100_000L; s + work <= maxN; s *= 10) {
+        for (long s = ladderStart; s + work <= maxN; ) {
             starts.add(s);
+            if (s > Long.MAX_VALUE / 10L) break;
+            s *= 10L;
         }
         if (starts.isEmpty()) {
             return "verify_constant scale-ladder: no rung fits (window_size × num_windows too large for the range).";
@@ -3299,8 +3309,8 @@ public class MathToolSuite {
             traj.append(String.format("%s%d→%.5f", i == 0 ? "" : ", ", s, means[i]));
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("verify_constant scale-ladder: %s measured across %d scales [%s]. ",
-                lhs, starts.size(), traj));
+        sb.append(String.format("verify_constant scale-ladder: %s ladder_start=%d measured across %d scales [%s]. ",
+                lhs, ladderStart, starts.size(), traj));
         if (target != null) {
             double g0 = Math.abs(means[0] - target);
             double gN = Math.abs(means[means.length - 1] - target);

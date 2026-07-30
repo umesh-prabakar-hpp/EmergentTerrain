@@ -1780,6 +1780,18 @@ class PublishPaperTest {
     }
 
     @Test
+    void malformedToolBearingStudentRevisionRoutesToIncompleteNeedsRevision() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithCallPath(0.8,
+                "prof:tools:ok → rev:parse_failed:demoted_to_needs_revision");
+
+        service.publishPaper(draft, narration);
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().reviewState()).isEqualTo("INCOMPLETE");
+    }
+
+    @Test
     void relatedWorkNoEvidenceDemotionMarkerRoutesToNeedsRevision() {
         PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
         NarrationResult narration = new NarrationResult(
@@ -2336,7 +2348,7 @@ class PublishPaperTest {
     }
 
     @Test
-    void constantFramedAffineProxyWithoutDirectMeasurementRoutesToNeedsRevision() {
+    void cramerGapAffineProxyWithoutEnvelopeProtocolRoutesToNeedsRevision() {
         ReflectionTestUtils.setField(service, "constantFrameDirectMeasurementGateEnabled", true);
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
                 new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
@@ -2350,11 +2362,11 @@ class PublishPaperTest {
 
         assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
         assertThat(firstPaper().llmCallPath())
-                .contains("publish:constant_frame_direct_measurement_missing→needs_revision");
+                .contains("publish:cramer_gap_envelope_preregistration_uncovered→needs_revision");
     }
 
     @Test
-    void constantFramedDirectMeasurementAllowsPublication() {
+    void cramerGapDirectMeasurementWithoutEnvelopeProtocolRoutesToNeedsRevision() {
         ReflectionTestUtils.setField(service, "constantFrameDirectMeasurementGateEnabled", true);
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
                 new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
@@ -2367,23 +2379,25 @@ class PublishPaperTest {
                 ResultClassification.SUPPORTED, 0.5);
         service.publishPaper(draft, narration(0.8).withToolCallTrace(trace));
 
-        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:cramer_gap_envelope_preregistration_uncovered→needs_revision");
     }
 
     @Test
     void singleConstantLadderCannotReplaceTheLockedSecondAllocation() {
         PreRegistration registration = ConstantLimitPreRegistration.from(
                 new com.emergentterrain.research.conjecture.Conjecture(
-                        "MATHEMATICS", "cramer_gap_ratio", "_constant_", 0.0, 0.36),
+                        "MATHEMATICS", "omega_Omega_gap", "_constant_", 0.0, 0.77316),
                 com.emergentterrain.research.conjecture.ScalarOpenness
-                        .measurementFrame("cramer_gap_ratio"));
+                        .measurementFrame("omega_Omega_gap"));
         List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
                 new com.emergentterrain.llm.ToolInvocation("verify_constant",
-                        "{\"lhs\":\"cramer_gap_ratio\",\"scale_ladder\":true,"
-                                + "\"window_size\":5000,\"num_windows\":5}",
-                        "verify_constant scale-ladder: cramer_gap_ratio measured across 5 scales.", 0));
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
+                                + "\"window_size\":5000,\"num_windows\":5,\"ladder_start\":100000}",
+                        "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales.", 0));
 
-        service.publishPaper(draftForTopicWithPreRegistration("MATHEMATICS", "conjecture/cramer_gap_ratio",
+        service.publishPaper(draftForTopicWithPreRegistration("MATHEMATICS", "conjecture/omega_Omega_gap",
                         ResultClassification.SUPPORTED, 0.5, registration),
                 narration(0.8).withToolCallTrace(trace));
 

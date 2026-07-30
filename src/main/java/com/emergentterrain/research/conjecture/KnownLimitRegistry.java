@@ -17,6 +17,9 @@ public final class KnownLimitRegistry {
     public static final double TWO_EULER_GAMMA = 1.1544313298030657;
     /** Accept the rounded registered target 1.15443, but not the cumulative target 2γ−1. */
     private static final double MEAN_DIVISOR_EXCESS_TARGET_TOLERANCE = 1.0e-5;
+    /** Prime-power correction in the average difference Ω(n) − ω(n). */
+    public static final double OMEGA_OMEGA_GAP_TARGET = 0.77316;
+    private static final double OMEGA_OMEGA_GAP_TARGET_TOLERANCE = 1.0e-5;
 
     public record KnownLimit(String id, String scalar, String definition,
                              double target, double targetTolerance) {
@@ -33,11 +36,19 @@ public final class KnownLimitRegistry {
             TWO_EULER_GAMMA,
             MEAN_DIVISOR_EXCESS_TARGET_TOLERANCE);
 
+    private static final KnownLimit OMEGA_OMEGA_GAP = new KnownLimit(
+            "omega_Omega_gap:prime-power-correction:v1",
+            "omega_Omega_gap",
+            "mean_window(Ω(n) − ω(n))",
+            OMEGA_OMEGA_GAP_TARGET,
+            OMEGA_OMEGA_GAP_TARGET_TOLERANCE);
+
     private KnownLimitRegistry() {}
 
     public static Optional<KnownLimit> find(String scalar) {
-        return MEAN_DIVISOR_EXCESS.scalar().equals(scalar)
-                ? Optional.of(MEAN_DIVISOR_EXCESS) : Optional.empty();
+        if (MEAN_DIVISOR_EXCESS.scalar().equals(scalar)) return Optional.of(MEAN_DIVISOR_EXCESS);
+        if (OMEGA_OMEGA_GAP.scalar().equals(scalar)) return Optional.of(OMEGA_OMEGA_GAP);
+        return Optional.empty();
     }
 
     /** Null means the supplied target is allowed; an omitted target remains an exploratory estimate. */
@@ -45,9 +56,14 @@ public final class KnownLimitRegistry {
         KnownLimit known = find(scalar).orElse(null);
         if (known == null || suppliedTarget == null) return null;
         if (known.matches(suppliedTarget)) return null;
+        if (MEAN_DIVISOR_EXCESS.scalar().equals(known.scalar())) {
+            return "scalar=" + known.scalar() + " is " + known.definition()
+                    + " and has locked target=" + known.target()
+                    + " (2*Euler-Mascheroni); target=" + suppliedTarget
+                    + " is incompatible. The cumulative observable D(x)/x - ln(x), not this scalar, has limit 2*gamma-1.";
+        }
         return "scalar=" + known.scalar() + " is " + known.definition()
                 + " and has locked target=" + known.target()
-                + " (2*Euler-Mascheroni); target=" + suppliedTarget
-                + " is incompatible. The cumulative observable D(x)/x - ln(x), not this scalar, has limit 2*gamma-1.";
+                + "; target=" + suppliedTarget + " is incompatible.";
     }
 }

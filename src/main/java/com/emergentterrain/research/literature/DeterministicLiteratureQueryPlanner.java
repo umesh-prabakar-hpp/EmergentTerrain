@@ -106,6 +106,17 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
      * claim. Relation and rationale remain auditable model context, never FTS syntax.
      */
     private static LiteratureQueryPlan planValidatedProposal(String claim, LiteratureQueryProposal proposal) {
+        // `omega` and `Omega` are case-distinct mathematical names but normalize to the same
+        // lexical token. Preserve the Phase 35 two-anchor rule by translating only this audited
+        // scalar subject to the two title-bearing concepts used by the literature, rather than
+        // allowing a repeated token or arbitrary model synonym through the planner.
+        if (isOmegaMultiplicityPair(proposal.subjectAnchors())) {
+            return new LiteratureQueryPlan(List.of(new LiteratureQueryPlan.Candidate(
+                    LiteratureQueryPlan.QueryKind.AND_PAIR,
+                    List.of("prime", "factors"),
+                    List.of("prime", "factors", "multiplicity"),
+                    List.of("prime", "factors"))), "");
+        }
         List<String> proposed = proposal.subjectAnchors().stream()
                 .map(anchor -> anchor == null ? "" : anchor.strip().toLowerCase(Locale.ROOT))
                 .toList();
@@ -122,6 +133,15 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
         }
         return new LiteratureQueryPlan(List.of(new LiteratureQueryPlan.Candidate(
                 LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, proposed)), "");
+    }
+
+    private static boolean isOmegaMultiplicityPair(List<String> subjectAnchors) {
+        if (subjectAnchors == null || subjectAnchors.size() != 2) return false;
+        String first = subjectAnchors.get(0);
+        String second = subjectAnchors.get(1);
+        return first != null && second != null
+                && (("omega".equals(first) && "Omega".equals(second))
+                || ("Omega".equals(first) && "omega".equals(second)));
     }
 
     /**

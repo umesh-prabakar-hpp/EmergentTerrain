@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import com.emergentterrain.research.PanelOutcome;
 import com.emergentterrain.research.PanelReview;
+import com.emergentterrain.research.NarrationResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -407,6 +408,14 @@ class ResearchNarrationServiceCallPathTest {
     void firstPassGuard_noOpWhenDisabled() {
         assertThat(ResearchNarrationService.appendFirstPassMetricGuard("BASE PROMPT", false))
                 .isEqualTo("BASE PROMPT");
+    }
+
+    @Test
+    void traceOnlyRevisionFallbackIsExcludedFromBestOfNScoring() {
+        NarrationResult fallback = new NarrationResult("h", "trace only", "c", null, "model", 0.99,
+                List.of(), "rev:parse_failed:demoted_to_needs_revision", List.of());
+
+        assertThat(ResearchNarrationService.scoreCandidate(fallback)).isEqualTo(Double.NEGATIVE_INFINITY);
     }
 
     // ---- Novelty-lens follow-up: revision-stage novelty preservation ----

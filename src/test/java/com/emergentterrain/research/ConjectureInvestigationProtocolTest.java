@@ -66,10 +66,39 @@ class ConjectureInvestigationProtocolTest {
 
         assertThat(allocation.route()).isEqualTo(ConjectureInvestigationProtocol.Route.CONSTANT_LIMIT);
         assertThat(allocation.registration().mappingNotes())
-                .startsWith("locked-constant-limit:v3;")
+                .startsWith("locked-constant-limit:v4;")
                 .contains("known_limit=mean_divisor_excess:local-window:v1")
-                .contains("target=1.1544313298030657");
+                .contains("target=1.1544313298030657")
+                .contains("primary_ladder_start=100000")
+                .contains("confirmation_ladder_start=500000");
         assertThat(ConstantLimitPreRegistration.exactTestDirective(allocation.registration()))
-                .contains("target=1.1544313298030657");
+                .contains("target=1.1544313298030657")
+                .contains("ladder_start=100000")
+                .contains("ladder_start=500000");
+    }
+
+    @Test
+    void constantLimitEvidenceRequiresDistinctRecordedLadderStarts() {
+        Conjecture conjecture = new Conjecture("MATHEMATICS", "omega_Omega_gap",
+                "_constant_", 0.0, 0.0);
+        var registration = ConstantLimitPreRegistration.from(conjecture,
+                ScalarOpenness.measurementFrame("omega_Omega_gap"));
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
+                                + "\"window_size\":5000,\"num_windows\":5,\"ladder_start\":100000}",
+                        "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales.", 0),
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
+                                + "\"window_size\":10000,\"num_windows\":5,\"ladder_start\":500000}",
+                        "verify_constant scale-ladder: omega_Omega_gap ladder_start=500000 measured across 4 scales.", 0));
+
+        assertThat(ConstantLimitPreRegistration.hasExactEvidence(registration, trace)).isTrue();
+
+        List<ToolInvocation> collapsed = List.of(trace.get(0), new ToolInvocation("verify_constant",
+                "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
+                        + "\"window_size\":10000,\"num_windows\":5,\"ladder_start\":100000}",
+                "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales.", 0));
+        assertThat(ConstantLimitPreRegistration.hasExactEvidence(registration, collapsed)).isFalse();
     }
 }

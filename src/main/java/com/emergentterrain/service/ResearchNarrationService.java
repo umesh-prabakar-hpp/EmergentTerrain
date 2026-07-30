@@ -552,10 +552,17 @@ public class ResearchNarrationService {
     static String buildConstantLimitPreRegistrationNote(PreRegistration registration) {
         String directive = ConstantLimitPreRegistration.exactTestDirective(registration);
         if (directive.isBlank()) return "";
+        boolean knownCalibration = registration != null && registration.mappingNotes() != null
+                && registration.mappingNotes().matches("(?s).*known_limit=[^;]+;.*");
         return "\n\nCONSTANT-LIMIT PRE-REGISTRATION NOTE — the miner's affine scaffold is not "
                 + "the confirmatory claim. Before exploratory bounds or prose synthesis, execute exactly: "
                 + directive + ". The completed scale ladder is the registered evidence; an unavailable, "
-                + "partial, or single-window result cannot replace it.";
+                + "partial, execution-collapsed, or single-window result cannot replace it."
+                + (knownCalibration
+                ? " This is an established calibration target: do not claim novelty or a new theorem. "
+                        + "Before scoring, retain the normal search_literature → read_reference → Related Work citation chain "
+                        + "that identifies the analytic target."
+                : "");
     }
 
     static String buildCramerGapEnvelopePreRegistrationNote(PreRegistration registration) {
@@ -2231,6 +2238,10 @@ public class ResearchNarrationService {
         if (candidate == null || candidate.isSuppressed()) {
             return Double.NEGATIVE_INFINITY;
         }
+        if (candidate.callPath() != null
+                && candidate.callPath().contains("rev:parse_failed:demoted_to_needs_revision")) {
+            return Double.NEGATIVE_INFINITY;
+        }
         com.emergentterrain.research.PanelOutcome panel = candidate.panelOutcome();
         if (panel == null || panel.isEmpty()) {
             return candidate.confidenceScore();
@@ -3356,6 +3367,13 @@ public class ResearchNarrationService {
                         // Sanitize newlines so the WARN remains single-line.
                         preview.replace('\n', '⏎').replace('\r', '¶'));
             }
+            // A trace-grounded fallback is an honest audit record, but not a completed student
+            // revision. Do not spend a panel/scoring slot on it or let best-of-N treat it as a
+            // publishable candidate. UniversityService turns this explicit marker into
+            // NEEDS_REVISION while retaining the selected executed trace for a later retry.
+            callPath.add("rev:parse_failed:demoted_to_needs_revision");
+            return firstPass.withToolCallTrace(profTrace)
+                    .withCallPath(String.join(" → ", callPath));
         } catch (Exception e) {
             if (router.primaryFullyExhausted()) {
                 java.time.Instant recovery = router.earliestPrimaryRecovery();
@@ -4793,8 +4811,8 @@ public class ResearchNarrationService {
             + "and confirming it is NOT a result — the novelty is the NEXT term. If the LHS is one of these, "
             + "do not stop at the leading order; investigate the second-order structure with the frame that "
             + "fits it: (a) mean_Omega ~ ln ln x and mean_omega ~ ln ln x are both trivial — but their gap "
-            + "omega_Omega_gap converges to the prime-power correction constant Sum_p 1/(p(p-1)) ≈ 0.77316, "
-            + "so verify_constant(omega_Omega_gap, target=0.77316) is the real result. (b) mean_divisor_count "
+            + "omega_Omega_gap calibrates against the established prime-power correction constant Sum_p 1/(p(p-1)) ≈ 0.77316; "
+            + "verify_constant(omega_Omega_gap, target=0.77316) is a control unless a separately preregistered residual or rate is measured. (b) mean_divisor_count "
             + "~ ln x is trivial, and it has TWO second-order objects of UNEQUAL value — choose deliberately. "
             + "The textbook one: mean_divisor_excess (= mean_divisor_count − ln(center)) converges to a KNOWN "
             + "constant ≈ 2*gamma ≈ 1.1544 (gamma=Euler-Mascheroni); verify_constant(mean_divisor_excess) "

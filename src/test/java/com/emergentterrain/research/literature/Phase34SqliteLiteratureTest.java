@@ -266,6 +266,20 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35MapsCaseDistinctOmegaNotationToSafePrimeFactorAnchors() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "The omega Omega gap converges to a prime-power correction constant.",
+                java.util.Map.of(), new LiteratureQueryProposal(
+                        List.of("omega", "Omega"), "compare the two prime-factor functions",
+                        "prior work may state their correction term"));
+
+        assertThat(plan.candidates()).singleElement().satisfies(candidate -> {
+            assertThat(candidate.expression()).isEqualTo("prime AND factors");
+            assertThat(candidate.evidenceAnchors()).containsExactly("prime", "factors", "multiplicity");
+        });
+    }
+
+    @Test
     void phase35PlannerRejectsProceduralCensusPhrasesWithoutASubject() {
         LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
                 "The finite-window fraction is an exact census but does not itself establish a limit",
