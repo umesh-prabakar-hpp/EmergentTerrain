@@ -79,7 +79,8 @@ class MathToolSuiteDiscoveryTest {
     void divisorToolAdvertisedWhenWiredEnabledAndGateOn() {
         // wired + runtimeExec on + divisor gate default ON → advertised
         assertThat(suiteWith(svc(true, accept(1L))).toolsJson(true, false))
-                .contains("discover_divisor_value");
+                .contains("discover_divisor_value")
+                .contains("x > 2000000");
         // runtimeExec off → omitted (discoveryAvailable() short-circuits)
         assertThat(suiteWith(svc(false, accept(1L))).toolsJson(true, false))
                 .doesNotContain("discover_divisor_value");

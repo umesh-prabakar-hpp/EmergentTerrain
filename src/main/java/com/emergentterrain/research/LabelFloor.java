@@ -25,6 +25,11 @@ package com.emergentterrain.research;
  *       #2, 2026-05-29). A refuted-as-stated bound caps at CONJECTURE.</li>
  *   <li>{@link EvidenceLabel#CONJECTURE} — default; anything not
  *       meeting the above.</li>
+ *   <li>{@link EvidenceLabel#UNEXPLAINED_OBSERVATION} — an explicit
+ *       {@code Mechanism kind: none} / {@code no mechanism identified}
+ *       declaration is a finite calibration, not a conjectural explanation.
+ *       It therefore caps a non-proof paper at this weaker label even if a
+ *       panel proposes a stronger one.</li>
  * </ul>
  *
  * <p>The heuristics are intentionally lenient — they're a structural
@@ -49,6 +54,9 @@ public final class LabelFloor {
         String corpus = corpusFor(paper);
         if (hasProofMarker(corpus) || hasMachineCertifiedProof(corpus)) {
             return EvidenceLabel.THEOREM;
+        }
+        if (explicitlyLacksMechanism(corpus)) {
+            return EvidenceLabel.UNEXPLAINED_OBSERVATION;
         }
         if (hasMechanism(corpus) && hasAdversarialCheck(corpus)
                 && !adversarialCheckRefuted(paper, corpus)) {
@@ -122,6 +130,18 @@ public final class LabelFloor {
 
     private static boolean hasMechanism(String lower) {
         return lower.contains("mechanism");
+    }
+
+    /**
+     * A narrator is allowed to say that no structural explanation was found;
+     * that honesty must not accidentally satisfy {@link #hasMechanism(String)}
+     * merely because it contains the word "mechanism". The explicit phrases
+     * are the conjecture-template contract, so this remains a narrow, auditable
+     * ceiling rather than an attempt to infer mechanism quality from prose.
+     */
+    private static boolean explicitlyLacksMechanism(String lower) {
+        return lower.contains("mechanism kind: none")
+                || lower.contains("no mechanism identified");
     }
 
     private static boolean hasAdversarialCheck(String lower) {

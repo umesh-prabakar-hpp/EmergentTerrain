@@ -314,7 +314,10 @@ public class PromptTemplateRegistry {
                      Pick the kind that GENUINELY fits and argue in it; do NOT dress \
                      hand-waving up as a mode it isn't. If you cannot identify a structural \
                      mechanism, use "Mechanism kind: none" and the words "no mechanism identified" \
-                     — honesty beats fabricated reasoning. (NOTE: this tag is \
+                     — honesty beats fabricated reasoning. That declaration is an \
+                     UNEXPLAINED_OBSERVATION finite calibration, not a human-ready conjectural \
+                     result; do not use it to claim novelty. When the propose_mechanism tool is \
+                     available, test a structural proposal before relying on it. (NOTE: this tag is \
                      self-declared and unverified — the adversarial check tests the BOUND, \
                      not the mechanism; per-mode verification is future work.)
 

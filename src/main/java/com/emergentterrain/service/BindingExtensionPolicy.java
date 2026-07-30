@@ -37,10 +37,16 @@ public class BindingExtensionPolicy {
     private static final Pattern TOOL_NAMED_REFUTATION = Pattern.compile(
             "TIGHT HOLD[^\\n]*?re-verify with c=([+-]?[0-9]+(?:\\.[0-9]+)?)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern TOOL_NAMED_TIGHT_K = Pattern.compile(
+            "LOOSE:[^\\n]*?re-verify at k=([+-]?[0-9]+(?:\\.[0-9]+)?)",
+            Pattern.CASE_INSENSITIVE);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /** A verification call selected by the instrument itself to complete a binding pair. */
     public record ForcedToolCall(String functionName, String argumentsJson, String intercept) {}
+
+    /** A verifier-selected tight-k call that must precede any binding-pair completion. */
+    public record ForcedTighteningCall(String functionName, String argumentsJson, String coefficient) {}
 
     /**
      * Largest relative slack that counts as a tight affine result everywhere in the pipeline.
@@ -113,6 +119,27 @@ public class BindingExtensionPolicy {
     }
 
     /**
+     * Return the exact one-term tightening call named by a loose verifier result, unless that
+     * exact call is already in the trace.  The tool calculated the coefficient; this policy only
+     * carries it into execution.  It deliberately runs before {@link #forcedBindingRefutation}:
+     * a loose hold cannot support a binding pair or an independent replication.
+     */
+    public Optional<ForcedTighteningCall> forcedBindingTightening(List<ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) return Optional.empty();
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())
+                    || call.argsJson() == null || call.resultJson() == null
+                    || !call.resultJson().contains(" HELD across")) continue;
+            Matcher match = TOOL_NAMED_TIGHT_K.matcher(call.resultJson());
+            if (!match.find()) continue;
+            String tightened = withCoefficient(call.argsJson(), match.group(1));
+            if (tightened == null || containsExactArguments(trace, tightened)) continue;
+            return Optional.of(new ForcedTighteningCall(call.functionName(), tightened, match.group(1)));
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Deterministically lock a second verifier grid before executing it.  The policy keeps the
      * relation, coefficients, intercept, width, and number of windows fixed; only the start moves
      * by a substantial, reproducible separation.  This makes the follow-up independent of the
@@ -151,6 +178,33 @@ public class BindingExtensionPolicy {
         } catch (ArithmeticException ignored) {
             return OptionalLong.empty();
         }
+    }
+
+    private static String withCoefficient(String argsJson, String coefficient) {
+        try {
+            JsonNode parsed = JSON.readTree(argsJson);
+            if (!(parsed instanceof com.fasterxml.jackson.databind.node.ObjectNode args)
+                    || (!args.path("rhs2").isMissingNode() && !args.path("rhs2").isNull())) {
+                return null;
+            }
+            args.put("k", Double.parseDouble(coefficient));
+            return JSON.writeValueAsString(args);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean containsExactArguments(List<ToolInvocation> trace, String argumentsJson) {
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())
+                    || call.argsJson() == null) continue;
+            try {
+                if (JSON.readTree(argumentsJson).equals(JSON.readTree(call.argsJson()))) return true;
+            } catch (Exception ignored) {
+                // A malformed historical invocation cannot satisfy the exact policy call.
+            }
+        }
+        return false;
     }
 
     private static boolean hasSameRelationGridRefutation(ToolInvocation held, List<ToolInvocation> trace) {

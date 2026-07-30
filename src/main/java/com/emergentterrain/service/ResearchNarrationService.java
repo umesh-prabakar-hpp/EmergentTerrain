@@ -4800,7 +4800,10 @@ public class ResearchNarrationService {
             + "probabilistic_model | extremal_construction | analogy_to_known_theory | none>' "
             + "then gives a structural argument IN THAT MODE for why the bound should hold "
             + "(not a paraphrase of the inequality). If a 'Mechanism kind:' line is already "
-            + "present in the draft, preserve it.\n"
+            + "present in the draft, preserve it. If it is 'none', say 'no mechanism identified' "
+            + "and frame the conclusion as an UNEXPLAINED_OBSERVATION finite calibration; it may not "
+            + "be presented as a human-ready conjectural result. When propose_mechanism is available, "
+            + "use it to test the structural mechanism before relying on it.\n"
             + "2. Keep a '## Adversarial Check' section that invokes the verify_conjecture "
             + "tool on a held-out slice and reports held/refuted + the worst-margin witness. "
             + "Quote the observed LHS from the SAME per-window row (same start=) as the worst "
@@ -5169,7 +5172,10 @@ public class ResearchNarrationService {
             + "returns. Never invent author-year references. If search_literature "
             + "returns no relevance-safe evidence, Related Work may report that "
             + "absence but MUST NOT assert that external theory, prior work, or "
-            + "the literature establishes any claim.";
+            + "the literature establishes any claim. For a mined predicate or density, write the "
+            + "search claim with the actual predicate/threshold and its component arithmetic functions "
+            + "(for example d(n) and omega(n)), not only an internal scalar name or fitted coefficient; "
+            + "those domain terms must supply the two subject anchors.";
 
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry,
                                               String auditSummary, String literatureContext) {

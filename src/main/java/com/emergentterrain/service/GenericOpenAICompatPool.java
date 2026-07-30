@@ -857,6 +857,7 @@ public class GenericOpenAICompatPool implements LlmPool {
             int maxRounds = MAX_TOOL_ROUNDS;
             boolean bindingExtended = false;
             boolean policyCompletionExecuted = false;
+            boolean policyTighteningExecuted = false;
             for (int round = 0; round <= maxRounds; round++) {
                 // rec #2 (2026-05-28) — abort the multi-round loop the moment the
                 // worker thread is interrupted (narration-timeout cancel(true)).
@@ -1059,6 +1060,42 @@ public class GenericOpenAICompatPool implements LlmPool {
                     if (trace.isEmpty()) checkUsageLimit(modelId, content);
                     if (!policyCompletionExecuted && bindingExtensionPolicy != null
                             && "professor-tools".equals(LlmCallContext.currentRole())) {
+                        if (!policyTighteningExecuted) {
+                            java.util.Optional<BindingExtensionPolicy.ForcedTighteningCall> tightening =
+                                    bindingExtensionPolicy.forcedBindingTightening(trace);
+                            if (tightening.isPresent()) {
+                                BindingExtensionPolicy.ForcedTighteningCall call = tightening.get();
+                                String result;
+                                try {
+                                    result = executor.apply(mapper.writeValueAsString(
+                                            mapper.createObjectNode()
+                                                    .put("name", call.functionName())
+                                                    .set("arguments", mapper.readTree(call.argumentsJson()))));
+                                } catch (Exception ex) {
+                                    if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                                    result = "Tool error: " + ex.getMessage();
+                                }
+                                String harnessCallId = "call_" + (trace.size() + 1);
+                                trace.add(new com.emergentterrain.llm.ToolInvocation(
+                                        call.functionName(), call.argumentsJson(), result, round, harnessCallId));
+                                messages.addObject().put("role", "user").put("content",
+                                        "An evidence-completion policy executed the verifier-selected near-binding "
+                                                + "coefficient k=" + call.coefficient() + " [" + harnessCallId
+                                                + "]: " + result
+                                                + "\nDo not replace this with another loose confirmation. If this is "
+                                                + "a TIGHT HOLD, the policy will next record the required independent "
+                                                + "replication and refuting counterpart.");
+                                policyTighteningExecuted = true;
+                                if (lastRound) {
+                                    maxRounds++;
+                                }
+                                log.info("GenericOpenAICompatPool({}) tools: policy tightening fn={} "
+                                                + "k={} call_id={} result_len={}",
+                                        cfg.providerKey(), call.functionName(), call.coefficient(), harnessCallId,
+                                        result.length());
+                                continue;
+                            }
+                        }
                         java.util.Optional<BindingExtensionPolicy.ForcedToolCall> completion =
                                 bindingExtensionPolicy.forcedBindingRefutation(trace);
                         if (completion.isPresent()) {

@@ -139,9 +139,17 @@ the temporary row.
 locked-study fingerprint, so an identical same-topic future protocol is declined before ID allocation
 or narration; legacy rows remain eligible for the existing terminal content screen. The trusted affine
 pre-registration declares, but the server never runs, `mvn test -Dtest=ConjecturePreRegistrationTest`.
-Phase 35 preserves claim-subject anchors even when a document-count estimate omits one. A tight
-affine binding additionally needs an unchanged-relation independent-grid hold and a changed-intercept
-`REFUTED` sensitivity probe on that same locked grid; the probe is evidence, never a replacement hypothesis.
+Phase 35 preserves claim-subject anchors even when a document-count estimate omits one. A loose
+one-term affine `verify_conjecture` result that names a tighter `k` now has that exact
+verifier-selected call executed deterministically before the model may finish; it is never replaced
+by another loose confirmation. A resulting tight affine binding additionally needs an
+unchanged-relation independent-grid hold and a changed-intercept `REFUTED` sensitivity probe on
+that same locked grid; the probe is evidence, never a replacement hypothesis. This leaves a
+structurally unsupported affine observation as calibration rather than a human-ready novelty claim.
+An explicit `Mechanism kind: none` / `no mechanism identified` declaration is also mechanically
+capped at `UNEXPLAINED_OBSERVATION`, even when a panel proposes a stronger label. Predicate and
+density literature searches must name the actual threshold and component arithmetic functions, not
+only a mined scalar nickname or fitted coefficient, before the normal source chain can position it.
 Constant-limit studies now pre-register one deadline-aware primary ladder plus non-overlapping
 high-range location and width holdouts, and must execute all three. The ladder uses a separately
 configured per-rung deadline budget while the holdouts retain their declared window shapes; every

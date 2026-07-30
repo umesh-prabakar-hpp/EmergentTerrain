@@ -613,6 +613,8 @@ public class MathToolSuite {
     /** Standard moat checkpoints (≤ NT_MAX_N, judged vs the oracle) + OEIS anchor. */
     private static final java.util.List<Long> DISCOVER_CHECKPOINTS =
             java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
+    /** The direct-oracle overlap ends here; discovery begins strictly beyond it. */
+    private static final long DISCOVERY_DIRECT_CEILING = 2_000_000L;
     private static final java.util.Map<Long, Long> DISCOVER_ANCHORS =
             java.util.Map.of(10_000_000L, 1037L);   // M(10^7), OEIS A084237
 
@@ -885,7 +887,7 @@ public class MathToolSuite {
                         + (domainRefClient != null
                                 ? LOOKUP_OEIS_TOOL_JSON + LOOKUP_DLMF_TOOL_JSON : ""),
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
-                divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
+                divisorDiscoveryAvailable() ? discoverDivisorToolJson() : "",
                 primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
                 recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "",
                 (mechanismProposalAvailable() ? PROPOSE_MECHANISM_TOOL_JSON : "")
@@ -913,7 +915,7 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"search_literature",
-                "description":"Look up citable prior work for this paper's domain/topic. Before searching, state the TWO domain-bearing subject anchors already present in the specific claim, the claimed relation, and why prior work on that subject would matter. The system validates anchors before retrieval; they are not raw query syntax. Cite ONLY exact keys this tool returns. An empty/SILENT result means no prior work states the claim, so make no author-year citations.",
+                "description":"Look up citable prior work for this paper's domain/topic. Before searching, state the TWO domain-bearing subject anchors already present in the specific claim, the claimed relation, and why prior work on that subject would matter. For a mined predicate or density, name the actual predicate/threshold and its component arithmetic functions (for example d(n) and omega(n)); an internal scalar nickname or fitted coefficient is not a subject anchor. The system validates anchors before retrieval; they are not raw query syntax. Cite ONLY exact keys this tool returns. An empty/SILENT result means no prior work states the claim, so make no author-year citations.",
                 "parameters":{
                   "type":"object",
                   "properties":{
@@ -1204,22 +1206,24 @@ public class MathToolSuite {
      * tool gate on). It computes D(x) at large x via a generated, moat-validated method —
      * divisor-class by construction. Anchored by D(10^7) beyond the sieve (parity with Mertens).
      */
-    private static final String DISCOVER_DIVISOR_TOOL_JSON = """
+    private String discoverDivisorToolJson() {
+        return ("""
             ,{
               "type":"function",
               "function":{
                 "name":"discover_divisor_value",
-                "description":"Compute the Dirichlet divisor summatory function D(x) = sum of the number-of-divisors function d(n) for n=1..x at a LARGE x (beyond the 2,000,000 direct-sieve range) when a divisor-sum claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints in [1, 2000000] plus the known D(10^7)=162725364) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for D(x) at x > 2000000. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
+                "description":"Compute the Dirichlet divisor summatory function D(x) = sum of the number-of-divisors function d(n) for n=1..x at a LARGE x beyond the current direct-verifier ceiling (%d) when a divisor-sum claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints at or below that ceiling plus the known D(10^7)=162725364) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for D(x) at x > %d. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
                 "parameters":{
                   "type":"object",
                   "properties":{
-                    "x":{"type":"integer","description":"The target n: compute D(x). Must be > 2000000 (use a direct method below that)."},
+                    "x":{"type":"integer","description":"The target n: compute D(x) beyond the direct-verifier ceiling."},
                     "rationale":{"type":"string","description":"Why the paper's divisor-sum claim needs D(x) at this scale."}
                   },
                   "required":["x","rationale"]
                 }
               }
-            }""";
+            }""").formatted(DISCOVERY_DIRECT_CEILING, DISCOVERY_DIRECT_CEILING);
+    }
 
     /* Path A — prime-counting discovery: validates a π(x) method against the sidecar's
      * prime oracle (quantity="prime") on the in-sieve checkpoints + a beyond-range anchor
@@ -1235,7 +1239,7 @@ public class MathToolSuite {
     /**
      * Phase 30 (Path A) — runtime-discovery tool for the prime-counting function, the
      * prime-domain sibling of {@link #DISCOVER_MERTENS_TOOL_JSON} / {@link
-     * #DISCOVER_DIVISOR_TOOL_JSON}. Advertised only when {@link #primeDiscoveryAvailable()}
+     * #discoverDivisorToolJson()}. Advertised only when {@link #primeDiscoveryAvailable()}
      * (discovery wired AND runtimeExecEnabled AND the prime tool gate on). It computes π(x)
      * at large x via a generated, moat-validated method — prime-class by construction.
      * Anchored by π(10^7) beyond the sieve.
@@ -2592,9 +2596,9 @@ public class MathToolSuite {
             return "discover_mertens_value: disabled (runtime discovery is off).";
         }
         long x = args.path("x").asLong(0);
-        if (x <= com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N) {
+        if (x <= DISCOVERY_DIRECT_CEILING) {
             return "discover_mertens_value: 'x' must be > " +
-                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N +
+                    DISCOVERY_DIRECT_CEILING +
                     " (use a direct method at or below the sieve range).";
         }
         var task = new com.emergentterrain.research.discovery.DiscoveryTask(
@@ -2609,7 +2613,7 @@ public class MathToolSuite {
                     + "This is a computed value from a validated method, NOT an established result — "
                     + "report it as \"computed to x=%d\", with no claim about the Mertens conjecture.",
                     x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),
-                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N, x);
+                    DISCOVERY_DIRECT_CEILING, x);
         }
         return "discover_mertens_value: no method validated within "
                 + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
@@ -2631,9 +2635,9 @@ public class MathToolSuite {
             return "discover_divisor_value: disabled (runtime discovery is off).";
         }
         long x = args.path("x").asLong(0);
-        if (x <= com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N) {
+        if (x <= DISCOVERY_DIRECT_CEILING) {
             return "discover_divisor_value: 'x' must be > " +
-                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N +
+                    DISCOVERY_DIRECT_CEILING +
                     " (use a direct method at or below the sieve range).";
         }
         var task = new com.emergentterrain.research.discovery.DiscoveryTask(
@@ -2648,7 +2652,7 @@ public class MathToolSuite {
                     + "This is a computed value from a validated method, NOT an established result — "
                     + "report it as \"computed to x=%d\", with no claim about the divisor error-term bound.",
                     x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),
-                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N, x);
+                    DISCOVERY_DIRECT_CEILING, x);
         }
         return "discover_divisor_value: no method validated within "
                 + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
@@ -2669,9 +2673,9 @@ public class MathToolSuite {
             return "discover_prime_value: disabled (runtime discovery is off).";
         }
         long x = args.path("x").asLong(0);
-        if (x <= com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N) {
+        if (x <= DISCOVERY_DIRECT_CEILING) {
             return "discover_prime_value: 'x' must be > " +
-                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N +
+                    DISCOVERY_DIRECT_CEILING +
                     " (use a direct method at or below the sieve range).";
         }
         var task = new com.emergentterrain.research.discovery.DiscoveryTask(
@@ -2686,7 +2690,7 @@ public class MathToolSuite {
                     + "This is a computed value from a validated method, NOT an established result — "
                     + "report it as \"computed to x=%d\", with no claim about the prime-counting bound.",
                     x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),
-                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N, x);
+                    DISCOVERY_DIRECT_CEILING, x);
         }
         return "discover_prime_value: no method validated within "
                 + outcome.attempts() + " attempt(s) — " + outcome.failureReason()

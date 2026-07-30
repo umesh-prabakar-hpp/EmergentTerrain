@@ -949,7 +949,8 @@ class PromptTemplateRegistryTest {
                 .contains("## Mechanism")
                 .contains("## Adversarial Check")
                 .contains("verify_conjecture")
-                .contains("no mechanism identified");  // honest-fallback phrasing
+                .contains("no mechanism identified")
+                .contains("UNEXPLAINED_OBSERVATION");  // honest calibration floor
     }
 
     @Test

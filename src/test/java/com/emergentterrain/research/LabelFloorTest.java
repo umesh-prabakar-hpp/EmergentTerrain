@@ -74,6 +74,21 @@ class LabelFloorTest {
     }
 
     @Test
+    void explicitNoMechanismIsCappedAtUnexplainedObservation() {
+        ResearchPaper p = paper(
+                "Hypothesis: richly_divisible_density has a finite-window ceiling.",
+                "## Mechanism\nMechanism kind: none\nNo mechanism identified. "
+                        + "## Adversarial Check\nverify_conjecture: HELD across 5 windows.",
+                "The finite calibration is recorded without a structural explanation.");
+
+        assertEquals(EvidenceLabel.UNEXPLAINED_OBSERVATION,
+                LabelFloor.maxDefensibleLabel(p));
+        assertEquals(EvidenceLabel.UNEXPLAINED_OBSERVATION,
+                LabelFloor.demote(EvidenceLabel.EMPIRICAL_RESULT, p),
+                "an honest no-mechanism declaration cannot be promoted by a panel");
+    }
+
+    @Test
     void proofMarkerReachesTheorem() {
         ResearchPaper p = paper(
                 "Hypothesis: abundant_density <= 0.5 for n in [1, N].",

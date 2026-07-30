@@ -89,6 +89,45 @@ class BindingExtensionPolicyTest {
     }
 
     @Test
+    void toolNamedTightening_preservesTheGridAndUsesTheExactVerifierCoefficient() throws Exception {
+        String args = "{\"lhs\":\"richly_divisible_density\",\"rhs\":\"mean_divisor_excess\","
+                + "\"k\":2,\"c\":-1.7076,\"window_start\":1500000,\"window_size\":5000,"
+                + "\"num_windows\":20}";
+
+        var completion = policy.forcedBindingTightening(List.of(verify(args,
+                "verify_conjecture: richly_divisible_density <= +2.0000 * mean_divisor_excess + -1.7076 "
+                        + "HELD across 20 window(s). relative slack: 0.1291. LOOSE: the tightest k "
+                        + "that holds these windows is ~1.9358 — re-verify at k=1.9360 (keep c=-1.7076) "
+                        + "for a TIGHT bound.")));
+
+        assertThat(completion).isPresent();
+        assertThat(completion.orElseThrow().coefficient()).isEqualTo("1.9360");
+        com.fasterxml.jackson.databind.JsonNode tightened = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(completion.orElseThrow().argumentsJson());
+        assertThat(tightened.path("k").asDouble()).isEqualTo(1.9360);
+        assertThat(tightened.path("c").asDouble()).isEqualTo(-1.7076);
+        assertThat(tightened.path("window_start").asLong()).isEqualTo(1_500_000L);
+        assertThat(tightened.path("window_size").asInt()).isEqualTo(5_000);
+        assertThat(tightened.path("num_windows").asInt()).isEqualTo(20);
+    }
+
+    @Test
+    void toolNamedTightening_doesNotRepeatAnExactPriorAttemptOrTouchTwoTermBounds() {
+        String oneTerm = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1.5,\"c\":0,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
+        String tightened = "{\"lhs\":\"x\",\"rhs\":\"y\",\"k\":1.2,\"c\":0,"
+                + "\"window_start\":1000,\"window_size\":500,\"num_windows\":10}";
+        String loose = "verify_conjecture: x <= +1.5000 * y + +0.0000 HELD across 10 window(s). "
+                + "relative slack: 0.2000. LOOSE: re-verify at k=1.2000 (keep c=0).";
+        assertThat(policy.forcedBindingTightening(List.of(verify(oneTerm, loose),
+                verify(tightened, "verify_conjecture: x <= +1.2000 * y + +0.0000 REFUTED across 10 window(s)."))))
+                .isEmpty();
+
+        String twoTerm = oneTerm.replace("\"k\":1.5", "\"rhs2\":\"z\",\"k\":1.5,\"k2\":0.4");
+        assertThat(policy.forcedBindingTightening(List.of(verify(twoTerm, loose)))).isEmpty();
+    }
+
+    @Test
     void independentReplication_preservesTheBoundAndLocksADeterministicSecondGrid() throws Exception {
         String args = "{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\","
                 + "\"k\":0.424,\"c\":0,\"window_start\":900000000,"
