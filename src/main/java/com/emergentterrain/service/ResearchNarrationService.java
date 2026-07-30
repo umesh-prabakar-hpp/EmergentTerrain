@@ -2242,6 +2242,10 @@ public class ResearchNarrationService {
                 && candidate.callPath().contains("rev:parse_failed:demoted_to_needs_revision")) {
             return Double.NEGATIVE_INFINITY;
         }
+        if (candidate.callPath() != null
+                && candidate.callPath().contains("literature:read_key_omitted:demoted_to_needs_revision")) {
+            return Double.NEGATIVE_INFINITY;
+        }
         com.emergentterrain.research.PanelOutcome panel = candidate.panelOutcome();
         if (panel == null || panel.isEmpty()) {
             return candidate.confidenceScore();
@@ -2428,6 +2432,22 @@ public class ResearchNarrationService {
         boolean firstPassFailed = fp.firstPassFailed();
         List<String> auditGapDimensions = new java.util.ArrayList<>();
         NarrationResult finalResult = maybeCritiqueAndRevise(draft, fp.firstPass(), callPath, auditGapDimensions);
+
+        // The panel revision runs after the ordinary citation validator. It may therefore remove
+        // Related Work that a successful earlier revision supplied. Recheck the final candidate
+        // against the exact issued-and-read keys before it can enter best-of-N selection.
+        if (finalResult != null) {
+            List<String> readKeys = com.emergentterrain.research.publication.ComputationalPublicationPhase
+                    .successfullyReadSearchKeys(finalResult.toolCallTrace());
+            if (!readKeys.isEmpty()
+                    && !com.emergentterrain.research.publication.ComputationalPublicationPhase
+                    .hasLiteraturePositioning(finalResult.relatedWork(), finalResult.toolCallTrace())) {
+                callPath.add("literature:read_key_omitted:demoted_to_needs_revision");
+                log.warn("final literature positioning missing paperId={} readKeys={} — "
+                                + "demoting to NEEDS_REVISION",
+                        draft.paperId(), readKeys);
+            }
+        }
 
         if (relatedWorkEvidenceGateEnabled && finalResult != null) {
             List<String> relatedWorkFailures = RelatedWorkEvidenceValidator.validate(
@@ -4056,8 +4076,11 @@ public class ResearchNarrationService {
             // 2026-07-05 (run-26 rec 1, P-b72c-77627790 + P-798) — the panel revision rewrites
             // the Conclusion WITHOUT the framing rules, so inconclusive measurements were
             // re-stamped null here and drew direction_inversion at publish. Same rule, same flag.
+            List<String> readLiteratureKeys = com.emergentterrain.research.publication
+                    .ComputationalPublicationPhase.successfullyReadSearchKeys(profTrace);
             String prompt = appendPivotFraming(
-                    buildPanelRevisionPrompt(narration, outcome, traceBlock), pivotFramingEnabled);
+                    buildPanelRevisionPrompt(narration, outcome, traceBlock, readLiteratureKeys),
+                    pivotFramingEnabled);
             StringBuilder buf = new StringBuilder();
             // Phase 17 (analyses §2.4) — temperature 0.0 for the panel
             // revision: the constraints (no new numerics, fix citations,
@@ -4078,7 +4101,8 @@ public class ResearchNarrationService {
                     com.emergentterrain.research.LenientJsonParser.repair(buf.toString());
             NarrationResult parsed = parseNarrationResult(repair.text());
             if (parsed.hypothesis() == null && parsed.findings() == null
-                    && parsed.conclusion() == null) {
+                    && parsed.conclusion() == null && parsed.discussion() == null
+                    && parsed.relatedWork() == null) {
                 callPath.add("panel_revision:parse_failed");
                 log.warn("LLM panel-revision: paperId={} parse_failed ms={}",
                         draft != null ? draft.paperId() : "?",
@@ -4089,8 +4113,12 @@ public class ResearchNarrationService {
             // and conclusion may be revised. Discussion / related-work optional.
             String newFindings   = parsed.findings()   != null ? parsed.findings()   : narration.findings();
             String newConclusion = parsed.conclusion() != null ? parsed.conclusion() : narration.conclusion();
-            if (isNoChangeRevision(narration.findings(), newFindings,
-                    narration.conclusion(), newConclusion)) {
+            String newDiscussion = parsed.discussion() != null ? parsed.discussion() : narration.discussion();
+            String newRelatedWork = parsed.relatedWork() != null ? parsed.relatedWork() : narration.relatedWork();
+            if (isNoChangePanelRevision(narration.findings(), newFindings,
+                    narration.conclusion(), newConclusion,
+                    narration.discussion(), newDiscussion,
+                    narration.relatedWork(), newRelatedWork)) {
                 callPath.add("panel_revision:no_change");
                 log.info("LLM panel-revision: paperId={} produced no_change ms={}",
                         draft != null ? draft.paperId() : "?",
@@ -4115,8 +4143,8 @@ public class ResearchNarrationService {
                     narration.confidenceScore(),
                     narration.citedPaperIds(),
                     null, List.of(), List.of(), null, null,
-                    parsed.discussion()  != null ? parsed.discussion()  : narration.discussion(),
-                    parsed.relatedWork() != null ? parsed.relatedWork() : narration.relatedWork())
+                    newDiscussion,
+                    newRelatedWork)
                     .withToolCallTrace(profTrace)
                     .withPanelOutcome(outcome)
                     .withAuditGapDimensions(narration.auditGapDimensions())
@@ -4166,6 +4194,16 @@ public class ResearchNarrationService {
                 && safeEquals(normalize(oldConclusion), normalize(newConclusion));
     }
 
+    /** A panel revision that adds or corrects Related Work is material even if its core prose is unchanged. */
+    static boolean isNoChangePanelRevision(String oldFindings, String newFindings,
+                                            String oldConclusion, String newConclusion,
+                                            String oldDiscussion, String newDiscussion,
+                                            String oldRelatedWork, String newRelatedWork) {
+        return isNoChangeRevision(oldFindings, newFindings, oldConclusion, newConclusion)
+                && safeEquals(normalize(oldDiscussion), normalize(newDiscussion))
+                && safeEquals(normalize(oldRelatedWork), normalize(newRelatedWork));
+    }
+
     private static String normalize(String s) {
         if (s == null) return "";
         return s.replaceAll("\\s+", " ").trim();
@@ -4196,6 +4234,18 @@ public class ResearchNarrationService {
     static String buildPanelRevisionPrompt(NarrationResult narration,
                                             com.emergentterrain.research.PanelOutcome outcome,
                                             String traceBlock) {
+        return buildPanelRevisionPrompt(narration, outcome, traceBlock, List.of());
+    }
+
+    /**
+     * Builds the panel-revision contract with the exact literature keys that the selected trace
+     * both issued and read. The final output must retain one of those keys in Related Work; this
+     * is intentionally narrower than a general literature assertion or a model-generated citation.
+     */
+    static String buildPanelRevisionPrompt(NarrationResult narration,
+                                            com.emergentterrain.research.PanelOutcome outcome,
+                                            String traceBlock,
+                                            List<String> successfullyReadLiteratureKeys) {
         StringBuilder p = new StringBuilder();
         p.append("You wrote a research paper that a multi-reviewer panel has just evaluated. ")
                 .append("The panel agreed on specific issues. Your task is a FOCUSED REVISION ")
@@ -4246,7 +4296,22 @@ public class ResearchNarrationService {
                 .append("made in this session AND it returned a usable result. Never cite a call ")
                 .append("index higher than the number of calls in the trace, and never cite a call ")
                 .append("that errored or was REJECTED by safety review — treat those as absent.\n")
-                .append("6. Keep prose factual and concise; do not pad with boilerplate.\n\n");
+                .append("6. Never say that a definition, registered instrument, or trace table is unavailable "
+                        + "when it is present in the supplied trace. State the recorded design or remove the claim.\n")
+                .append("7. For a proposed finite-window follow-up, require a pre-registered independent "
+                        + "location or width holdout; do not describe an unexecuted holdout as completed.\n")
+                .append("8. Keep prose factual and concise; do not pad with boilerplate.\n");
+
+        if (successfullyReadLiteratureKeys != null && !successfullyReadLiteratureKeys.isEmpty()) {
+            p.append("9. The trace successfully read these issued literature key(s): ")
+                    .append(successfullyReadLiteratureKeys.stream()
+                            .map(key -> "[" + key + "]")
+                            .collect(java.util.stream.Collectors.joining(", ")))
+                    .append(". You MUST emit a non-empty related_work field that cites at least one exact "
+                            + "listed key and accurately limits the source to what the trace says. Do not invent "
+                            + "a source claim or cite any unlisted key.\n");
+        }
+        p.append("\n");
 
         if (traceBlock != null && !traceBlock.isEmpty()) {
             p.append(traceBlock).append("\n");
@@ -4254,7 +4319,8 @@ public class ResearchNarrationService {
 
         p.append("=== OUTPUT FORMAT ===\n")
                 .append("Return ONLY valid JSON with this exact schema:\n")
-                .append("{\"hypothesis\": \"...\", \"findings\": \"...\", \"conclusion\": \"...\"}\n")
+                .append("{\"hypothesis\": \"...\", \"findings\": \"...\", \"conclusion\": \"...\", "
+                        + "\"discussion\": \"...\", \"related_work\": \"...\"}\n")
                 .append("No code fences, no preamble, no trailing prose.\n");
 
         return p.toString();

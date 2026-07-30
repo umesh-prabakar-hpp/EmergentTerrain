@@ -73,6 +73,21 @@ class ComputationalPublicationPhaseTest {
     }
 
     @Test
+    void successfullyReadSearchKeysKeepsOnlyIssuedAndReadKeysInTraceOrder() {
+        List<String> keys = ComputationalPublicationPhase.successfullyReadSearchKeys(List.of(
+                new ToolInvocation("search_literature", "{}",
+                        "search_literature: EVIDENCE [HF20A94C6E8F45DBCAF99E] [HF0B11C2D3E4F5A6B7C8D9E]", 0),
+                new ToolInvocation("read_reference", "{}",
+                        "read_reference HF0B11C2D3E4F5A6B7C8D9E — source\nTop passages matching \"claim\":\npassage", 1),
+                new ToolInvocation("read_reference", "{}",
+                        "read_reference HF1A2B3C4D5E6F7A8B9C0D1 — source\nTop passages matching \"claim\":\npassage", 2),
+                new ToolInvocation("read_reference", "{}",
+                        "read_reference HF20A94C6E8F45DBCAF99E — source\nTop passages matching \"claim\":\npassage", 3)));
+
+        assertThat(keys).containsExactly("HF0B11C2D3E4F5A6B7C8D9E", "HF20A94C6E8F45DBCAF99E");
+    }
+
+    @Test
     void nonPublishedWorkflowCannotBecomeArtifactBackedCandidate() {
         ComputationalStudyPlan plan = new ComputationalStudyPlan(
                 "discovery", "confirmation", "fixed rule", "sensitivity", "./reproduce.sh");

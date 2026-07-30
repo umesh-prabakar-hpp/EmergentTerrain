@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -191,6 +192,8 @@ public class ReviewPanelService {
     private final boolean enabled;
     /** Lower-cased opt-in set of providers. Empty = no filter. */
     private final Set<String> providerFilter;
+    /** Lower-cased model IDs excluded from this panel only. */
+    private final Set<String> excludedModelIds;
     private final int panelSize;
 
     /**
@@ -236,6 +239,7 @@ public class ReviewPanelService {
             @Value("${app.research.review-panel.enabled:true}") boolean enabled,
             @Value("${app.research.review-panel.providers:}") String providersCsv,
             @Value("${app.research.review-panel.size:" + DEFAULT_PANEL_SIZE + "}") int panelSize,
+            @Value("${app.research.review-panel.excluded-models:}") String excludedModelsCsv,
             @Value("${app.research.review-panel.tool-call-schema.enabled:false}")
             boolean toolCallSchemaEnabled) {
         this.primaryRegistry = primaryRegistry;
@@ -243,13 +247,15 @@ public class ReviewPanelService {
         this.mapper          = mapper;
         this.enabled         = enabled;
         this.providerFilter  = parseProviderFilter(providersCsv);
+        this.excludedModelIds = parseModelFilter(excludedModelsCsv);
         this.panelSize       = Math.max(1, panelSize);
         this.toolCallSchemaEnabled = toolCallSchemaEnabled;
 
-        log.info("ReviewPanelService: enabled={} mode=sequential providers={} panelSize={} "
+        log.info("ReviewPanelService: enabled={} mode=sequential providers={} excludedModels={} panelSize={} "
                         + "toolCallSchemaEnabled={} registryHandles={}",
                 enabled,
                 providerFilter.isEmpty() ? "* (all)" : providerFilter,
+                excludedModelIds.isEmpty() ? "none" : excludedModelIds,
                 this.panelSize,
                 toolCallSchemaEnabled,
                 primaryRegistry.totalModelCount());
@@ -266,8 +272,23 @@ public class ReviewPanelService {
         if (trimmed.isEmpty() || "*".equals(trimmed)) return Set.of();
         Set<String> out = new LinkedHashSet<>();
         for (String raw : trimmed.split(",")) {
-            String k = raw.trim().toLowerCase();
+            String k = raw.trim().toLowerCase(Locale.ROOT);
             if (!k.isEmpty()) out.add(k);
+        }
+        return Collections.unmodifiableSet(out);
+    }
+
+    /**
+     * Lower-cased model-level denylist parsed from CSV. This does not disable a
+     * model in its primary provider pool; it only keeps known non-compliant
+     * reviewers from consuming a review-panel seat.
+     */
+    static Set<String> parseModelFilter(String csv) {
+        if (csv == null || csv.isBlank()) return Set.of();
+        Set<String> out = new LinkedHashSet<>();
+        for (String raw : csv.split(",")) {
+            String id = raw.trim().toLowerCase(Locale.ROOT);
+            if (!id.isEmpty()) out.add(id);
         }
         return Collections.unmodifiableSet(out);
     }
@@ -321,6 +342,7 @@ public class ReviewPanelService {
         List<ModelHandle> narratorHandles = new ArrayList<>();
         for (ModelHandle h : primaryRegistry.availableModels()) {
             if (!providerFilter.isEmpty() && !providerFilter.contains(h.providerKey())) continue;
+            if (excludedModelIds.contains(h.modelId().toLowerCase(Locale.ROOT))) continue;
             if (narratorModelId != null && narratorModelId.equals(h.modelId())) narratorHandles.add(h);
             else independents.add(h);
         }

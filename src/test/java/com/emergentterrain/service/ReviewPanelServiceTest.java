@@ -217,6 +217,20 @@ class ReviewPanelServiceTest {
         assertThat(outcome.reviews().get(0).reviewerId()).startsWith("groq/");
     }
 
+    @Test
+    void excludedModelDoesNotConsumeAPanelSeat() {
+        FakePool groq = panelistReturning("groq", cleanReviewJson(0.8));
+        FakePool openrouter = panelistReturning("openrouter", cleanReviewJson(0.9));
+        ReviewPanelService svc = build(true, "groq,openrouter", 2,
+                "model-openrouter", groq, openrouter);
+
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+
+        assertThat(outcome.reviewerCount()).isEqualTo(1);
+        assertThat(groq.syncCallCount.get()).isEqualTo(1);
+        assertThat(openrouter.syncCallCount.get()).isZero();
+    }
+
     // ---- Helpers ----
 
     private static String cleanReviewJson(double honesty) {
@@ -237,6 +251,14 @@ class ReviewPanelServiceTest {
         assertThat(ReviewPanelService.narrationModelId("fp:model-groq")).isEqualTo("model-groq");
         assertThat(ReviewPanelService.narrationModelId(null)).isNull();
         assertThat(ReviewPanelService.narrationModelId("audit:4b → rev:ok")).isNull(); // no fp:
+    }
+
+    @Test
+    void modelFilter_isCaseInsensitiveAndPanelScoped() {
+        assertThat(ReviewPanelService.parseModelFilter(
+                " DeepSeek/DeepSeek-V4-Pro, openai/gpt-5.4 "))
+                .containsExactly("deepseek/deepseek-v4-pro", "openai/gpt-5.4");
+        assertThat(ReviewPanelService.parseModelFilter(" ")).isEmpty();
     }
 
     @Test
@@ -292,6 +314,11 @@ class ReviewPanelServiceTest {
 
     private static ReviewPanelService build(boolean enabled, String providersCsv, int panelSize,
                                               FakePool... pools) {
+        return build(enabled, providersCsv, panelSize, "", pools);
+    }
+
+    private static ReviewPanelService build(boolean enabled, String providersCsv, int panelSize,
+                                            String excludedModelsCsv, FakePool... pools) {
         GenericApplicationContext ctx = new GenericApplicationContext();
         DefaultListableBeanFactory bf = ctx.getDefaultListableBeanFactory();
         for (FakePool p : pools) {
@@ -307,6 +334,7 @@ class ReviewPanelServiceTest {
         ObjectMapper mapper = new ObjectMapper();
         return new ReviewPanelService(primaryRegistry, promptRegistry, mapper,
                 enabled, providersCsv, panelSize,
+                excludedModelsCsv,
                 /*toolCallSchemaEnabled*/ false);
     }
 

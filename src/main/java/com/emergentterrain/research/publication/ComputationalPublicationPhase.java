@@ -4,6 +4,7 @@ import com.emergentterrain.llm.ToolInvocation;
 import com.emergentterrain.research.PreRegistration;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -67,35 +68,18 @@ public final class ComputationalPublicationPhase {
         if (relatedWork == null || relatedWork.isBlank() || trace == null) {
             return false;
         }
-        List<String> searchedKeys = new ArrayList<>();
-        List<String> readKeys = new ArrayList<>();
-        for (ToolInvocation call : trace) {
-            if (call == null || call.functionName() == null) continue;
-            String result = call.resultJson();
-            if (result == null || result.isBlank()) continue;
-            if ("search_literature".equals(call.functionName())) {
-                searchedKeys.addAll(referenceKeys(result));
-            } else if ("read_reference".equals(call.functionName())) {
-                Matcher read = REFERENCE_READ.matcher(result);
-                if (read.matches()) {
-                    readKeys.add(read.group(1));
-                }
-            }
-        }
-        return readKeys.stream().anyMatch(key -> searchedKeys.contains(key)
-                && citesKey(relatedWork, key));
+        return successfullyReadSearchKeys(trace).stream().anyMatch(key -> citesKey(relatedWork, key));
     }
 
     /**
-     * True when the trace acquired a usable searched-and-read source, regardless
-     * of whether the manuscript rendered its citation. This is deliberately
-     * separate from {@link #hasLiteraturePositioning(String, List)} so the
-     * publication-state resolver can identify P33-style citation omissions.
+     * Ordered, de-duplicated keys that were both issued by {@code search_literature} and returned
+     * successfully by {@code read_reference}. These are the only keys a final narration may use to
+     * satisfy source-grounded Related Work.
      */
-    public static boolean hasReadLiteratureEvidence(List<ToolInvocation> trace) {
-        if (trace == null || trace.isEmpty()) return false;
-        List<String> searchedKeys = new ArrayList<>();
-        List<String> readKeys = new ArrayList<>();
+    public static List<String> successfullyReadSearchKeys(List<ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) return List.of();
+        LinkedHashSet<String> searchedKeys = new LinkedHashSet<>();
+        LinkedHashSet<String> readKeys = new LinkedHashSet<>();
         for (ToolInvocation call : trace) {
             if (call == null || call.functionName() == null) continue;
             String result = call.resultJson();
@@ -107,7 +91,18 @@ public final class ComputationalPublicationPhase {
                 if (read.matches()) readKeys.add(read.group(1));
             }
         }
-        return readKeys.stream().anyMatch(searchedKeys::contains);
+        readKeys.retainAll(searchedKeys);
+        return List.copyOf(readKeys);
+    }
+
+    /**
+     * True when the trace acquired a usable searched-and-read source, regardless
+     * of whether the manuscript rendered its citation. This is deliberately
+     * separate from {@link #hasLiteraturePositioning(String, List)} so the
+     * publication-state resolver can identify P33-style citation omissions.
+     */
+    public static boolean hasReadLiteratureEvidence(List<ToolInvocation> trace) {
+        return !successfullyReadSearchKeys(trace).isEmpty();
     }
 
     private static List<String> referenceKeys(String result) {

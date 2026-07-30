@@ -236,6 +236,13 @@ class ResearchNarrationServiceCallPathTest {
     }
 
     @Test
+    void panelRevision_relatedWorkOnlyChangeIsMaterial() {
+        assertThat(ResearchNarrationService.isNoChangePanelRevision(
+                "Findings.", "Findings.", "Conclusion.", "Conclusion.",
+                "Discussion.", "Discussion.", "", "Positioned against [HF123].")).isFalse();
+    }
+
+    @Test
     void panelRevision_promptIncludesPinnedHypothesis() {
         com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
                 "Hypothesis under test.",
@@ -301,6 +308,19 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(prompt).contains("\"hypothesis\"");
         assertThat(prompt).contains("\"findings\"");
         assertThat(prompt).contains("\"conclusion\"");
+        assertThat(prompt).contains("\"related_work\"");
+    }
+
+    @Test
+    void panelRevision_promptRequiresAnExactReadLiteratureKey() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(
+                n, panelOutcome(1, 0), "", List.of("HF20A94C6E8F45DBCAF99E"));
+
+        assertThat(prompt).contains("MUST emit a non-empty related_work field")
+                .contains("[HF20A94C6E8F45DBCAF99E]");
     }
 
     @Test
@@ -416,6 +436,14 @@ class ResearchNarrationServiceCallPathTest {
                 List.of(), "rev:parse_failed:demoted_to_needs_revision", List.of());
 
         assertThat(ResearchNarrationService.scoreCandidate(fallback)).isEqualTo(Double.NEGATIVE_INFINITY);
+    }
+
+    @Test
+    void uncitedSuccessfulLiteratureReadIsExcludedFromBestOfNScoring() {
+        NarrationResult uncited = new NarrationResult("h", "f", "c", null, "model", 0.99,
+                List.of(), "literature:read_key_omitted:demoted_to_needs_revision", List.of());
+
+        assertThat(ResearchNarrationService.scoreCandidate(uncited)).isEqualTo(Double.NEGATIVE_INFINITY);
     }
 
     // ---- Novelty-lens follow-up: revision-stage novelty preservation ----

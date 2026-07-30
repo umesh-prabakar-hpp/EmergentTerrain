@@ -147,6 +147,15 @@ must execute both. The live trace-definition-availability gate routes a paper to
 prose says a formula, window construction, or registered instrument is unavailable while the selected
 trace or locked registration records it.
 
+The final panel-revision contract now includes `discussion` and `related_work`. When the selected
+trace has both issued and successfully read an `HF…` literature key, the reviser must retain an
+exact `[HF…]` citation in `related_work`; otherwise the candidate is marked
+`literature:read_key_omitted:demoted_to_needs_revision` before best-of-N selection. It also may
+not claim that a recorded definition, registered instrument, or trace table is unavailable. The
+two-seat panel uses `app.research.review-panel.excluded-models` as a panel-only model denylist;
+the current DeepSeek entry avoids its known review-schema failure without removing it from normal
+OpenRouter routing.
+
 Run `./scripts/run-phase35-artifact-smoke.sh` after rebuilding or changing the
 local literature index. It executes a fixed, real-index controlled paper artifact
 smoke test: a search-only trace must fail the publication label, while the same
