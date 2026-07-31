@@ -1130,7 +1130,7 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"verify_oscillation",
-                "description":"2026-06-10 — measure the OSCILLATION of a scalar that swings around zero, on a held-out window slice. Use this (NOT verify_conjecture) when the lhs changes sign and has no one-sided bound — the canonical case is mertens_delta (the Mertens function M(x), which changes sign infinitely often; the RH-relevant statement is that the normalized envelope |M(x)|/√x stays bounded). Reports sign changes, amplitude, near-zero mean, and — when you pass scale_rhs (e.g. sqrt_window_start) — the bounded envelope max|lhs|/scale. A sign-changing quantity that REFUTES every `lhs ≤ k*rhs + c` bound but oscillates with a bounded envelope is a successful measurement, not a null. IMPORTANT — already-normalised scalars: dirichlet_error is ALREADY Δ(x)/x^{1/4}, so call verify_oscillation(dirichlet_error) with NO scale_rhs; passing scale_rhs=sqrt_window_start re-divides by √x (measures Δ(x)/x^{3/4}) and collapses the envelope toward 0, hiding the result — the raw envelope of dirichlet_error staying O(1) IS the Dirichlet-conjecture signal. Pass scale_rhs only for a RAW unnormalised lhs like mertens_delta (|M|/√x). Same caps as verify_conjecture: WORK window_size × num_windows ≤ %d; RANGE window_start + window_size × num_windows ≤ %d.",
+                "description":"2026-06-10 — measure the OSCILLATION of a scalar that swings around zero, on a held-out window slice. Use this (NOT verify_conjecture) when the lhs changes sign and has no one-sided bound — the canonical local case is mertens_delta, the signed Möbius sum over a window. Reports sign changes, amplitude, near-zero mean, and — when you pass scale_rhs (for mertens_delta, exactly sqrt_window_size) — the bounded envelope max|lhs|/scale. This finite-window measurement does NOT establish the classical summatory Mertens or RH statement. A sign-changing quantity that REFUTES every `lhs ≤ k*rhs + c` bound but oscillates with a bounded envelope is a successful measurement, not a null. IMPORTANT — already-normalised scalars: dirichlet_error is ALREADY Δ(x)/x^{1/4}, so call verify_oscillation(dirichlet_error) with NO scale_rhs; passing scale_rhs=sqrt_window_start re-divides by √x (measures Δ(x)/x^{3/4}) and collapses the envelope toward 0, hiding the result — the raw envelope of dirichlet_error staying O(1) IS the Dirichlet-conjecture signal. Pass scale_rhs only for a RAW unnormalised lhs like mertens_delta (use sqrt_window_size for its local window sum). Same caps as verify_conjecture: WORK window_size × num_windows ≤ %d; RANGE window_start + window_size × num_windows ≤ %d.",
                 "parameters":{
                   "type":"object",
                   "properties":{
@@ -3405,9 +3405,9 @@ public class MathToolSuite {
 
     /**
      * 2026-06-10 (lever D, frame 2) — verify_oscillation: the result-frame for a scalar that oscillates
-     * around zero (mertens_delta = the Mertens function). Reports sign changes, amplitude, near-zero mean,
-     * and — given a scale scalar (e.g. sqrt_window_start) — the bounded envelope max|lhs|/scale (the
-     * RH-relevant |M(x)|/√x). A one-sided bound is the wrong object for such a quantity.
+     * around zero. For mertens_delta, which is this application's window Möbius sum, the local scale is
+     * sqrt_window_size. Reports sign changes, amplitude, near-zero mean, and — given a scale scalar — the
+     * bounded envelope max|lhs|/scale. A one-sided bound is the wrong object for such a quantity.
      */
     private String verifyOscillation(JsonNode args) {
         if (conjectureVerifier == null) {
@@ -3487,7 +3487,8 @@ public class MathToolSuite {
      * oscillation's envelope is BOUNDED (flat across decades → an O(1) envelope, the load-bearing signal
      * for a normalised quantity like dirichlet_error) or GROWING with x (rising amplitude → not bounded at
      * reachable x, consistent with a slow growth such as log log x). The tracked metric is the bounded
-     * envelope {@code max|lhs|/scale} when {@code scaleRhs} is given (e.g. |M|/√x for raw mertens_delta),
+     * envelope {@code max|lhs|/scale} when {@code scaleRhs} is given (for raw local mertens_delta,
+     * {@code sqrt_window_size}),
      * else the raw amplitude {@code max|lhs|} (the right object for an already-normalised lhs). The
      * cross-scale trend IS the measurement — it directly answers "is the amplitude bounded?", which a
      * single low-x window cannot. The tool — not the LLM — picks the scales, so the reach is exercised.

@@ -483,6 +483,11 @@ public class UniversityService {
             "${app.research.max-divisor-count-measurement-preregistration-gate.enabled:false}")
     private boolean maxDivisorCountMeasurementPreRegistrationGateEnabled;
 
+    /** A Mertens-window envelope needs the locked primary/location/width design. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.mertens-envelope-preregistration-gate.enabled:false}")
+    private boolean mertensEnvelopePreRegistrationGateEnabled;
+
     /**
      * Phase 32 Wave 0 (32.1) — verified-values manifest capture. When on,
      * every published paper gets a {@code .manifest.json} sidecar beside its
@@ -1351,6 +1356,15 @@ public class UniversityService {
             log.warn("cramer-gap envelope pre-registration check failed paperId={} (exact finite holdouts missing)",
                     draft.paperId());
         }
+        boolean mertensEnvelopeTopic = "conjecture/mertens_delta".equals(draft.topicName());
+        boolean mertensEnvelopePreRegistrationUncovered = mertensEnvelopePreRegistrationGateEnabled
+                && mertensEnvelopeTopic && (!MertensEnvelopePreRegistration.isLocked(draft.preRegistration())
+                || !MertensEnvelopePreRegistration.hasExactEvidence(
+                        draft.preRegistration(), narration.toolCallTrace()));
+        if (mertensEnvelopePreRegistrationUncovered) {
+            log.warn("mertens window-envelope pre-registration check failed paperId={} (exact finite holdouts missing)",
+                    draft.paperId());
+        }
         boolean predicateStudyPreRegistrationUncovered = predicateStudyPreRegistrationGateEnabled
                 && PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                 && !PredicateStudyPreRegistration.hasExactEvidence(
@@ -1909,6 +1923,9 @@ public class UniversityService {
         } else if (cramerGapEnvelopeUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (mertensEnvelopePreRegistrationUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (traceDefinitionAvailabilityUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2073,7 +2090,7 @@ public class UniversityService {
             publicationDeficits.add(PublicationStateResolver.Deficit.CITATION);
         }
         if (predicateBaselineSensitivityUncovered || exactPreRegistrationUncovered
-                || constantLimitPreRegistrationUncovered || cramerGapEnvelopeUncovered || predicateStudyPreRegistrationUncovered
+                || constantLimitPreRegistrationUncovered || cramerGapEnvelopeUncovered || mertensEnvelopePreRegistrationUncovered || predicateStudyPreRegistrationUncovered
                 || maxPrimeGapMultiScalePreRegistrationUncovered
                 || maxDivisorCountMeasurementPreRegistrationUncovered) {
             publicationDeficits.add(PublicationStateResolver.Deficit.SENSITIVITY);
@@ -2174,6 +2191,12 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:cramer_gap_envelope_preregistration_uncovered→needs_revision"
                     : persistedCallPath + " → publish:cramer_gap_envelope_preregistration_uncovered→needs_revision";
+        }
+        if (mertensEnvelopePreRegistrationUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:mertens_window_envelope_preregistration_uncovered→needs_revision"
+                    : persistedCallPath
+                            + " → publish:mertens_window_envelope_preregistration_uncovered→needs_revision";
         }
         if (traceDefinitionAvailabilityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

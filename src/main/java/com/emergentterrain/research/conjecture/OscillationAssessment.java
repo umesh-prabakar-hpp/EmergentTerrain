@@ -4,11 +4,12 @@ package com.emergentterrain.research.conjecture;
  * 2026-06-10 (lever D, frame 2 — oscillation / sign-change). The result-frame for a scalar that
  * OSCILLATES around zero, where the content is the sign-change structure and the bounded ENVELOPE, not a
  * one-sided bound. The canonical case is {@code mertens_delta} — the Mertens function M(x), which changes
- * sign infinitely often and whose RH-equivalent statement is that the normalized envelope
- * {@code |M(x)| / √x} stays bounded (the Mertens conjecture {@code |M|<√x} is FALSE, but
- * {@code |M|=O(x^{1/2+ε})} under RH). A {@code lhs ≤ k·rhs + c} bound is the wrong object — it refutes the
- * moment M dips negative or spikes. This measures: sign changes, amplitude, near-zero mean, and (given a
- * scale such as √x) the envelope {@code max |lhs|/scale}.
+ * sign infinitely often. In this application {@code mertens_delta} is instead a window increment
+ * {@code M(window_end)-M(window_start)}, so its local finite-envelope normalization is
+ * {@code sqrt(window_size)}. That measurement must not be presented as the classical summatory
+ * Mertens/RH statement. A {@code lhs ≤ k·rhs + c} bound is the wrong object — it refutes the
+ * moment the signed quantity dips negative or spikes. This measures: sign changes, amplitude,
+ * near-zero mean, and (given a scale) the envelope {@code max |lhs|/scale}.
  *
  * <p>Pure + static so it unit-tests without a sidecar; the {@code verify_oscillation} tool feeds it the
  * per-window {@code lhs} values (and optional per-window scale values).

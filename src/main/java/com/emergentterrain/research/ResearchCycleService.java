@@ -1189,13 +1189,14 @@ public class ResearchCycleService {
             case OSCILLATION -> String.format(
                     "This paper measures whether `%s` oscillates within a BOUNDED O(1) envelope as x grows, "
                     + "or whether its amplitude GROWS slowly (e.g. log log x) — the open boundedness question. "
-                    + "It is already normalised, so call verify_oscillation with scale_ladder:true and NO "
-                    + "scale_rhs — the tool sweeps a GEOMETRIC ladder of scales out to the trusted ceiling FOR "
-                    + "you (do NOT hand-pick window_start) and reports the amplitude/envelope at each scale and "
-                    + "whether it is FLAT (bounded) or rising. The cross-scale envelope TREND is the "
-                    + "load-bearing claim — NOT an affine bound, and NOT a single low-x window (which cannot "
-                    + "distinguish a bounded amplitude from a slowly growing one). Report the amplitude at each "
-                    + "scale and the trend across decades.",
+                    + (spec.growthScale() == null
+                    ? "It is already normalised, so call verify_oscillation with scale_ladder:true and NO scale_rhs. "
+                    : "It is raw, so normalize only by `" + spec.growthScale() + "`; execute its locked exact "
+                            + "primary/location/width calls with scale_ladder:false, not a hand-picked affine proxy. ")
+                    + "The cross-scale envelope TREND is the load-bearing claim — NOT an affine bound, and NOT "
+                    + "a single low-x window (which cannot distinguish a bounded amplitude from a slowly growing one). "
+                    + "Report the amplitude at each registered grid and the finite-window trend without claiming an "
+                    + "asymptotic theorem.",
                     lhs);
             case GROWTH -> String.format(
                     "This paper measures the GROWTH LAW of `%s`: whether it tracks the %s scale (its natural "

@@ -42,6 +42,23 @@ class ConjectureInvestigationProtocolTest {
     }
 
     @Test
+    void mertensWindowIncrementRoutesToLockedEnvelopeInsteadOfAffineFrontierBound() {
+        Conjecture conjecture = new Conjecture("MATHEMATICS", "mertens_delta",
+                "omega_excess_density", 2.0, 17.6208);
+
+        ConjectureInvestigationProtocol.Allocation allocation =
+                ConjectureInvestigationProtocol.allocate(conjecture,
+                        ScalarOpenness.measurementFrame("mertens_delta"));
+
+        assertThat(allocation.route()).isEqualTo(ConjectureInvestigationProtocol.Route.REGISTERED_MEASUREMENT);
+        assertThat(allocation.reason()).isEqualTo("registered_mertens_window_envelope_measurement");
+        assertThat(MertensEnvelopePreRegistration.isLocked(allocation.registration())).isTrue();
+        assertThat(MertensEnvelopePreRegistration.exactTestDirective(allocation.registration()))
+                .contains("verify_oscillation").contains("scale_rhs=\"sqrt_window_size\"")
+                .contains("scale_ladder=false").doesNotContain("omega_excess_density");
+    }
+
+    @Test
     void unknownAffineScalarIsRejectedBeforeDraftAllocation() {
         Conjecture conjecture = new Conjecture("MATHEMATICS", "max_prime_gap",
                 "_constant_", 0.0, 0.36);

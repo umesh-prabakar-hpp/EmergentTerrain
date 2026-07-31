@@ -4,6 +4,7 @@ import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.ConjecturePreRegistration;
 import com.emergentterrain.research.ConstantLimitPreRegistration;
 import com.emergentterrain.research.CramerGapEnvelopePreRegistration;
+import com.emergentterrain.research.MertensEnvelopePreRegistration;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
@@ -573,6 +574,13 @@ public class ResearchNarrationService {
     static String buildCramerGapEnvelopePreRegistrationNote(PreRegistration registration) {
         String directive = CramerGapEnvelopePreRegistration.exactTestDirective(registration);
         return directive.isBlank() ? "" : "\n\nCRAMER-GAP ENVELOPE PRE-REGISTRATION NOTE — " + directive;
+    }
+
+    static String buildMertensEnvelopePreRegistrationNote(PreRegistration registration) {
+        String directive = MertensEnvelopePreRegistration.exactTestDirective(registration);
+        return directive.isBlank() ? "" : "\n\nMERTENS WINDOW-ENVELOPE PRE-REGISTRATION NOTE — " + directive
+                + " This is a finite-window Möbius-sum measurement only: do not state or imply a proof of an "
+                + "asymptotic Mertens/RH claim, and do not describe a fitted affine coefficient as a discovery.";
     }
 
     static String buildPredicateBaselineSensitivityNote(PaperDraft draft) {
@@ -2789,6 +2797,8 @@ public class ResearchNarrationService {
                             ? buildConstantLimitPreRegistrationNote(draft.preRegistration()) : "")
                     + (CramerGapEnvelopePreRegistration.isLocked(draft.preRegistration())
                             ? buildCramerGapEnvelopePreRegistrationNote(draft.preRegistration()) : "")
+                    + (MertensEnvelopePreRegistration.isLocked(draft.preRegistration())
+                            ? buildMertensEnvelopePreRegistrationNote(draft.preRegistration()) : "")
                     + (PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                             ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
                     + (MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())

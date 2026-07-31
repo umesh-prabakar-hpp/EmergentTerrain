@@ -27,6 +27,10 @@ public final class ConjectureInvestigationProtocol {
                 return new Allocation(Route.REGISTERED_MEASUREMENT,
                         CramerGapEnvelopePreRegistration.from(conjecture), "registered_finite_envelope_measurement");
             }
+            if ("mertens_delta".equals(conjecture.lhs())) {
+                return new Allocation(Route.REGISTERED_MEASUREMENT,
+                        MertensEnvelopePreRegistration.from(conjecture), "registered_mertens_window_envelope_measurement");
+            }
             return new Allocation(Route.REGISTERED_MEASUREMENT, null,
                     "registered_" + measurementSpec.frame().name().toLowerCase() + "_measurement");
         }

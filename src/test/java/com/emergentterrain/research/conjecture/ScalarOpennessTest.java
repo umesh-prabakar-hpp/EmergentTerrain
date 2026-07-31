@@ -90,6 +90,9 @@ class ScalarOpennessTest {
 
     @Test
     void measurementFrameRegistry() {
+        var mertens = ScalarOpenness.measurementFrame("mertens_delta");
+        assertThat(mertens.frame()).isEqualTo(ScalarOpenness.MeasurementFrame.OSCILLATION);
+        assertThat(mertens.growthScale()).isEqualTo("sqrt_window_size");
         assertThat(ScalarOpenness.measurementFrame("dirichlet_error").frame())
                 .isEqualTo(ScalarOpenness.MeasurementFrame.OSCILLATION);
         var omega = ScalarOpenness.measurementFrame("omega_Omega_gap");

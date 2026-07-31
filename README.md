@@ -323,6 +323,14 @@ measurement, not a registered constant limit. New investigations lock one discov
 unchanged far-location, offset, and width holdouts; a missing grid or a scale-ladder substitute
 stays `NEEDS_REVISION`. The result may describe only the measured finite envelope.
 
+**Mertens window-envelope protocol** — `mertens_delta` is a signed local Möbius-sum increment,
+not an affine frontier relation. New investigations lock `verify_oscillation` with the exact
+`sqrt_window_size` normalizer on a primary grid plus disjoint location and changed-width holdouts.
+The selected trace must contain every non-ladder call or it remains `NEEDS_REVISION`; normal
+search → read → Related Work source grounding remains required. This supports only a finite-window
+measurement, never a proof of an asymptotic Mertens/RH statement or a claim of field novelty. See
+[`phase-38-frontier-paper-candidate`](phases-for-human-like-performance/phase-38-frontier-paper-candidate/README.md).
+
 **Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
 `HF...` evidence but the professor omitted every `read_reference` call,
 `app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled` (currently
@@ -378,6 +386,7 @@ In-repo specs and design notes under `docs/`:
 - [`2026-06-04-pipeline-hardening.md`](docs/2026-06-04-pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
 - [`phase-34-computational-publication/README.md`](phases-for-human-like-performance/phase-34-computational-publication/README.md) — publication tiers, artifact/provenance rules, current SQLite adapter checkpoint, and the remaining live-activation checklist.
 - [`phase-35-fts-retrieval-efficiency/README.md`](phases-for-human-like-performance/phase-35-fts-retrieval-efficiency/README.md) — performance-preserving FTS5 retrieval plan, evidence invariants, acceptance suite, and rollout/rollback criteria.
+- [`phase-38-frontier-paper-candidate/README.md`](phases-for-human-like-performance/phase-38-frontier-paper-candidate/README.md) — frontier-candidate standard and the implemented Mertens finite-envelope protocol.
 - [`research-puzzle-spec.md`](docs/research-puzzle-spec.md) · [`bot-lifecycle-spec.md`](docs/bot-lifecycle-spec.md) · [`constitutional-terrain-phase1.md`](docs/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/llm-cost-analysis.md)
 
 Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performance/phase-30-conjecture/`.

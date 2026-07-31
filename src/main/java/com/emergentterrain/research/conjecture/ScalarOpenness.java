@@ -125,6 +125,10 @@ public final class ScalarOpenness {
     }
 
     public static final Map<String, MeasurementSpec> MEASUREMENT_FRAMES = Map.ofEntries(
+            // The window Möbius sum is signed. Its finite-window envelope must retain the local
+            // sqrt(window_size) normalizer, rather than mine an arbitrary affine proxy relation.
+            Map.entry("mertens_delta",       new MeasurementSpec(MeasurementFrame.OSCILLATION,
+                    "sqrt_window_size", null, Convergence.SLOW)),
             // dirichlet O(1) envelope — needs the widest span to test boundedness at higher x → SLOW.
             Map.entry("dirichlet_error",     new MeasurementSpec(MeasurementFrame.OSCILLATION, null, null, Convergence.SLOW)),
             // omega_Omega_gap → Σ1/p(p−1): prime-sum tail, NULL'd unconverged at 2e7 → SLOW.
