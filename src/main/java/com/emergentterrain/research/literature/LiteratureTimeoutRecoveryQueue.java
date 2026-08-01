@@ -154,8 +154,10 @@ public final class LiteratureTimeoutRecoveryQueue {
     }
 
     /**
-     * Journal and hold a draft iff its selected trace contains a Phase 35
-     * timeout. Returning true authorizes the caller to suppress publication.
+     * Journal and hold a draft iff the selected trace's final literature-search outcome is a
+     * Phase 35 timeout. A losing best-of-N candidate is never supplied here, and an earlier
+     * timeout that the selected candidate later resolves to local evidence/no-match is telemetry,
+     * not a sticky publication hold. Returning true authorizes the caller to suppress publication.
      */
     public synchronized boolean deferIfTimedOut(PaperDraft draft, NarrationResult narration) {
         if (!enabled || draft == null || draft.paperId() == null || narration == null) return false;
@@ -311,10 +313,15 @@ public final class LiteratureTimeoutRecoveryQueue {
 
     private static TimeoutRequest timeoutRequest(List<ToolInvocation> trace) {
         if (trace == null) return null;
+        TimeoutRequest terminalTimeout = null;
         for (ToolInvocation invocation : trace) {
-            if (invocation == null || !"search_literature".equals(invocation.functionName())
-                    || invocation.resultJson() == null
-                    || !invocation.resultJson().toLowerCase(java.util.Locale.ROOT).contains(TIMEOUT_MARKER)) {
+            if (invocation == null || !"search_literature".equals(invocation.functionName())) continue;
+            String result = invocation.resultJson();
+            // Only the terminal selected-search state may hold a paper. In particular, a later
+            // EVIDENCE result must flow to the ordinary issued→read→Related Work gate, while a
+            // later no-match remains a no-evidence draft rather than a recovery job.
+            if (!isPhase35TimeoutResult(result)) {
+                terminalTimeout = null;
                 continue;
             }
             try {
@@ -322,13 +329,18 @@ public final class LiteratureTimeoutRecoveryQueue {
                 String claim = args.path("claim").asText("").trim();
                 List<String> anchors = new ArrayList<>();
                 args.path("subject_anchors").forEach(node -> anchors.add(node.asText("")));
-                return new TimeoutRequest(claim, anchors, args.path("claimed_relation").asText(""),
+                terminalTimeout = new TimeoutRequest(claim, anchors, args.path("claimed_relation").asText(""),
                         args.path("relevance_rationale").asText(""));
             } catch (Exception ignored) {
-                return null;
+                terminalTimeout = null;
             }
         }
-        return null;
+        return terminalTimeout;
+    }
+
+    /** Shared timeout classifier for the pre-narration local-index preflight and its durable queue. */
+    public static boolean isPhase35TimeoutResult(String result) {
+        return result != null && result.toLowerCase(java.util.Locale.ROOT).contains(TIMEOUT_MARKER);
     }
 
     private static List<OpenAlexCandidate> candidates(JsonNode response) {

@@ -53,6 +53,22 @@ class LiteratureTimeoutRecoveryQueueTest {
         assertThat(restored.job("P-timeout").subjectAnchors()).containsExactly("dirichlet", "divisor");
     }
 
+    @Test
+    void laterSelectedSearchOutcomeClearsAnEarlierTimeout() {
+        LiteratureTimeoutRecoveryQueue queue = queue();
+        NarrationResult resolved = new NarrationResult("h", "f", "c", null, "model", 0.5, List.of(), "path")
+                .withToolCallTrace(List.of(
+                        new ToolInvocation("search_literature",
+                                "{\"claim\":\"Dirichlet divisor estimate\",\"subject_anchors\":[\"dirichlet\",\"divisor\"]}",
+                                "search_literature: Phase 34 SQLite retrieval exceeded its 15000ms Phase 35 budget; no evidence was issued.", 1),
+                        new ToolInvocation("search_literature",
+                                "{\"claim\":\"Dirichlet divisor estimate\",\"subject_anchors\":[\"dirichlet\",\"divisor\"]}",
+                                "search_literature (Phase 34 SQLite): EVIDENCE — cite only the returned [HF123] keys.", 2)));
+
+        assertThat(queue.deferIfTimedOut(draft(), resolved)).isFalse();
+        assertThat(queue.queuedJobs()).isZero();
+    }
+
     private LiteratureTimeoutRecoveryQueue queue() {
         LiteratureTimeoutRecoveryQueue queue = new LiteratureTimeoutRecoveryQueue(
                 new ObjectMapper(), true, stateDir.toString(), 3, 10, null, null);

@@ -131,8 +131,30 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             return LiteratureQueryPlan.unavailable(
                     "Phase 35 AI literature proposal anchors are not grounded in the supplied claim; no evidence was issued.");
         }
-        return new LiteratureQueryPlan(List.of(new LiteratureQueryPlan.Candidate(
-                LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, proposed)), "");
+        List<LiteratureQueryPlan.Candidate> candidates = new ArrayList<>();
+        candidates.add(new LiteratureQueryPlan.Candidate(
+                LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, proposed));
+
+        // A model-proposed pair is the first audited subject route, not the whole search plan.
+        // Preserve it, then add only claim-grounded adjacent subject pairs as bounded fallbacks.
+        // This lets a locked definition, named theorem, or method phrase recover recall when the
+        // model chose one valid but sparse pair, without accepting model synonyms or relaxing the
+        // title/evidence checks that decide whether an HF key is issued.
+        boolean requireTitleAnchor = claimAnchors.size() >= 3;
+        for (List<String> pair : extractAdjacentSubjectPhrases(claim)) {
+            if (candidates.size() >= MAX_CANDIDATES || pair.get(0).equals(pair.get(1))
+                    || (LiteratureQueryPlan.isWeakSubjectTerm(pair.get(0))
+                    && LiteratureQueryPlan.isWeakSubjectTerm(pair.get(1)))) continue;
+            LiteratureQueryPlan.QueryKind kind = requireTitleAnchor
+                    ? LiteratureQueryPlan.QueryKind.EXACT_PHRASE
+                    : LiteratureQueryPlan.QueryKind.AND_PAIR;
+            LiteratureQueryPlan.Candidate candidate = new LiteratureQueryPlan.Candidate(kind, pair,
+                    evidenceAnchorsFor(pair, claimAnchors), pair);
+            if (candidates.stream().noneMatch(existing -> existing.expression().equals(candidate.expression()))) {
+                candidates.add(candidate);
+            }
+        }
+        return new LiteratureQueryPlan(candidates, "");
     }
 
     private static boolean isOmegaMultiplicityPair(List<String> subjectAnchors) {

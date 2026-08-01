@@ -252,6 +252,18 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35KeepsValidatedProposalThenTriesClaimGroundedDefinitionAndMethodPairs() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "Dirichlet divisor error oscillation estimate", java.util.Map.of(),
+                new LiteratureQueryProposal(List.of("dirichlet", "divisor"),
+                        "locate the established estimate", "definition and theorem context"));
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("dirichlet AND divisor", "\"dirichlet divisor\"",
+                        "\"divisor error\"", "\"error oscillation\"", "\"oscillation estimate\"");
+    }
+
+    @Test
     void phase35FailsClosedForAnAiProposalWithProceduralOrUngroundedAnchors() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 

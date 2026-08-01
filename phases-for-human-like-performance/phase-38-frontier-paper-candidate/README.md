@@ -97,6 +97,33 @@ following in addition to ordinary publication gates:
 5. Measure false-promotion rate before allowing a new reader-facing tier. A failed independent
    reproduction or source challenge must demote, never be narrated away.
 
+## Literature lifecycle hardening (2026-07-31)
+
+The observed failure mode was operational rather than mathematical: a 15-second Phase 35 timeout
+could arrive inside every expensive best-of-N candidate, then an earlier timeout could hold the
+draft even when its selected candidate later had a normal local search outcome. That burns
+generation/panel budget, creates no useful manuscript, and makes a recovery state look sticky.
+
+The implemented correction is deliberately narrow and conservative:
+
+1. A locked established constant target performs its reviewed two-anchor local search before any
+   narration work. An unresolved timeout is journaled as `AWAITING_DISCOVERY` before a manuscript
+   is attempted; durable ID allocation remains audit-only and is not rolled back.
+2. Exact semantic `search_literature` requests share a per-paper cache for the full narration
+   session, including best-of-N candidates and professor resamples. The cache cannot issue new
+   keys, bypass reads, or change relevance/publication decisions.
+3. Recovery examines the selected trace's terminal local-search outcome. A later `EVIDENCE` or
+   no-match clears an earlier timeout, leaving the normal issued-key → read → Related Work and
+   target-relevance gates authoritative. A terminal timeout alone is deferred.
+4. A valid model-proposed pair stays first, while additional claim-adjacent definition/theorem/
+   method pairs are attempted only as bounded, token-validated fallbacks. They retain the same
+   title and record-evidence gates, so broader discovery cannot turn a lexical coincidence into a
+   citation.
+
+This makes a missing or slow local source a recoverable readiness condition rather than a reason
+to spend the full manuscript cascade. It does not convert a search miss into novelty, source
+evidence, or a frontier claim.
+
 ## Acceptance checks
 
 Run:

@@ -17,7 +17,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -439,6 +441,25 @@ public class MathToolSuite {
 
     /** Phase 34 — optional read-only SQLite/FTS5 literature adapter. */
     private volatile com.emergentterrain.research.literature.Phase34SqliteLiterature phase34SqliteLiterature;
+
+    /**
+     * Per-narration cache for exact semantic literature requests.  A best-of-N paper used to
+     * repeat the same bounded FTS query for each candidate (and again on professor resampling),
+     * wasting the whole deadline without adding independent evidence.  The cache is deliberately
+     * scoped by paper id and is cleared when narration settles: issued HF keys and source state
+     * remain owned by the adapter, while only an identical local request/result is reused.
+     */
+    private final Map<String, Map<String, String>> literatureSearchSessions = new ConcurrentHashMap<>();
+
+    public void beginLiteratureSearchSession(String paperId) {
+        if (paperId != null && !paperId.isBlank()) {
+            literatureSearchSessions.put(paperId, new ConcurrentHashMap<>());
+        }
+    }
+
+    public void endLiteratureSearchSession(String paperId) {
+        if (paperId != null) literatureSearchSessions.remove(paperId);
+    }
 
     public void setPhase34SqliteLiterature(
             com.emergentterrain.research.literature.Phase34SqliteLiterature adapter) {
@@ -1380,7 +1401,7 @@ public class MathToolSuite {
                     case "scalar_window_stats" -> scalarWindowStats(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
-                    case "search_literature"  -> searchLiterature(draft, args);
+                    case "search_literature"  -> cachedSearchLiterature(draft, args);
                     case "read_reference"     -> readReference(args, readReferenceCalls);
                     case "assess_reference_relevance" -> assessReferenceRelevance(args);
                     case "lookup_oeis"        -> lookupOeis(args);
@@ -1478,6 +1499,37 @@ public class MathToolSuite {
                 return "Tool execution error: " + e.getMessage();
             }
         };
+    }
+
+    private String cachedSearchLiterature(PaperDraft draft, JsonNode args) {
+        if (draft == null || draft.paperId() == null || draft.paperId().isBlank()) {
+            return searchLiterature(draft, args);
+        }
+        Map<String, String> session = literatureSearchSessions.get(draft.paperId());
+        if (session == null) return searchLiterature(draft, args);
+        String key = literatureSearchCacheKey(args);
+        String cached = session.get(key);
+        if (cached != null) {
+            log.info("literature search cache hit paperId={} requestHash={}", draft.paperId(),
+                    Integer.toUnsignedString(key.hashCode()));
+            return cached;
+        }
+        String result = searchLiterature(draft, args);
+        session.putIfAbsent(key, result);
+        return session.get(key);
+    }
+
+    private static String literatureSearchCacheKey(JsonNode args) {
+        StringBuilder key = new StringBuilder();
+        key.append(args.path("claim").asText("").strip()).append('\u0001')
+                .append(args.path("topic").asText("").strip()).append('\u0001')
+                .append(args.path("claimed_relation").asText("").strip()).append('\u0001')
+                .append(args.path("relevance_rationale").asText("").strip()).append('\u0001');
+        JsonNode anchors = args.path("subject_anchors");
+        if (anchors.isArray()) {
+            for (JsonNode anchor : anchors) key.append(anchor.asText("").strip()).append('\u0001');
+        }
+        return key.toString();
     }
 
     // ── Tool implementations ──────────────────────────────────────────────────

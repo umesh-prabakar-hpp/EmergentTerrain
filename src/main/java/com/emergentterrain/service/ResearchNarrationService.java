@@ -1965,6 +1965,21 @@ public class ResearchNarrationService {
     }
 
     private void runNarration(PaperDraft draft) {
+        toolSuite.beginLiteratureSearchSession(draft.paperId());
+        try {
+            runNarrationInLiteratureSession(draft);
+        } finally {
+            toolSuite.endLiteratureSearchSession(draft.paperId());
+        }
+    }
+
+    /**
+     * Keeps one exact local-literature result cache alive across every candidate, professor
+     * resample, and deterministic post-search read for this draft.  The durable paper id is
+     * allocated before this point, but a required-target timeout can now be held before any
+     * narration, panel, or manuscript work begins.
+     */
+    private void runNarrationInLiteratureSession(PaperDraft draft) {
         updateDraftPhase(draft, "narration:first_pass");
         // Phase 20.4 — orchestration wall-clock bracket. Captured at entry so
         // every publish path (suppression, gate-closed, normal completion) can
@@ -2020,6 +2035,19 @@ public class ResearchNarrationService {
             return;
         }
 
+        // A named established target has an explicit source-grounding requirement. Check the
+        // local immutable index before spending on first-pass/professor/student/panel work. A
+        // timeout is journaled as a recovery job immediately; a no-match remains a normal
+        // no-evidence result and is handled by the ordinary publication gates.
+        NarrationResult requiredTargetPreflight = preflightRequiredTargetLiterature(draft);
+        if (requiredTargetPreflight != null && literatureTimeoutRecoveryQueue != null
+                && literatureTimeoutRecoveryQueue.deferIfTimedOut(draft, requiredTargetPreflight)) {
+            updateDraftPhase(draft, "literature:pending_backfill:preflight");
+            firstPassCheckpoints.remove(draft.paperId());
+            log.info("literature preflight held paperId={} before narration cascade", draft.paperId());
+            return;
+        }
+
         // Phase 29 §29.1.1 — produce one (default) or N panel-scored candidate
         // narrations for this draft and publish the highest-graded one. With
         // best-of-N off (bestOfNCandidates==1) this is a single
@@ -2069,6 +2097,57 @@ public class ResearchNarrationService {
             } else {
                 literatureTimeoutRecoveryQueue.markCompleted(draft.paperId());
             }
+        }
+    }
+
+    /** Returns a timeout-bearing trace only; successful/no-match preflights do not alter prose or labels. */
+    private NarrationResult preflightRequiredTargetLiterature(PaperDraft draft) {
+        if (!ConstantLimitPreRegistration.requiresSourceGrounding(draft.preRegistration())
+                || phase34SqliteLiterature == null || !phase34SqliteLiterature.available()) {
+            return null;
+        }
+        String subject = ConstantLimitPreRegistration.literatureSubject(draft.preRegistration());
+        List<String> anchors;
+        String lowerSubject = subject.toLowerCase(java.util.Locale.ROOT);
+        if (lowerSubject.contains("dirichlet") && lowerSubject.contains("divisor")) {
+            anchors = List.of("dirichlet", "divisor");
+        } else if (lowerSubject.contains("omega") && subject.contains("Omega")) {
+            // The deterministic planner maps this case-distinct mathematical pair to its
+            // title-bearing prime-factor terms without allowing an arbitrary synonym.
+            anchors = List.of("omega", "Omega");
+        } else if (lowerSubject.contains("twin") && lowerSubject.contains("prime")) {
+            anchors = List.of("twin", "prime");
+        } else {
+            // Only locked, reviewed subject maps may preflight.  An unknown target still has the
+            // normal in-trace validation path; do not invent a broad query at this boundary.
+            return null;
+        }
+        try {
+            Map<String, Object> arguments = new LinkedHashMap<>();
+            arguments.put("claim", subject);
+            arguments.put("subject_anchors", anchors);
+            arguments.put("claimed_relation", "source-grounded established target context");
+            arguments.put("relevance_rationale", "locked pre-registration requires a readable local source");
+            String argumentsJson = objectMapper.writeValueAsString(arguments);
+            String request = objectMapper.writeValueAsString(Map.of(
+                    "name", "search_literature", "arguments", arguments));
+            String result = toolSuite.buildExecutor(draft, new MathToolSuite.ToolMetrics()).apply(request);
+            if (!com.emergentterrain.research.literature.LiteratureTimeoutRecoveryQueue
+                    .isPhase35TimeoutResult(result)) {
+                log.info("literature preflight completed paperId={} subject='{}' outcome={}",
+                        draft.paperId(), subject,
+                        result != null && result.contains("EVIDENCE") ? "evidence" : "no_evidence");
+                return null;
+            }
+            return NarrationResult.suppressed(NarrationResult.OutcomeStatus.ERROR,
+                    java.time.Instant.now(), java.time.Instant.now(), 0L, 0L)
+                    .withToolCallTrace(List.of(new com.emergentterrain.llm.ToolInvocation(
+                            "search_literature", argumentsJson, result, 0)));
+        } catch (Exception error) {
+            // A malformed local preflight must not recast an ordinary paper as a timeout. The
+            // normal tool path will retain its existing failure semantics and audit trail.
+            log.warn("literature preflight unavailable paperId={}: {}", draft.paperId(), error.toString());
+            return null;
         }
     }
 
