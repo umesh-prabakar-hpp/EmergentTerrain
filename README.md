@@ -161,6 +161,13 @@ consistency, never proof or novelty. The live trace-definition-availability gate
 prose says a formula, window construction, or registered instrument is unavailable while the selected
 trace or locked registration records it.
 
+For an established constant target, that chain additionally requires an accepted `RELEVANT`
+reference assessment and a returned passage that names the registered scalar; a polysemous title
+match alone cannot ground a candidate label. `verify_conjecture` emits deterministic
+`held/refuted/total` window counts, and final prose that gives an explicit count is checked against
+those labels. A no-evidence Related Work section may state the bounded retrieval outcome, but may
+not infer novelty or an absent mechanism from it.
+
 The final panel-revision contract now includes `discussion` and `related_work`. When the selected
 trace has both issued and successfully read an `HF…` literature key, the reviser must retain an
 exact `[HF…]` citation in `related_work`; otherwise the candidate is marked

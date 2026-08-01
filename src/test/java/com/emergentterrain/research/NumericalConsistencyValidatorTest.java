@@ -1232,6 +1232,32 @@ class NumericalConsistencyValidatorTest {
         assertThat(NumericalConsistencyValidator.validateVerdictGrounding("x", "y", null)).isEmpty();
     }
 
+    @Test
+    void windowCountGroundingFlagsAllRefutedClaimAgainstMixedTrace() {
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture", "{}",
+                        "verify_conjecture: lhs <= rhs REFUTED across 10 window(s).\n"
+                                + "window counts (all evaluated windows): held=4, refuted=6, total=10.\n"
+                                + "Per-window: ...",
+                        0, "call_1"));
+
+        assertThat(NumericalConsistencyValidator.validateWindowCountGrounding(
+                "The registered inequality was refuted in all 10 contiguous windows.", "", trace))
+                .containsExactly("Prose says all 10 windows refuted, but verify_conjecture reports held=4, refuted=6, total=10.");
+    }
+
+    @Test
+    void windowCountGroundingPermitsExactReportedCount() {
+        List<com.emergentterrain.llm.ToolInvocation> trace = List.of(
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture", "{}",
+                        "verify_conjecture: lhs <= rhs REFUTED across 10 window(s).\n"
+                                + "window counts (all evaluated windows): held=4, refuted=6, total=10.",
+                        0, "call_1"));
+
+        assertThat(NumericalConsistencyValidator.validateWindowCountGrounding(
+                "6 of 10 windows were refuted; four held.", "", trace)).isEmpty();
+    }
+
     // ── 2026-06-18 — uncoveredProseRanges (scope-recover gate detector) ──────────
 
     private static com.emergentterrain.llm.ToolInvocation scan(int start, int end) {

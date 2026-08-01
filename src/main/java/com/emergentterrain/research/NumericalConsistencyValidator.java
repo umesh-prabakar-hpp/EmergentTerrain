@@ -638,6 +638,14 @@ public final class NumericalConsistencyValidator {
                     + "[^.]{0,160}?(?:\\bor\\b|either|whether)[^.]{0,40}?"
                     + "\\bmargin\\b\\s*=\\s*(?:rhs\\s*[-−–]\\s*lhs|lhs\\s*[-−–]\\s*bound)");
 
+    private static final Pattern WINDOW_COUNTS = Pattern.compile(
+            "(?i)window counts \\(all evaluated windows\\): held=(\\d+), refuted=(\\d+), total=(\\d+)");
+    private static final Pattern ALL_WINDOWS_REFUTED = Pattern.compile(
+            "(?i)\\b(?:refuted|rejected)\\s+in\\s+all\\s+(\\d+)\\s+(?:contiguous\\s+)?windows?\\b"
+                    + "|\\ball\\s+(\\d+)\\s+(?:contiguous\\s+)?windows?\\s+(?:were\\s+)?(?:refuted|rejected)\\b");
+    private static final Pattern SOME_WINDOWS_REFUTED = Pattern.compile(
+            "(?i)\\b(\\d+)\\s+of\\s+(\\d+)\\s+(?:contiguous\\s+)?windows?\\s+(?:were\\s+)?(?:refuted|rejected)\\b");
+
     /**
      * Flag prose (Findings + Conclusion) that hedges or reverses the {@code verify_conjecture}
      * margin-sign convention. Fires only when the trace actually contains {@code verify_conjecture}
@@ -663,6 +671,42 @@ public final class NumericalConsistencyValidator {
         return reasons;
     }
 
+    /**
+     * Compares explicit prose counts with the deterministic held/refuted totals emitted by
+     * {@code verify_conjecture}. This intentionally checks only unambiguous count claims, leaving
+     * qualitative finite-scope discussion alone.
+     */
+    public static List<String> validateWindowCountGrounding(
+            String findings, String conclusion,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        List<WindowCounts> counts = windowCounts(trace);
+        if (counts.isEmpty()) return List.of();
+        String prose = (findings == null ? "" : findings) + "\n" + (conclusion == null ? "" : conclusion);
+        List<String> reasons = new ArrayList<>();
+        Matcher all = ALL_WINDOWS_REFUTED.matcher(prose);
+        while (all.find()) {
+            int total = parseCount(all.group(1) != null ? all.group(1) : all.group(2));
+            WindowCounts observed = uniqueForTotal(counts, total);
+            if (observed != null && observed.refuted() != observed.total()) {
+                reasons.add(String.format(
+                        "Prose says all %d windows refuted, but verify_conjecture reports held=%d, refuted=%d, total=%d.",
+                        total, observed.held(), observed.refuted(), observed.total()));
+            }
+        }
+        Matcher some = SOME_WINDOWS_REFUTED.matcher(prose);
+        while (some.find()) {
+            int claimedRefuted = parseCount(some.group(1));
+            int total = parseCount(some.group(2));
+            WindowCounts observed = uniqueForTotal(counts, total);
+            if (observed != null && (claimedRefuted != observed.refuted() || total != observed.total())) {
+                reasons.add(String.format(
+                        "Prose says %d of %d windows refuted, but verify_conjecture reports held=%d, refuted=%d, total=%d.",
+                        claimedRefuted, total, observed.held(), observed.refuted(), observed.total()));
+            }
+        }
+        return List.copyOf(reasons);
+    }
+
     /** Map/Conclusion overload mirroring the trace-aware {@link #validate} signature. */
     public static List<String> validateVerdictGrounding(
             java.util.Map<Integer, String> findingsMap, String conclusion,
@@ -682,6 +726,45 @@ public final class NumericalConsistencyValidator {
         }
         return false;
     }
+
+    private static List<WindowCounts> windowCounts(java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null) return List.of();
+        List<WindowCounts> counts = new ArrayList<>();
+        for (com.emergentterrain.llm.ToolInvocation invocation : trace) {
+            if (invocation == null || !"verify_conjecture".equals(invocation.functionName())) continue;
+            Matcher matcher = WINDOW_COUNTS.matcher(invocation.resultJson() == null ? "" : invocation.resultJson());
+            if (!matcher.find()) continue;
+            int held = parseCount(matcher.group(1));
+            int refuted = parseCount(matcher.group(2));
+            int total = parseCount(matcher.group(3));
+            if (held >= 0 && refuted >= 0 && total == held + refuted) {
+                counts.add(new WindowCounts(held, refuted, total));
+            }
+        }
+        return counts;
+    }
+
+    private static WindowCounts uniqueForTotal(List<WindowCounts> counts, int total) {
+        WindowCounts match = null;
+        for (WindowCounts candidate : counts) {
+            if (candidate.total() != total) continue;
+            if (match != null && (match.held() != candidate.held() || match.refuted() != candidate.refuted())) {
+                return null;
+            }
+            match = candidate;
+        }
+        return match;
+    }
+
+    private static int parseCount(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
+    private record WindowCounts(int held, int refuted, int total) {}
 
     private static void collectAllNumbers(String text, List<Double> sink) {
         if (text == null) return;

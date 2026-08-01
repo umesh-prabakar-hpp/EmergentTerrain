@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Locale;
 
 /** Locked, executable scale-ladder measurement for a registered constant-limit scalar. */
 public final class ConstantLimitPreRegistration {
@@ -94,6 +95,21 @@ public final class ConstantLimitPreRegistration {
         return spec.literatureSubject.isBlank()
                 ? literatureSubjectFor(spec.lhs, KnownLimitRegistry.find(spec.lhs).orElse(null))
                 : spec.literatureSubject;
+    }
+
+    /**
+     * Stable lexical identity tokens for the measured scalar. These are deliberately narrower
+     * than the broad literature subject: a generic overlap such as "prime powers" must not
+     * ground an established target whose scalar is {@code omega_Omega_gap}.
+     */
+    public static List<String> targetIdentityTokens(PreRegistration registration) {
+        Specification spec = parse(registration);
+        if (spec == null || spec.lhs == null || spec.lhs.isBlank()) return List.of();
+        return java.util.Arrays.stream(spec.lhs.toLowerCase(Locale.ROOT).split("_"))
+                .map(String::strip)
+                .filter(token -> token.length() >= 4)
+                .distinct()
+                .toList();
     }
 
     public static boolean isEstablishedCalibration(PreRegistration registration) {

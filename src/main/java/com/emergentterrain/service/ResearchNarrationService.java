@@ -2463,7 +2463,8 @@ public class ResearchNarrationService {
                     .successfullyReadSearchKeys(finalResult.toolCallTrace());
             if (!readKeys.isEmpty()
                     && !com.emergentterrain.research.publication.ComputationalPublicationPhase
-                    .hasLiteraturePositioning(finalResult.relatedWork(), finalResult.toolCallTrace())) {
+                    .hasRequiredLiteraturePositioning(draft.preRegistration(), finalResult.relatedWork(),
+                            finalResult.toolCallTrace())) {
                 callPath.add("literature:read_key_omitted:demoted_to_needs_revision");
                 log.warn("final literature positioning missing paperId={} readKeys={} — "
                                 + "demoting to NEEDS_REVISION",
@@ -2471,7 +2472,8 @@ public class ResearchNarrationService {
             }
             if (ConstantLimitPreRegistration.requiresSourceGrounding(draft.preRegistration())
                     && !com.emergentterrain.research.publication.ComputationalPublicationPhase
-                    .hasLiteraturePositioning(finalResult.relatedWork(), finalResult.toolCallTrace())) {
+                    .hasRequiredLiteraturePositioning(draft.preRegistration(), finalResult.relatedWork(),
+                            finalResult.toolCallTrace())) {
                 callPath.add("literature:required_target_not_grounded:demoted_to_needs_revision");
                 log.warn("required target grounding missing paperId={} subject={} — demoting to NEEDS_REVISION",
                         draft.paperId(), ConstantLimitPreRegistration.literatureSubject(draft.preRegistration()));

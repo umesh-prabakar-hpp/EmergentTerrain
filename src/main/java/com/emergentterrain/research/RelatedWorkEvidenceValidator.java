@@ -29,6 +29,14 @@ public final class RelatedWorkEvidenceValidator {
                     + "|\\b(?:by|from)\\s+(?:a|the)\\s+"
                     + "(?:known|classical|standard)\\s+(?:theorem|result)\\b");
 
+    /** A bounded no-match is retrieval telemetry, never support for novelty or mechanism absence. */
+    private static final Pattern NO_EVIDENCE_INFERENCE = Pattern.compile(
+            "(?i)\\b(?:supports?|indicates?|suggests?|establishes?|demonstrates?)\\s+"
+                    + "(?:a\\s+)?(?:limited\\s+|specific\\s+)?novelty\\b"
+                    + "|\\b(?:no|without)\\s+(?:known|documented)\\s+"
+                    + "(?:structural\\s+)?mechanism\\b"
+                    + "|\\bno\\s+(?:prior|earlier)\\s+(?:work|literature|result)\\b");
+
     private RelatedWorkEvidenceValidator() {}
 
     /**
@@ -52,10 +60,16 @@ public final class RelatedWorkEvidenceValidator {
                 break;
             }
         }
-        if (!sawSearch || sawEvidence || !EXTERNAL_SUPPORT_ASSERTION.matcher(relatedWork).find()) {
+        if (!sawSearch || sawEvidence) {
             return List.of();
         }
-        return List.of("related_work:external_claim_without_relevance_safe_evidence");
+        if (EXTERNAL_SUPPORT_ASSERTION.matcher(relatedWork).find()) {
+            return List.of("related_work:external_claim_without_relevance_safe_evidence");
+        }
+        if (NO_EVIDENCE_INFERENCE.matcher(relatedWork).find()) {
+            return List.of("related_work:novelty_or_mechanism_inference_without_relevance_safe_evidence");
+        }
+        return List.of();
     }
 
     private static boolean issuedRelevanceSafeEvidence(String result) {

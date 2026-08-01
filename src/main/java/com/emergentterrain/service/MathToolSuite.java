@@ -3099,6 +3099,12 @@ public class MathToolSuite {
                         windowStart, userRefuted, userWindows.size(), userWorst));
             }
         }
+        long heldCount = result.windows().stream().filter(w -> w.holds()).count();
+        long refutedCount = result.windows().size() - heldCount;
+        sb.append(String.format(
+                "%nwindow counts (all evaluated windows): held=%d, refuted=%d, total=%d. "
+                        + "These deterministic labels, not a prose summary, are authoritative.",
+                heldCount, refutedCount, result.windows().size()));
         // 2026-06-16 (REVIEW_REPORT b72c4e10 batch 1, rec #1) — state the margin/holds convention
         // inline. Without it the narrator invents ambiguity about the sign of `margin` and hedges (or
         // the panel escalates HELD windows to "counterexamples"), draining Honesty/Rigor. Domain-neutral

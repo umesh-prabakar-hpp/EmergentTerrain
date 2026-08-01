@@ -1636,9 +1636,12 @@ public class UniversityService {
         if (verdictGroundingEnabled) {
             List<String> verdictReasons = NumericalConsistencyValidator.validateVerdictGrounding(
                     findingsBlocks, conclusion, narration.toolCallTrace());
-            if (!verdictReasons.isEmpty()) {
+            List<String> windowCountReasons = NumericalConsistencyValidator.validateWindowCountGrounding(
+                    MagnitudeRangeValidator.joinBlocks(findingsBlocks), conclusion, narration.toolCallTrace());
+            if (!verdictReasons.isEmpty() || !windowCountReasons.isEmpty()) {
                 List<String> merged = new java.util.ArrayList<>(consistencyFailures);
                 merged.addAll(verdictReasons);
+                merged.addAll(windowCountReasons);
                 consistencyFailures = merged;
             }
         }
@@ -2078,11 +2081,13 @@ public class UniversityService {
                 com.emergentterrain.research.publication.ComputationalPublicationPhase
                         .hasReadLiteratureEvidence(narration.toolCallTrace())
                 && !com.emergentterrain.research.publication.ComputationalPublicationPhase
-                        .hasLiteraturePositioning(narration.relatedWork(), narration.toolCallTrace());
+                        .hasRequiredLiteraturePositioning(draft.preRegistration(), narration.relatedWork(),
+                                narration.toolCallTrace());
         boolean computationalPlanLacksSourceGrounding = draft.preRegistration() != null
                 && draft.preRegistration().computationalStudyPlan() != null
                 && !com.emergentterrain.research.publication.ComputationalPublicationPhase
-                        .hasLiteraturePositioning(narration.relatedWork(), narration.toolCallTrace());
+                        .hasRequiredLiteraturePositioning(draft.preRegistration(), narration.relatedWork(),
+                                narration.toolCallTrace());
         boolean relatedWorkEvidenceDemoted = callPath != null
                 && callPath.contains("related_work:no_evidence_external_claim:demoted_to_needs_revision");
         if (acquiredLiteratureWasUncited || computationalPlanLacksSourceGrounding

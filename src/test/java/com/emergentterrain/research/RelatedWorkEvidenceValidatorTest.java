@@ -34,6 +34,18 @@ class RelatedWorkEvidenceValidatorTest {
     }
 
     @Test
+    void flagsNoveltyInferenceAfterNoMatch() {
+        List<ToolInvocation> trace = List.of(new ToolInvocation(
+                "search_literature", "{}",
+                "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.",
+                0, "call_1"));
+
+        assertThat(RelatedWorkEvidenceValidator.validate(
+                "This supports a limited novelty statement for the proposed relation.", trace))
+                .containsExactly("related_work:novelty_or_mechanism_inference_without_relevance_safe_evidence");
+    }
+
+    @Test
     void permitsRelatedWorkWhenTraceContainsSafeEvidence() {
         List<ToolInvocation> trace = List.of(new ToolInvocation(
                 "search_literature", "{}",

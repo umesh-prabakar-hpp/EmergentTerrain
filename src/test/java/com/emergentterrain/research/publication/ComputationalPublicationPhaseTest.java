@@ -73,6 +73,41 @@ class ComputationalPublicationPhaseTest {
     }
 
     @Test
+    void establishedConstantTargetNeedsRelevantAssessmentAndScalarBearingPassage() {
+        ComputationalStudyPlan plan = new ComputationalStudyPlan(
+                "discovery", "confirmation", "fixed rule", "sensitivity", "./reproduce.sh");
+        PreRegistration registration = new PreRegistration("h", "p", "f",
+                "locked-constant-limit:v1;lhs=omega_Omega_gap;literature_required=true", plan);
+        List<ToolInvocation> offTargetTrace = List.of(
+                new ToolInvocation("search_literature", "{}",
+                        "search_literature: EVIDENCE [HF77] Characters of prime power degree", 0),
+                new ToolInvocation("read_reference", "{}",
+                        "read_reference HF77 — Characters of prime power degree [source: core]\n"
+                                + "Top passages matching \"omega gap\":\n---\n"
+                                + "The character has prime power degree.", 1),
+                new ToolInvocation("assess_reference_relevance", "{}",
+                        "reference_relevance_assessment HF77 — ACCEPTED RELEVANT: metadata only.", 2));
+
+        PublicationAssessment offTarget = ComputationalPublicationPhase.assess(
+                registration, offTargetTrace, "Related Work cites [HF77].", "PUBLISHED");
+        assertThat(offTarget.label()).isEqualTo(PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE);
+        assertThat(offTarget.missingRequirements()).contains("source-grounded related-work positioning");
+
+        List<ToolInvocation> groundedTrace = List.of(
+                new ToolInvocation("search_literature", "{}",
+                        "search_literature: EVIDENCE [HF78] Prime factor multiplicities", 0),
+                new ToolInvocation("read_reference", "{}",
+                        "read_reference HF78 — Prime factor multiplicities [source: core]\n"
+                                + "Top passages matching \"omega gap\":\n---\n"
+                                + "The difference Omega(n)-omega(n) records repeated prime factors.", 1),
+                new ToolInvocation("assess_reference_relevance", "{}",
+                        "reference_relevance_assessment HF78 — ACCEPTED RELEVANT: metadata only.", 2));
+        PublicationAssessment grounded = ComputationalPublicationPhase.assess(
+                registration, groundedTrace, "Related Work cites [HF78].", "PUBLISHED");
+        assertThat(grounded.label()).isEqualTo(PublicationLabel.ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE);
+    }
+
+    @Test
     void successfullyReadSearchKeysKeepsOnlyIssuedAndReadKeysInTraceOrder() {
         List<String> keys = ComputationalPublicationPhase.successfullyReadSearchKeys(List.of(
                 new ToolInvocation("search_literature", "{}",
