@@ -36,6 +36,7 @@ public final class Phase34SqliteLiterature {
 
     private static final Logger log = LoggerFactory.getLogger(Phase34SqliteLiterature.class);
     private static final Pattern TOKEN = Pattern.compile("[\\p{Alnum}]{2,}");
+    private static final Pattern ISSUED_KEY_LINE = Pattern.compile("(?m)^- \\[(HF[0-9A-F]+)] .*$", Pattern.CASE_INSENSITIVE);
     // The full-text companion is sparser than the theorem corpus. Oversample FTS hits before
     // the full-text-presence join so a good eligible source is not hidden behind theorem-only rows.
     private static final int SEARCH_CANDIDATES = 512;
@@ -60,6 +61,7 @@ public final class Phase34SqliteLiterature {
     private final int initialSearchCandidates;
     private final LiteratureQueryPlanner queryPlanner;
     private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
+    private final ShardedPhase34Literature shardedPrimary;
     private final Map<String, IssuedSource> sourceForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, IssuedSource> eldest) {
@@ -83,13 +85,13 @@ public final class Phase34SqliteLiterature {
      */
     public Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs) {
         this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES,
-                new DeterministicLiteratureQueryPlanner(), null);
+                new DeterministicLiteratureQueryPlanner(), null, null);
     }
 
     Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
                             LiteratureQueryPlanner queryPlanner) {
         this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, DEFAULT_INITIAL_SEARCH_CANDIDATES,
-                queryPlanner, null);
+                queryPlanner, null, null);
     }
 
     Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
@@ -100,15 +102,25 @@ public final class Phase34SqliteLiterature {
     Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
                             int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
                             PaperReviewScreenedLiterature paperReviewScreenedLiterature) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, initialSearchCandidates, queryPlanner,
+                paperReviewScreenedLiterature, null);
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
+                            PaperReviewScreenedLiterature paperReviewScreenedLiterature,
+                            ShardedPhase34Literature shardedPrimary) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
         this.phase35RetrievalEnabled = phase35RetrievalEnabled;
         this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
         this.initialSearchCandidates = Math.clamp(initialSearchCandidates, 1, SEARCH_CANDIDATES);
         this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
         this.paperReviewScreenedLiterature = paperReviewScreenedLiterature;
+        this.shardedPrimary = shardedPrimary;
     }
 
     public boolean available() {
+        if (shardedPrimary != null) return shardedPrimary.available();
         if (!Files.isRegularFile(database)) return false;
         try (Connection connection = open();
              PreparedStatement statement = connection.prepareStatement(
@@ -129,6 +141,7 @@ public final class Phase34SqliteLiterature {
      * to mutate or reopen the index on the request path.
      */
     public String indexFingerprint() {
+        if (shardedPrimary != null) return shardedPrimary.fingerprint();
         try {
             if (!Files.isRegularFile(database)) return "unavailable";
             return database + ":" + Files.size(database) + ":"
@@ -147,6 +160,8 @@ public final class Phase34SqliteLiterature {
      * evidence gates as deterministic claim extraction. Invalid proposals fail closed.
      */
     public String search(String query, LiteratureQueryProposal proposal) {
+        if (shardedPrimary != null) return mergeRoutedPrimaryWithScreened(query, proposal,
+                shardedPrimary.search(query, proposal));
         SearchTelemetry telemetry = new SearchTelemetry();
         if (!available()) {
             return "search_literature: Phase 34 SQLite index is not available.";
@@ -304,6 +319,34 @@ public final class Phase34SqliteLiterature {
         }
     }
 
+    /** Preserve the screened incremental index when the large primary surface is routed by shard. */
+    private String mergeRoutedPrimaryWithScreened(String query, LiteratureQueryProposal proposal, String primaryOutput) {
+        if (!phase35RetrievalEnabled || paperReviewScreenedLiterature == null
+                || !paperReviewScreenedLiterature.available()) return primaryOutput;
+        LiteratureQueryPlan plan = queryPlanner.plan(query, Map.of(), proposal);
+        if (!plan.unavailableReason().isBlank() || plan.candidates().isEmpty()) return primaryOutput;
+        List<SearchCandidate> candidates = plan.candidates().stream().map(candidate -> new SearchCandidate(
+                candidate.expression(), candidate.queryAnchors(), candidate.evidenceAnchors(),
+                candidate.minimumEvidenceMatches(), candidate.requiredTitleAnchors())).toList();
+        List<PaperReviewScreenedLiterature.Match> screened = paperReviewScreenedLiterature.search(candidates, SEARCH_RESULTS);
+        if (screened.isEmpty()) return primaryOutput;
+        LinkedHashMap<String, String> rendered = new LinkedHashMap<>();
+        Matcher primaryLines = ISSUED_KEY_LINE.matcher(primaryOutput == null ? "" : primaryOutput);
+        while (primaryLines.find()) rendered.putIfAbsent(primaryLines.group(1).toUpperCase(Locale.ROOT), primaryLines.group());
+        for (PaperReviewScreenedLiterature.Match match : screened) {
+            String identity = "paper-review-screened:" + match.paperId();
+            String key = keyFor(identity);
+            sourceForKey.put(key, new IssuedSource(match.paperId(), SourceIndex.PAPER_REVIEW_SCREENED));
+            rendered.putIfAbsent(key, "- [" + key + "] " + blankAs(match.title(), "Untitled record")
+                    + " (source: " + match.paperId() + ", index: paper-review-screened)");
+        }
+        if (rendered.isEmpty()) return primaryOutput;
+        StringBuilder output = new StringBuilder("search_literature (Phase 34 routed primary + paper-review-screened indexes): "
+                + "EVIDENCE — cite only the returned [HF…] keys.\n");
+        rendered.values().stream().limit(SEARCH_RESULTS).forEach(line -> output.append(line).append('\n'));
+        return output.toString().stripTrailing();
+    }
+
     /**
      * Adds a statement-name-only attempt before the unchanged general theorem query. This avoids
      * scoring a corpus-wide body match for common pairs such as {@code graph isomorphism}; failure
@@ -445,6 +488,10 @@ public final class Phase34SqliteLiterature {
     }
 
     public String read(String key, String query) {
+        if (shardedPrimary != null) {
+            String routed = shardedPrimary.read(key, query);
+            if (routed != null) return routed;
+        }
         IssuedSource issued = key == null ? null : sourceForKey.get(key.strip());
         if (issued == null) {
             return "read_reference: unknown Phase 34 key — call search_literature first and pass its [HF…] key exactly.";
@@ -507,6 +554,10 @@ public final class Phase34SqliteLiterature {
      * It never changes retrieval, citation issuance, or publication status by itself.
      */
     public String assessRelevance(String key, String supportingExcerpt, String verdict) {
+        if (shardedPrimary != null) {
+            String routed = shardedPrimary.assess(key, supportingExcerpt, verdict);
+            if (routed != null) return routed;
+        }
         String normalizedKey = key == null ? "" : key.strip();
         String readOutput = readOutputForKey.get(normalizedKey);
         if (!sourceForKey.containsKey(normalizedKey) || readOutput == null) {

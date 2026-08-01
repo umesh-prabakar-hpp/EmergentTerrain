@@ -82,6 +82,33 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void routedShardsIssueKeysAndRouteTheSubsequentReadToTheirOwningShard() throws Exception {
+        indexedAdapter();
+        Path shardsDir = indexDir.resolve("shards");
+        for (String shard : List.of("number-theory", "analysis", "algebra", "combinatorics", "geometry",
+                "probability", "cross-list")) {
+            Path directory = shardsDir.resolve(shard);
+            Files.createDirectories(directory);
+            Files.copy(indexDir.resolve("literature.db"), directory.resolve("literature.db"));
+        }
+        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":1}\n");
+        LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
+        ShardedPhase34Literature shards = new ShardedPhase34Literature(shardsDir, true, 15_000,
+                64, planner, 2);
+        Phase34SqliteLiterature routed = new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                planner, null, shards);
+
+        String search = routed.search("prime gap bound");
+        Matcher key = Pattern.compile("\\[(HF[0-9A-F]+)]").matcher(search);
+
+        assertThat(search).contains("routed sharded primary", "EVIDENCE");
+        assertThat(key.find()).isTrue();
+        assertThat(routed.read(key.group(1), "confirmed range"))
+                .startsWith("read_reference " + key.group(1))
+                .contains("Prime gap bounds");
+    }
+
+    @Test
     void phase35MergesPaperReviewScreenedAndPrimaryMatchesAndReadsTheIssuedScreenedKey() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapterWithPaperReviewScreenedIndex();
 

@@ -124,6 +124,17 @@ This makes a missing or slow local source a recoverable readiness condition rath
 to spend the full manuscript cascade. It does not convert a search miss into novelty, source
 evidence, or a frontier claim.
 
+## Coarse primary-index routing (2026-07-31)
+
+The primary index can be sharded, but hundreds of independent SQLite searches would amplify disk
+contention and tail failure. The implemented offline builder instead derives seven coarse source
+partitions and a deterministic runtime router. A validated query visits only likely subject shards
+plus a cross-list recall lane, with 1–4 parallel readers sharing the ordinary Phase 35 deadline.
+Each shard still applies the same title/record evidence checks; merged results are interleaved by
+shard-local ordinal, never by incomparable raw FTS ranks. The feature remains off until an
+operator builds the derived files and shadow-validates recall, p95/p99 latency, issued-key reads,
+and the Phase 35 artifact smoke.
+
 ## Acceptance checks
 
 Run:

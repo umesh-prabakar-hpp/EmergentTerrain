@@ -25,10 +25,25 @@ public class Phase34SqliteLiteratureConfig {
             @Value("${app.research.literature.paper-review-screened.enabled:false}")
             boolean paperReviewScreenedEnabled,
             @Value("${app.research.literature.paper-review-screened.index-dir:${user.home}/.emergentterrain/indexes/math-literature-paper-review-screened}")
-            String paperReviewScreenedIndexDir) {
+            String paperReviewScreenedIndexDir,
+            @Value("${app.research.literature.phase34-sqlite.shards.enabled:false}")
+            boolean shardsEnabled,
+            @Value("${app.research.literature.phase34-sqlite.shards.dir:${user.home}/.emergentterrain/indexes/math-literature-shards}")
+            String shardsDir,
+            @Value("${app.research.literature.phase34-sqlite.shards.parallelism:3}")
+            int shardParallelism) {
         PaperReviewScreenedLiterature paperReviewScreened = paperReviewScreenedEnabled
                 ? new PaperReviewScreenedLiterature(Path.of(paperReviewScreenedIndexDir)) : null;
+        LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
+        ShardedPhase34Literature candidateShards = shardsEnabled
+                ? new ShardedPhase34Literature(Path.of(shardsDir), phase35RetrievalEnabled, searchTimeoutMs,
+                        initialCandidates, planner, shardParallelism)
+                : null;
+        // A half-built/missing shard set must never take the primary index offline. Keep the
+        // monolith as the safe live fallback until the offline builder has produced usable files.
+        ShardedPhase34Literature shardedPrimary = candidateShards != null && candidateShards.available()
+                ? candidateShards : null;
         return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
-                initialCandidates, new DeterministicLiteratureQueryPlanner(), paperReviewScreened);
+                initialCandidates, planner, paperReviewScreened, shardedPrimary);
     }
 }
