@@ -28,6 +28,13 @@ cosmetic `PUBLISHED` status or a paper count.
 - If the user asks to begin a run, use the repository-supported start path (`./scripts/start.sh`),
   verify runtime state with `./scripts/status-related-apps.sh`, and wait for the research run's
   explicit completion before reviewing it.
+- Before every new `./scripts/start.sh`, run `./scripts/stop.sh` and use
+  `./scripts/status-related-apps.sh` to confirm that both the app and local AI gateway
+  are down. Then start the run so `start.sh` launches a fresh managed proxy. Never run `stop.sh`
+  while a research run is active.
+- Once the run's completion boundary is recorded, run `./scripts/stop.sh` before review and
+  confirm the app and local AI gateway are down with the status script. This is idempotent and prevents
+  a completed run's managed proxy from leaking into the next cycle.
 - Do not treat a stale Julia log as a sidecar failure. Correlate application, Julia, and GPU logs
   only within the run boundary.
 
