@@ -53,6 +53,9 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
   Then start the run so `start.sh` launches a fresh managed proxy. Never run `stop.sh` while a
   research run is active. Record and treat any other runtime version in the startup log as an
   operational defect, not a valid research-cycle environment.
+  The status script intentionally exits nonzero when the app/proxy are down; treat that expected
+  state as confirmation and invoke `start.sh` in a separate command rather than chaining it after
+  the status command with `&&`.
 - Once the run's completion boundary is recorded, run `./scripts/stop.sh` before review and
   confirm the app and local AI gateway are down with the status script. This is idempotent and prevents
   a completed run's managed proxy from leaking into the next cycle.
@@ -94,6 +97,14 @@ For every recommendation, compare it with the issue ledger and classify it as on
 Prefer fixes that lock protocols before computation, preserve selected traces, require independent
 holdouts, and keep literature evidence auditable. Do not claim novelty from a finite measurement.
 
+**Terminal reliability rule:** if the review establishes a consistent LLM-call failure in the
+current app run (the same provider/model/role failure signature in two or more calls, including a
+repeated retry failure), record its call IDs, timestamps, and affected papers in the immutable run
+record and issue ledger. End the loop after that review: do not begin another app run, automatically
+retry the failed lane, or treat the failure as evidence. Report the terminal condition and request
+direction for remediation. A single transient failure, a non-LLM tool failure, or a safely handled
+timeout does not trigger this rule.
+
 ### 4. Implement and verify
 
 - Use `apply_patch` for repository edits.
@@ -130,8 +141,8 @@ holdouts, and keep literature evidence auditable. Do not claim novelty from a fi
 - For an explicitly requested multi-cycle loop, begin the next run only after the prior cycle is
   reviewed, verified, and pushed.
 - Stop and ask for direction when a new research-policy choice, destructive action, external
-  authorization, unresolved index writer, repeated non-progress, or budget/availability limit
-  blocks sound progress.
+  authorization, unresolved index writer, repeated non-progress, budget/availability limit, or
+  the terminal reliability rule blocks sound progress.
 - Never create a self-perpetuating loop merely because a run completed. Respect the user's stated
   cycle count, stop condition, or instruction to stop.
 
