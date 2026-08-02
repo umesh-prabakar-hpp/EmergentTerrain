@@ -383,6 +383,28 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @org.junit.jupiter.api.Test
+    void directConstantOutputSeparatesUncertaintyFromItsVerdict() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        var executor = suite.buildExecutor(stubDraft());
+
+        String noTarget = executor.apply(mapper.writeValueAsString(Map.of(
+                "name", "verify_constant",
+                "arguments", Map.of(
+                        "lhs", "abundant_density", "window_start", 200_000,
+                        "window_size", 500, "num_windows", 3))));
+        assertThat(noTarget).containsPattern("se=[0-9.E+-]+ no target — estimated limit");
+
+        String target = executor.apply(mapper.writeValueAsString(Map.of(
+                "name", "verify_constant",
+                "arguments", Map.of(
+                        "lhs", "abundant_density", "target", 0.247,
+                        "window_start", 200_000, "window_size", 500, "num_windows", 3))));
+        assertThat(target).containsPattern("se=[0-9.E+-]+ CONVERGED to target");
+    }
+
+    @org.junit.jupiter.api.Test
     void scaleLadderFailsBeforeSchedulingWhenJuliaConjectureSidecarIsUnavailable() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         MathToolSuite suite = new MathToolSuite(

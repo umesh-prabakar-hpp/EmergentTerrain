@@ -3274,7 +3274,7 @@ public class MathToolSuite {
         sb.append(String.format(
                 "verify_constant: %s ~ %.5f over %d window(s) of size %d starting at %d. ",
                 lhs, a.mean(), windows.size(), windowSize, windowStart));
-        sb.append(windowUncertainty(values));
+        sb.append(windowUncertainty(values)).append(' ');
         if (target != null) {
             boolean preciseHoldout = com.emergentterrain.research.conjecture.ConstantConvergence
                     .hasAdequateHoldoutPrecision(values, target);
