@@ -36,8 +36,20 @@ public final class ConjectureInvestigationProtocol {
                         OscillationEnvelopePreRegistration.from(conjecture),
                         "registered_oscillation_envelope_measurement");
             }
-            return new Allocation(Route.REGISTERED_MEASUREMENT, null,
-                    "registered_" + measurementSpec.frame().name().toLowerCase() + "_measurement");
+            if (measurementSpec.frame() == ScalarOpenness.MeasurementFrame.GROWTH) {
+                PreRegistration registration = growthRegistration(conjecture);
+                if (registration == null) {
+                    // A generic growth label is not a computational contract.  In particular,
+                    // mean_omega and mean_Omega have a textbook log-log leading order but no
+                    // locked fit/holdout protocol yet.  Letting them through would create an
+                    // artifact with a literal null pre-registration that can never be promoted.
+                    return new Allocation(Route.REJECT, null, "unregistered_growth_measurement");
+                }
+                return new Allocation(Route.REGISTERED_MEASUREMENT, registration,
+                        "registered_growth_measurement");
+            }
+            return new Allocation(Route.REJECT, null,
+                    "unregistered_" + measurementSpec.frame().name().toLowerCase() + "_measurement");
         }
         if (!known(conjecture.rhs()) || (conjecture.rhs2() != null && !known(conjecture.rhs2()))
                 || !Double.isFinite(conjecture.k()) || !Double.isFinite(conjecture.c())
@@ -50,5 +62,12 @@ public final class ConjectureInvestigationProtocol {
 
     private static boolean known(String scalar) {
         return scalar != null && MathInvariants.vocabulary().contains(scalar);
+    }
+
+    private static PreRegistration growthRegistration(Conjecture conjecture) {
+        PreRegistration registration = SecondOrderPivotPreRegistration.from(conjecture);
+        if (registration == null) registration = MaxDivisorCountMeasurementPreRegistration.from(conjecture);
+        if (registration == null) registration = MaxPrimeGapMultiScalePreRegistration.from(conjecture);
+        return registration;
     }
 }

@@ -87,6 +87,34 @@ class ConjectureInvestigationProtocolTest {
     }
 
     @Test
+    void unregisteredLogLogGrowthStudyIsRejectedBeforeItCanCreateANullPreRegistrationArtifact() {
+        Conjecture conjecture = new Conjecture("MATHEMATICS", "mean_omega",
+                "log_log_window_start", 1.0, 0.35);
+
+        ConjectureInvestigationProtocol.Allocation allocation =
+                ConjectureInvestigationProtocol.allocate(conjecture,
+                        ScalarOpenness.measurementFrame("mean_omega"));
+
+        assertThat(allocation.allocatable()).isFalse();
+        assertThat(allocation.registration()).isNull();
+        assertThat(allocation.reason()).isEqualTo("unregistered_growth_measurement");
+    }
+
+    @Test
+    void registeredGrowthFamiliesStillReceiveTheirLockedComputationalContract() {
+        Conjecture conjecture = new Conjecture("MATHEMATICS", "max_divisor_count",
+                "wigert_bound", 1.0, 0.0);
+
+        ConjectureInvestigationProtocol.Allocation allocation =
+                ConjectureInvestigationProtocol.allocate(conjecture,
+                        ScalarOpenness.measurementFrame("max_divisor_count"));
+
+        assertThat(allocation.allocatable()).isTrue();
+        assertThat(MaxDivisorCountMeasurementPreRegistration.isLocked(allocation.registration())).isTrue();
+        assertThat(allocation.reason()).isEqualTo("registered_growth_measurement");
+    }
+
+    @Test
     void divisorWindowLimitRegistrationUsesCanonicalLocalTarget() {
         Conjecture conjecture = new Conjecture("MATHEMATICS", "mean_divisor_excess",
                 "_constant_", 0.0, 0.0);
