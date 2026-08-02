@@ -73,17 +73,24 @@ def title_from_text(text: str, fallback: str) -> str:
 
 
 def extract_tex_title(text: str) -> str | None:
-    """Extract one balanced, optionally-parameterized TeX ``\\title`` block.
+    """Extract one balanced TeX title declaration or common display-title block.
 
     TeX sources commonly split the title over several lines or place braces inside
     math/macros.  A line regex therefore falls through to preamble declarations.
     This scanner is deliberately small but balanced-brace aware; malformed source
     simply returns no title and never makes a command a fallback title.
     """
-    match = re.search(r"(?m)^\\title(?:\[[^]]*])?\s*\{", text)
-    if not match:
-        return None
-    start = match.end()
+    match = re.search(r"(?m)^\\(?:title|Title)(?:\[[^]]*])?\s*\{", text)
+    if match:
+        return extract_balanced_block(text, match.end())
+    # Some journal templates render a title directly instead of declaring \title.
+    # Keep this fallback intentionally narrow so preamble macros cannot become titles.
+    match = re.search(r"\\(?:LARGE|Large|large)\s*\{", text)
+    return extract_balanced_block(text, match.end()) if match else None
+
+
+def extract_balanced_block(text: str, start: int) -> str | None:
+    """Return the content of the brace block that begins immediately before ``start``."""
     depth = 1
     escaped = False
     for index in range(start, len(text)):
@@ -107,6 +114,8 @@ def clean_title(value: str) -> str:
     """Return readable metadata, never a TeX declaration or macro definition."""
     cleaned = re.sub(r"\\(?:textit|textbf|emph|mathrm|mathit)\s*\{([^{}]*)}", r"\1", value)
     cleaned = re.sub(r"\\[A-Za-z@]+(?:\[[^]]*])?", "", cleaned)
+    cleaned = cleaned.replace("\\\\", " ")
+    cleaned = re.sub(r"\\['`\^\"~=.]\s*\{?([A-Za-z])\}?", r"\1", cleaned)
     cleaned = cleaned.replace("{", "").replace("}", "")
     return re.sub(r"\s+", " ", cleaned).strip()
 
@@ -289,6 +298,9 @@ def main() -> int:
             manifest_path = args.staged_text_manifest.expanduser().resolve()
             sources = read_retained_sources(manifest_path)
             imported, already_present = import_sources(conn, manifest_path, sources)
+        # A repair-only run mutates SQLite rows without passing through import_sources().
+        # Commit it explicitly so title-gated retrieval never continues to see stale metadata.
+        conn.commit()
         write_manifest(conn, index_dir)
     finally:
         conn.close()

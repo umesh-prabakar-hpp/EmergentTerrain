@@ -258,8 +258,9 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   databases. A screened source still needs the normal issued key → successful read → matching
   Related Work citation chain before it supports evidence or changes a publication label. A missing
   companion is coverage state; a timeout is `UNRESOLVED_RETRIEVAL`, not proof that literature is
-  absent. The importer recognizes balanced multi-line `\\title{...}` and `\\title[]{...}` source
-  forms; after an importer upgrade, repair existing screened display titles offline with
+  absent. The importer recognizes balanced multi-line `\\title{...}`/`\\Title{...}` declarations
+  plus common `\\LARGE{...}` display-title forms; repair-only runs commit title and FTS changes
+  before manifest finalization. After an importer upgrade, repair existing screened display titles offline with
   `python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles` before
   relying on title gates. See `phase-37-paper-review-screened-literature/README.md` before changing this lane.
 - **Paper-to-literature key map** — after every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`. It regenerates `docs/paper-literature-key-map.md` from final artifacts in both `research/` and `research/archive/`; retain only a key issued by `search_literature` in `EVIDENCE`, successfully returned by `read_reference`, and cited in that paper's `## Related Work`. Never retain a search hit, snippet, failed read, or model relevance assertion alone. The map is a reviewer index; raw paper/trace artifacts remain authoritative. Both Codex and Claude paper-review skill copies require this regeneration.
