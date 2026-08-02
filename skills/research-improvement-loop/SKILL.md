@@ -35,6 +35,11 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
 - If the user asks to begin a run, use the repository-supported start path (`./scripts/start.sh`),
   verify runtime state with `./scripts/status-related-apps.sh`, and wait for the research run's
   explicit completion before reviewing it.
+- For an active run, derive the expected completion delay from the elapsed time of the most recent
+  three completed application-run boundaries (use the available completed runs if fewer than three
+  exist). Sleep until that expected boundary rather than polling every 30 seconds. Inspect the log
+  and runtime state at that boundary, then use only proportionate follow-up waits if the run has not
+  completed. Record the current elapsed time so the rolling three-run average improves next cycle.
 - Before every new `./scripts/start.sh`, run `./scripts/stop.sh` and use
   `./scripts/status-related-apps.sh` to confirm that both the app and local AI gateway
   are down. Export the supported Java 21 runtime before starting:

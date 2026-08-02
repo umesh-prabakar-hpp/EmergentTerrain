@@ -8,6 +8,8 @@ import com.emergentterrain.research.PanelOutcome;
 import com.emergentterrain.research.PanelReview;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.SecondOrderPivotPreRegistration;
+import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.llm.ToolInvocation;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,10 +22,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResearchNarrationServiceCallPathTest {
 
     @Test
-    void genericSecondOrderRerunRequiresAPreRegistration() {
+    void secondOrderRerunRequiresAnExactLockedProtocol() {
         assertThat(ResearchNarrationService.mayRunSecondOrderPivot(null)).isFalse();
         assertThat(ResearchNarrationService.mayRunSecondOrderPivot(
-                new PreRegistration("h", "p", "f", "locked"))).isTrue();
+                new PreRegistration("h", "p", "f", "ordinary-registration"))).isFalse();
+        assertThat(ResearchNarrationService.mayRunSecondOrderPivot(
+                SecondOrderPivotPreRegistration.from(
+                        new Conjecture("math", "mean_divisor_count", "prime_density", 0.0, 0.0)))).isTrue();
+    }
+
+    @Test
+    void unregisteredLeadingOrderTopicGetsSecondOrderProtocolBoundary() {
+        String boundary = ResearchNarrationService.buildUnregisteredSecondOrderBoundary(
+                "conjecture/mean_omega", null);
+
+        assertThat(boundary).contains("NO locked second-order protocol")
+                .contains("verify_constant, verify_oscillation, or verify_growth");
+        assertThat(ResearchNarrationService.buildUnregisteredSecondOrderBoundary(
+                "conjecture/mean_divisor_count", SecondOrderPivotPreRegistration.from(
+                        new Conjecture("math", "mean_divisor_count", "prime_density", 0.0, 0.0))))
+                .isEmpty();
+        assertThat(ResearchNarrationService.buildUnregisteredSecondOrderBoundary(
+                "conjecture/prime_gap", null)).isEmpty();
     }
 
     @Test

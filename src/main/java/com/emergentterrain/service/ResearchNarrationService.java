@@ -2972,6 +2972,7 @@ public class ResearchNarrationService {
                             ? buildMaxPrimeGapMultiScalePreRegistrationNote(draft.preRegistration(), null) : "")
                     + (MaxDivisorCountMeasurementPreRegistration.isLocked(draft.preRegistration())
                             ? buildMaxDivisorCountMeasurementPreRegistrationNote(draft.preRegistration(), null) : "")
+                    + buildUnregisteredSecondOrderBoundary(draft.topicName(), draft.preRegistration())
                     + buildPredicateBaselineSensitivityNote(draft);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
@@ -3637,9 +3638,31 @@ public class ResearchNarrationService {
         return runPanelAndStamp(draft, fallback, callPath, auditGapDimensions);
     }
 
-    /** Generic second-order reruns are permitted only for a study registered before computation. */
+    /** A second-order corrective rerun is permitted only for its exact locked protocol. */
     static boolean mayRunSecondOrderPivot(PreRegistration registration) {
-        return registration != null;
+        return com.emergentterrain.research.SecondOrderPivotPreRegistration.isLocked(registration);
+    }
+
+    /**
+     * A broad leading-order directive is useful only when an exact second-order protocol was
+     * locked before computation.  Otherwise it invites the professor to substitute a post-hoc
+     * scalar, which the publication gate can only demote after the run has spent its tool budget.
+     */
+    static String buildUnregisteredSecondOrderBoundary(String topicName, PreRegistration registration) {
+        if (com.emergentterrain.research.SecondOrderPivotPreRegistration.isLocked(registration)
+                || topicName == null || !topicName.startsWith("conjecture/")) {
+            return "";
+        }
+        String lhs = topicName.substring("conjecture/".length()).trim();
+        if (!com.emergentterrain.research.ScoreCalibration.LEADING_ORDER_LHS.contains(lhs)) {
+            return "";
+        }
+        return "\n\nPROTOCOL BOUNDARY: this leading-order investigation has NO locked "
+                + "second-order protocol. Do not replace its registered subject with a new "
+                + "second-order scalar or frame (verify_constant, verify_oscillation, or "
+                + "verify_growth). Treat any leading-order computation as finite calibration, "
+                + "not novelty. A second-order study requires a separately locked primary "
+                + "ladder and independent holdouts before computation.";
     }
 
     /**

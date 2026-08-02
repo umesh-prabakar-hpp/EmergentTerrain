@@ -51,9 +51,10 @@ public class UniversityService {
         return "conjecture/max_prime_gap".equals(topicName);
     }
 
-    /** A second-order rerun without a prior registration is exploratory, never confirmation evidence. */
+    /** A second-order result without its exact locked protocol is exploratory, never confirmation evidence. */
     static boolean unregisteredSecondOrderPivot(PreRegistration registration, String callPath) {
-        return registration == null && callPath != null && callPath.contains("second-order:engaged:");
+        return !SecondOrderPivotPreRegistration.isLocked(registration)
+                && callPath != null && callPath.contains("second-order:engaged:");
     }
 
     // Research cycle constants
