@@ -36,6 +36,12 @@ class SecondOrderPivotPreRegistrationTest {
 
         assertThat(SecondOrderPivotPreRegistration.hasExactEvidence(registration, complete)).isTrue();
         assertThat(SecondOrderPivotPreRegistration.hasExactEvidence(registration, complete.subList(0, 2))).isFalse();
+        assertThat(SecondOrderPivotPreRegistration.publicationTitle(registration, complete,
+                "Measurement of mean_divisor_count (growth law across scales)"))
+                .isEqualTo("Measurement of dirichlet_error (finite-range envelope across scales)");
+        assertThat(SecondOrderPivotPreRegistration.publicationTitle(registration, complete.subList(0, 2),
+                "Measurement of mean_divisor_count (growth law across scales)"))
+                .isEqualTo("Measurement of mean_divisor_count (growth law across scales)");
     }
 
     private static ToolInvocation call(String args, String result) {

@@ -2411,9 +2411,11 @@ public class UniversityService {
         String persistedFindings = findingsBlocks.size() > 1
                 ? serialiseFindingsMap(findingsBlocks)
                 : findings;
+        String publicationTitle = SecondOrderPivotPreRegistration.publicationTitle(
+                draft.preRegistration(), narration.toolCallTrace(), draft.title());
         ResearchPaper paper = new ResearchPaper(
                 draft.paperId(), draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
-                draft.title(), hypothesis, draft.methodology(), persistedFindings, conclusion,
+                publicationTitle, hypothesis, draft.methodology(), persistedFindings, conclusion,
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
                 // publishedAt = the actual publish moment, stamped here at persist.
                 // The draft's own publishedAt() is the draft-creation time (it ends up

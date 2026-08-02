@@ -80,12 +80,15 @@ def extract_tex_title(text: str) -> str | None:
     This scanner is deliberately small but balanced-brace aware; malformed source
     simply returns no title and never makes a command a fallback title.
     """
-    match = re.search(r"(?m)^\\(?:title|Title)(?:\[[^]]*])?\s*\{", text)
+    # TeX preambles commonly indent declarations. Anchor after optional horizontal
+    # whitespace so an actual ``  \\title{...}`` is found, while deliberately not
+    # allowing a leading ``%``: commented-out declarations are not metadata.
+    match = re.search(r"(?m)^[ \t]*\\(?:title|Title)(?:\[[^]]*])?\s*\{", text)
     if match:
         return extract_balanced_block(text, match.end())
     # Some journal templates render a title directly instead of declaring \title.
     # Keep this fallback intentionally narrow so preamble macros cannot become titles.
-    match = re.search(r"\\(?:LARGE|Large|large)\s*\{", text)
+    match = re.search(r"(?m)^[ \t]*\\(?:LARGE|Large|large)\s*\{", text)
     return extract_balanced_block(text, match.end()) if match else None
 
 

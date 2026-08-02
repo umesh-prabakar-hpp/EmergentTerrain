@@ -46,6 +46,15 @@ The importer accepts only source files recorded by the manifest, validates each 
 text replacement for an existing paper ID, stores manifest/source provenance, and inserts exactly
 one matching FTS row per new source. It is idempotent for matching source text.
 
+### Metadata repair
+
+`--repair-titles` is the non-destructive maintenance path for display metadata derived from
+already stored TeX. It must never replace source text or alter source provenance. On 2026-08-02,
+the repair corrected three historical titles, including arXiv:1610.08551 from the unusable `%` to
+`Computations of the Mertens Function and Improved Bounds on the Mertens Conjecture`. The extractor
+accepts indented TeX declarations while still ignoring commented-out declarations; run
+`python3 scripts/test-prepare-paper-review-screened-literature-index.py` before changing it.
+
 ## Retrieval and merge contract
 
 Set `app.research.literature.paper-review-screened.enabled=true` only after the importer has

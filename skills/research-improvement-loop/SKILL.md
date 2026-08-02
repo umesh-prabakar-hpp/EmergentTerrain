@@ -1,6 +1,6 @@
 ---
 name: research-improvement-loop
-description: "Run a guarded EmergentTerrain research-improvement cycle: start or verify an app research run, review its new papers, turn root-caused review findings into tested fixes, update review records, commit and push, then optionally begin the next run. Use when the user asks to run the app-review-improve loop, continuously improve research-paper quality, or automate the post-run paper-review and implementation cycle."
+description: "Run a guarded EmergentTerrain research-improvement cycle: start or verify an app research run, review its new papers, turn root-caused review findings into tested fixes, update review records, then automatically commit and push the verified cycle before optionally beginning the next run. Use when the user asks to run the app-review-improve loop, continuously improve research-paper quality, or automate the post-run paper-review and implementation cycle."
 ---
 
 # Research Improvement Loop
@@ -92,15 +92,19 @@ holdouts, and keep literature evidence auditable. Do not claim novelty from a fi
 ### 5. Ship the cycle
 
 - Inspect `git status`, `git diff --check`, and the staged file list.
-- Commit and push only when the user requested it as part of this invocation. Use a concise,
-  behavior-oriented commit message and push `main` only after successful verification.
+- Commit and push every completed, verified cycle by default. Use a concise,
+  behavior-oriented commit message and push `main` only after successful verification. Preserve
+  unrelated dirty-worktree changes: stage and commit only files created or changed for the cycle.
+- If verification fails, do not commit or push the failing implementation; report the failure and
+  leave the worktree intact for correction. If the push fails after a successful commit, preserve
+  the commit and report the exact push failure.
 - Report the commit SHA, push result, exact tests/smokes run, unresolved issues, and whether the
   worktree is clean.
 
 ### 6. Continue or stop
 
 - For an explicitly requested multi-cycle loop, begin the next run only after the prior cycle is
-  reviewed, verified, and—when requested—pushed.
+  reviewed, verified, and pushed.
 - Stop and ask for direction when a new research-policy choice, destructive action, external
   authorization, unresolved index writer, repeated non-progress, or budget/availability limit
   blocks sound progress.

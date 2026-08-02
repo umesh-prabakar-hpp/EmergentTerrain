@@ -75,6 +75,16 @@ public final class SecondOrderPivotPreRegistration {
                 + "and cite that same key in Related Work. This is a finite calibration, never an exponent proof.";
     }
 
+    /**
+     * A completed registered pivot changes the paper's scientific subject. Persist that subject
+     * in the reader-facing title instead of leaving the abandoned leading-order target in place.
+     */
+    public static String publicationTitle(PreRegistration registration, List<ToolInvocation> trace,
+                                          String fallback) {
+        if (!hasExactEvidence(registration, trace)) return fallback;
+        return "Measurement of " + TARGET + " (finite-range envelope across scales)";
+    }
+
     private record Grid(long start, int size, int windows) {
         boolean same(Grid other) { return start == other.start && size == other.size && windows == other.windows; }
         String encode() { return start + "," + size + "," + windows; }
