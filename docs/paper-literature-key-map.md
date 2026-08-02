@@ -21,9 +21,11 @@ Regenerate after each paper-review pass with:
 | `P-b72c-77627979` | `HF7B1003353198E40842E5` | issued + read + cited | [research/archive/b72c4e10-20260802-5/artifacts/P-b72c-77627979](../research/archive/b72c4e10-20260802-5/artifacts/P-b72c-77627979) |
 | `P-b72c-77627990` | `HF359DC259AA5E645382C7` | issued + read + cited | [research/archive/b72c4e10-20260802-6/artifacts/P-b72c-77627990](../research/archive/b72c4e10-20260802-6/artifacts/P-b72c-77627990) |
 | `P-b72c-77627994` | `HF1511802BB2106E451608` | issued + read + cited + assessed relevant | [research/archive/b72c4e10-20260802-7/artifacts/P-b72c-77627994](../research/archive/b72c4e10-20260802-7/artifacts/P-b72c-77627994) |
+| `P-b72c-77627995` | `HF7B1003353198E40842E5` | issued + read + cited + assessed relevant | [research/archive/b72c4e10-20260802-8/artifacts/P-b72c-77627995](../research/archive/b72c4e10-20260802-8/artifacts/P-b72c-77627995) |
 | `P-b72c-77627947` | `HF7B1003353198E40842E5` | issued + read + cited | [research/archive/b72c4e10-20260802/artifacts/P-b72c-77627947](../research/archive/b72c4e10-20260802/artifacts/P-b72c-77627947) |
 | `P-b72c-77627982` | `HF7B1003353198E40842E5` | issued + read + cited | [research/archive/b72c4e10-20260802/artifacts/P-b72c-77627982](../research/archive/b72c4e10-20260802/artifacts/P-b72c-77627982) |
-| `P-b72c-77627995` | `HF7B1003353198E40842E5` | issued + read + cited + assessed relevant | [research/b72c4e10/artifacts/P-b72c-77627995](../research/b72c4e10/artifacts/P-b72c-77627995) |
+| `P-b72c-77627998` | `HF7B1003353198E40842E5` | issued + read + cited + assessed relevant | [research/b72c4e10/artifacts/P-b72c-77627998](../research/b72c4e10/artifacts/P-b72c-77627998) |
+| `P-b72c-77627999` | `HFB64828E8D2A41E621DA0` | issued + read + cited + assessed relevant | [research/b72c4e10/artifacts/P-b72c-77627999](../research/b72c4e10/artifacts/P-b72c-77627999) |
 
 ## Review protocol
 

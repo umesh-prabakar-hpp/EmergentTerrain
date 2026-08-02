@@ -294,7 +294,11 @@ public final class MathInvariants {
         flat.put("_tick", (double) windowStart);
 
         for (String name : BASE) {
-            flat.put(name, rawWindow.getOrDefault(name, 0.0));
+            // A map can contain a scalar key with a null/non-finite value (not merely omit it).
+            // Do not propagate that boxed value into derived coordinates: callers such as
+            // verify_growth must receive the same deterministic zero fallback as an absent scalar.
+            Double value = rawWindow.get(name);
+            flat.put(name, value != null && Double.isFinite(value) ? value : 0.0);
         }
         for (Map.Entry<String, Function<Map<String, Double>, Double>> e : DERIVED.entrySet()) {
             try {

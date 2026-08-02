@@ -37,8 +37,17 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
   explicit completion before reviewing it.
 - Before every new `./scripts/start.sh`, run `./scripts/stop.sh` and use
   `./scripts/status-related-apps.sh` to confirm that both the app and local AI gateway
-  are down. Then start the run so `start.sh` launches a fresh managed proxy. Never run `stop.sh`
-  while a research run is active.
+  are down. Export the supported Java 21 runtime before starting:
+
+  ```bash
+  export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
+  export PATH="$JAVA_HOME/bin:$PATH"
+  java -version
+  ```
+
+  Then start the run so `start.sh` launches a fresh managed proxy. Never run `stop.sh` while a
+  research run is active. Record and treat any other runtime version in the startup log as an
+  operational defect, not a valid research-cycle environment.
 - Once the run's completion boundary is recorded, run `./scripts/stop.sh` before review and
   confirm the app and local AI gateway are down with the status script. This is idempotent and prevents
   a completed run's managed proxy from leaking into the next cycle.
