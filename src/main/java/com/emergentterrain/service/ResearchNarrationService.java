@@ -3134,7 +3134,11 @@ public class ResearchNarrationService {
                         && pivotEnabled
                         && com.emergentterrain.research.ScoreCalibration
                                 .hypothesisLhsUncovered(topic, triggerTrace);
+                // A post-hoc second-order object is not a substitute for a registered study.
+                // A dedicated locked registration may request its own corrective rerun; otherwise
+                // leave the finite leading-order trace intact for the publication gate to demote.
                 boolean secondOrderSkipped = !offTarget && secondOrderGateEnabled
+                        && mayRunSecondOrderPivot(draft.preRegistration())
                         && com.emergentterrain.research.ScoreCalibration
                                 .secondOrderEngagementSkipped(topic, triggerTrace);
                 com.emergentterrain.research.ScoreCalibration.TightenSuggestion tighten =
@@ -3631,6 +3635,11 @@ public class ResearchNarrationService {
         // exists. A paper that hit an exception after the professor produced
         // useful tool results still benefits from honesty/completeness grading.
         return runPanelAndStamp(draft, fallback, callPath, auditGapDimensions);
+    }
+
+    /** Generic second-order reruns are permitted only for a study registered before computation. */
+    static boolean mayRunSecondOrderPivot(PreRegistration registration) {
+        return registration != null;
     }
 
     /**

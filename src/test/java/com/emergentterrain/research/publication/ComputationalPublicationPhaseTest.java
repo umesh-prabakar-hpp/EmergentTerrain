@@ -95,6 +95,27 @@ class ComputationalPublicationPhaseTest {
     }
 
     @Test
+    void echoedQueryCannotSupplyMissingSemanticAnchor() {
+        ComputationalStudyPlan plan = new ComputationalStudyPlan(
+                "discovery", "confirmation", "fixed rule", "sensitivity", "./reproduce.sh");
+        PublicationAssessment assessment = ComputationalPublicationPhase.assess(
+                new PreRegistration("h", "p", "f", "", plan), List.of(
+                        new ToolInvocation("search_literature",
+                                "{\"subject_anchors\":[\"prime\",\"divisors\"]}",
+                                "search_literature: EVIDENCE [HF77] Twin prime correlations", 0),
+                        new ToolInvocation("read_reference", "{}",
+                                "read_reference HF77 — Twin prime correlations [source: core]\n"
+                                        + "Top passages matching \"prime divisors\":\n---\n"
+                                        + "The number of distinct prime factors appears in a formula.", 1),
+                        new ToolInvocation("assess_reference_relevance", "{}",
+                                "reference_relevance_assessment HF77 — ACCEPTED RELEVANT: metadata only.", 2)),
+                "Related Work cites [HF77].", "PUBLISHED");
+
+        assertThat(assessment.label()).isEqualTo(PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE);
+        assertThat(assessment.missingRequirements()).contains("source-grounded related-work positioning");
+    }
+
+    @Test
     void establishedConstantTargetNeedsRelevantAssessmentAndScalarBearingPassage() {
         ComputationalStudyPlan plan = new ComputationalStudyPlan(
                 "discovery", "confirmation", "fixed rule", "sensitivity", "./reproduce.sh");
@@ -121,7 +142,7 @@ class ComputationalPublicationPhaseTest {
                 new ToolInvocation("read_reference", "{}",
                         "read_reference HF78 — Prime factor multiplicities [source: core]\n"
                                 + "Top passages matching \"omega gap\":\n---\n"
-                                + "The difference Omega(n)-omega(n) records repeated prime factors.", 1),
+                                + "The gap Omega(n)-omega(n) records repeated prime factors.", 1),
                 new ToolInvocation("assess_reference_relevance", "{}",
                         "reference_relevance_assessment HF78 — ACCEPTED RELEVANT: metadata only.", 2));
         PublicationAssessment grounded = ComputationalPublicationPhase.assess(

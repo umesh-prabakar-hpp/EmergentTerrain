@@ -20,6 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResearchNarrationServiceCallPathTest {
 
     @Test
+    void genericSecondOrderRerunRequiresAPreRegistration() {
+        assertThat(ResearchNarrationService.mayRunSecondOrderPivot(null)).isFalse();
+        assertThat(ResearchNarrationService.mayRunSecondOrderPivot(
+                new PreRegistration("h", "p", "f", "locked"))).isTrue();
+    }
+
+    @Test
     void bestOfNPrefersCandidateThatRetainsLockedConstantProtocol() {
         PreRegistration registration = new PreRegistration("h", "p", "f",
                 "locked-constant-limit:v6;lhs=omega_Omega_gap;target=0.77316;scale_ladder=true;"

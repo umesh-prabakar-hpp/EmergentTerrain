@@ -87,7 +87,9 @@ class DeterministicPostSearchReadExecutorTest {
         String search = adapter.search("prime gap bound");
         String key = issuedKey(search);
         List<ToolInvocation> trace = List.of(
-                new ToolInvocation("search_literature", "{\"claim\":\"prime gap bound\"}", search, 0),
+                new ToolInvocation("search_literature",
+                        "{\"claim\":\"prime gap bound\",\"subject_anchors\":[\"prime\",\"gap\"]}",
+                        search, 0),
                 new ToolInvocation("read_reference", "{\"key\":\"" + key + "\"}",
                         adapter.read(key, "prime gap bound"), 1));
 
@@ -98,6 +100,18 @@ class DeterministicPostSearchReadExecutorTest {
         assertThat(outcome.accepted()).isTrue();
         assertThat(outcome.invocation().functionName()).isEqualTo("assess_reference_relevance");
         assertThat(outcome.invocation().resultJson()).contains("ACCEPTED RELEVANT");
+    }
+
+    @Test
+    void rejectsWhenOnlyTheEchoedQueryContainsTheSecondSubjectAnchor() {
+        String read = "read_reference HF123 — Twin prime correlations [source: test]\n"
+                + "Top passages matching \"mean omega prime divisors\":\n---\n"
+                + "The number of distinct prime factors appears in this unrelated formula.";
+
+        assertThat(DeterministicPostReadAssessmentExecutor.evidenceContainsAllAnchors(read,
+                List.of("prime", "divisors"))).isFalse();
+        assertThat(DeterministicPostReadAssessmentExecutor.evidenceContainsAllAnchors(read,
+                List.of("prime", "factors"))).isTrue();
     }
 
     private Phase34SqliteLiterature indexedAdapter() throws Exception {

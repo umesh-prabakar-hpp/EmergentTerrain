@@ -30,11 +30,16 @@ public final class DeterministicPostReadAssessmentExecutor {
         List<ToolInvocation> safeTrace = trace == null ? List.of() : trace;
         LinkedHashSet<String> issued = new LinkedHashSet<>();
         LinkedHashSet<String> assessed = new LinkedHashSet<>();
+        Map<String, List<String>> anchorsByKey = new java.util.LinkedHashMap<>();
         for (ToolInvocation call : safeTrace) {
             if (call == null) continue;
             if ("search_literature".equals(call.functionName())) {
                 Matcher key = ISSUED_KEY.matcher(value(call.resultJson()));
-                while (key.find()) issued.add(key.group(1));
+                List<String> anchors = subjectAnchors(call.argsJson());
+                while (key.find()) {
+                    issued.add(key.group(1));
+                    anchorsByKey.putIfAbsent(key.group(1), anchors);
+                }
             } else if ("assess_reference_relevance".equals(call.functionName())) {
                 Matcher accepted = ACCEPTED.matcher(value(call.resultJson()));
                 if (accepted.matches()) assessed.add(accepted.group(1));
@@ -48,9 +53,11 @@ public final class DeterministicPostReadAssessmentExecutor {
             if (!issued.contains(key) || assessed.contains(key)) continue;
             String excerpt = excerpt(call.resultJson());
             if (excerpt.isBlank()) return Outcome.skipped("read_has_no_assessable_excerpt");
-            String result = literature.assessRelevance(key, excerpt, "RELEVANT");
+            String verdict = evidenceContainsAllAnchors(call.resultJson(), anchorsByKey.get(key))
+                    ? "RELEVANT" : "NOT_RELEVANT";
+            String result = literature.assessRelevance(key, excerpt, verdict);
             ToolInvocation invocation = new ToolInvocation("assess_reference_relevance",
-                    arguments(key, excerpt), result, nextRound(safeTrace));
+                    arguments(key, excerpt, verdict), result, nextRound(safeTrace));
             boolean acceptedResult = result.startsWith("reference_relevance_assessment " + key
                     + " — ACCEPTED RELEVANT:");
             return new Outcome(true, acceptedResult, key, "assessed_issued_read", invocation);
@@ -58,16 +65,39 @@ public final class DeterministicPostReadAssessmentExecutor {
         return Outcome.skipped("no_unassessed_issued_read");
     }
 
-    private String arguments(String key, String excerpt) {
+    private String arguments(String key, String excerpt, String verdict) {
         try {
             return mapper.writeValueAsString(Map.of("key", key, "supporting_excerpt", excerpt,
-                    "verdict", "RELEVANT", "rationale",
-                    "Deterministic assessment of the exact issued and read passage."));
+                    "verdict", verdict, "rationale",
+                    "Deterministic assessment of the issued record title and returned passage."));
         } catch (Exception ignored) {
             return "{\"key\":\"" + key + "\",\"supporting_excerpt\":\""
                     + excerpt.replace("\\", "\\\\").replace("\"", "\\\"")
-                    + "\",\"verdict\":\"RELEVANT\",\"rationale\":\"deterministic assessment\"}";
+                    + "\",\"verdict\":\"" + verdict + "\",\"rationale\":\"deterministic assessment\"}";
         }
+    }
+
+    private List<String> subjectAnchors(String argsJson) {
+        try {
+            var anchors = mapper.readTree(value(argsJson)).path("subject_anchors");
+            if (!anchors.isArray()) return List.of();
+            return java.util.stream.StreamSupport.stream(anchors.spliterator(), false)
+                    .map(node -> node.asText("").strip().toLowerCase(java.util.Locale.ROOT))
+                    .filter(anchor -> anchor.length() >= 3).distinct().toList();
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    /** Do not count the echoed query in "Top passages matching" as source evidence. */
+    static boolean evidenceContainsAllAnchors(String read, List<String> anchors) {
+        if (anchors == null || anchors.size() != 2) return false;
+        int queryMarker = value(read).indexOf("Top passages matching");
+        int passageMarker = value(read).indexOf("\n---\n");
+        String title = queryMarker >= 0 ? value(read).substring(0, queryMarker) : "";
+        String passage = passageMarker >= 0 ? value(read).substring(passageMarker + 5) : "";
+        String evidence = (title + "\n" + passage).toLowerCase(java.util.Locale.ROOT);
+        return anchors.stream().allMatch(evidence::contains);
     }
 
     private static String excerpt(String read) {

@@ -186,10 +186,20 @@ public final class ComputationalPublicationPhase {
             if (call == null || !"read_reference".equals(call.functionName())) continue;
             Matcher read = REFERENCE_READ.matcher(nullToEmpty(call.resultJson()));
             if (!read.matches() || !key.equals(read.group(1))) continue;
-            String normalized = call.resultJson().toLowerCase(java.util.Locale.ROOT);
+            String normalized = titleAndPassageOnly(call.resultJson()).toLowerCase(java.util.Locale.ROOT);
             return anchors.stream().allMatch(normalized::contains);
         }
         return false;
+    }
+
+    /** Excludes the echoed query after "Top passages matching" from semantic source checks. */
+    private static String titleAndPassageOnly(String read) {
+        String value = nullToEmpty(read);
+        int queryMarker = value.indexOf("Top passages matching");
+        int passageMarker = value.indexOf("\n---\n");
+        String title = queryMarker >= 0 ? value.substring(0, queryMarker) : "";
+        String passage = passageMarker >= 0 ? value.substring(passageMarker + 5) : "";
+        return title + "\n" + passage;
     }
 
     private static boolean readPassageMentionsAnyIdentityToken(List<ToolInvocation> trace, String key,

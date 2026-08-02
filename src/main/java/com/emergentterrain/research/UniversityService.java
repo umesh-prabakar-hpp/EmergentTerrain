@@ -51,6 +51,11 @@ public class UniversityService {
         return "conjecture/max_prime_gap".equals(topicName);
     }
 
+    /** A second-order rerun without a prior registration is exploratory, never confirmation evidence. */
+    static boolean unregisteredSecondOrderPivot(PreRegistration registration, String callPath) {
+        return registration == null && callPath != null && callPath.contains("second-order:engaged:");
+    }
+
     // Research cycle constants
     private static final int TERM_PAPERS            = 30;    // publications before next competency test
     private static final int MAX_PAPERS_PER_ROOM    = 500;
@@ -1414,10 +1419,16 @@ public class UniversityService {
                 SecondOrderPivotPreRegistration.isLocked(draft.preRegistration())
                         && !SecondOrderPivotPreRegistration.hasExactEvidence(
                         draft.preRegistration(), narration.toolCallTrace());
+        boolean unregisteredSecondOrderPivot = unregisteredSecondOrderPivot(
+                draft.preRegistration(), narration.callPath());
         if (secondOrderPivotPreRegistrationUncovered) {
             log.warn("second-order pivot pre-registration check failed paperId={} "
                             + "(primary ladder, independent holdout, or width holdout missing)",
                     draft.paperId());
+        }
+        if (unregisteredSecondOrderPivot) {
+            log.warn("unregistered second-order pivot check failed paperId={} "
+                            + "(a generic rerun cannot substitute for a locked protocol)", draft.paperId());
         }
         boolean affineBindingClaimUncovered = affineBindingClaimGateEnabled
                 && AffineBindingClaimValidator.claimWithoutDocumentedPair(
@@ -1951,7 +1962,7 @@ public class UniversityService {
                 || maxDivisorCountWigertReferenceUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
-        } else if (secondOrderPivotPreRegistrationUncovered) {
+        } else if (secondOrderPivotPreRegistrationUncovered || unregisteredSecondOrderPivot) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (affineBindingClaimUncovered) {
@@ -2110,7 +2121,7 @@ public class UniversityService {
                 || constantLimitPreRegistrationUncovered || cramerGapEnvelopeUncovered || mertensEnvelopePreRegistrationUncovered || predicateStudyPreRegistrationUncovered
                 || maxPrimeGapMultiScalePreRegistrationUncovered
                 || maxDivisorCountMeasurementPreRegistrationUncovered
-                || secondOrderPivotPreRegistrationUncovered) {
+                || secondOrderPivotPreRegistrationUncovered || unregisteredSecondOrderPivot) {
             publicationDeficits.add(PublicationStateResolver.Deficit.SENSITIVITY);
         }
         if (affineBindingIndependentGridUncovered) {
@@ -2244,6 +2255,11 @@ public class UniversityService {
                     ? "publish:second_order_pivot_preregistration_uncovered→needs_revision"
                     : persistedCallPath
                             + " → publish:second_order_pivot_preregistration_uncovered→needs_revision";
+        }
+        if (unregisteredSecondOrderPivot) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:unregistered_second_order_pivot→needs_revision"
+                    : persistedCallPath + " → publish:unregistered_second_order_pivot→needs_revision";
         }
         if (predicateBaselineSensitivityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
