@@ -69,6 +69,16 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
 - Complete bounded current-run literature discovery, provenance staging, deduplication, and safe
   separate-index import as required by `paper-review`. A staged source is not paper evidence until
   a later normal search → read → accepted assessment → Related Work chain uses it.
+- After the review, copy a paper to `research/notable-papers/<paper-id>/` only when it is a
+  concrete milestone toward the north star. Require a final `PUBLISHED` or artifact-backed
+  candidate state, a complete locked computational protocol (including its required independent
+  checks), and a source-grounded evidence chain. A rigorously executed negative result may qualify
+  only when it rules out a previously viable research direction. Never copy a `NEEDS_REVISION`,
+  `NULL_RESULT`, or `REJECTED` paper merely for fluent prose, a high score, or a first occurrence.
+  Copy the final markdown and its final artifact directory when present; retain the original paper
+  ID and do not alter the source artifact. State the milestone rationale and the copied path in the
+  immutable run review. The directory is a curated local showcase, not an evidence source or a
+  publication-label input.
 
 ### 3. Classify findings before changing code
 
