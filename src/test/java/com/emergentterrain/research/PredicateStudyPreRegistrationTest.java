@@ -70,4 +70,18 @@ class PredicateStudyPreRegistrationTest {
 
         assertThat(PredicateStudyPreRegistration.from(underspecified)).isNull();
     }
+
+    @Test
+    void rejectsProseThatCallsExecutedLockedConfirmationWindowsPostHoc() {
+        PreRegistration registration = PredicateStudyPreRegistration.from(PROBLEM);
+        List<ToolInvocation> trace = List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22),
+                scan(1850, 2100, 0.22));
+
+        assertThat(PredicateStudyPreRegistration.narrativeConsistencyFailures(
+                "The additional windows are post-hoc descriptive checks.", registration, trace))
+                .isNotEmpty();
+        assertThat(PredicateStudyPreRegistration.narrativeConsistencyFailures(
+                "An additional scan outside the registered plan is exploratory.", registration, trace))
+                .isEmpty();
+    }
 }

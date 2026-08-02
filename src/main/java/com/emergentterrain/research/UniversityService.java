@@ -1377,7 +1377,18 @@ public class UniversityService {
                         draft.preRegistration(), narration.toolCallTrace());
         if (predicateStudyPreRegistrationUncovered) {
             log.warn("predicate-study pre-registration check failed paperId={} "
-                            + "(selected trace lacks one or more registered scans)", draft.paperId());
+                    + "(selected trace lacks one or more registered scans)", draft.paperId());
+        }
+        List<String> predicateStudyNarrativeConsistencyFailures = predicateStudyPreRegistrationGateEnabled
+                ? PredicateStudyPreRegistration.narrativeConsistencyFailures(
+                        hypothesis + "\n" + findings + "\n" + conclusion + "\n"
+                                + joinDiscussionAndRelatedWork(narration.discussion(), narration.relatedWork()),
+                        draft.preRegistration(), narration.toolCallTrace())
+                : List.of();
+        boolean predicateStudyNarrativeContradiction = !predicateStudyNarrativeConsistencyFailures.isEmpty();
+        if (predicateStudyNarrativeContradiction) {
+            log.warn("predicate-study narrative-consistency check failed paperId={} reasons={}",
+                    draft.paperId(), predicateStudyNarrativeConsistencyFailures);
         }
         List<String> traceDefinitionAvailabilityFailures = traceDefinitionAvailabilityGateEnabled
                 ? TraceDefinitionAvailabilityValidator.validate(
@@ -1956,6 +1967,9 @@ public class UniversityService {
         } else if (predicateStudyPreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (predicateStudyNarrativeContradiction) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (maxPrimeGapMultiScalePreRegistrationUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2120,6 +2134,7 @@ public class UniversityService {
         }
         if (predicateBaselineSensitivityUncovered || exactPreRegistrationUncovered
                 || constantLimitPreRegistrationUncovered || cramerGapEnvelopeUncovered || mertensEnvelopePreRegistrationUncovered || predicateStudyPreRegistrationUncovered
+                || predicateStudyNarrativeContradiction
                 || maxPrimeGapMultiScalePreRegistrationUncovered
                 || maxDivisorCountMeasurementPreRegistrationUncovered
                 || secondOrderPivotPreRegistrationUncovered || unregisteredSecondOrderPivot) {
@@ -2211,6 +2226,11 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:predicate_study_preregistration_uncovered→needs_revision"
                     : persistedCallPath + " → publish:predicate_study_preregistration_uncovered→needs_revision";
+        }
+        if (predicateStudyNarrativeContradiction) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:predicate_study_narrative_contradiction→needs_revision"
+                    : persistedCallPath + " → publish:predicate_study_narrative_contradiction→needs_revision";
         }
         if (constantLimitPreRegistrationUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

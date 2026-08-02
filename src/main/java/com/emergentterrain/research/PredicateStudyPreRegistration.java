@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Locked, machine-checkable plan for a dynamic predicate baseline study.
@@ -21,6 +23,17 @@ public final class PredicateStudyPreRegistration {
     private static final String PREFIX_V2 = "locked-predicate-study:v2;";
     private static final String PREFIX_V3 = "locked-predicate-study:v3;";
     private static final ObjectMapper JSON = new ObjectMapper();
+    /**
+     * The narrator may describe genuinely exploratory scans as post-hoc, but it must not use
+     * that label for the two confirmation windows fixed before the primary census.
+     */
+    private static final Pattern POST_HOC_REGISTERED_WINDOW = Pattern.compile(
+            "(?is)\\b(?:additional\\s+window|confirmation\\s+window|registered\\s+(?:scan|window)|"
+                    + "locked\\s+(?:scan|window)|second[- ]width|location\\s+window)"
+                    + "[^.]{0,100}\\b(?:post[- ]?hoc|exploratory)\\b|"
+                    + "\\b(?:post[- ]?hoc|exploratory)\\b[^.]{0,100}"
+                    + "\\b(?:additional\\s+window|confirmation\\s+window|registered\\s+(?:scan|window)|"
+                    + "locked\\s+(?:scan|window)|second[- ]width|location\\s+window)");
 
     private PredicateStudyPreRegistration() {}
 
@@ -91,6 +104,21 @@ public final class PredicateStudyPreRegistration {
         }
         for (boolean executed : seen) if (!executed) return false;
         return true;
+    }
+
+    /**
+     * Reports only the narrow contradiction where prose calls a registered confirmation window
+     * post-hoc or exploratory after the trace has executed the complete locked plan.
+     */
+    public static List<String> narrativeConsistencyFailures(String prose,
+                                                             PreRegistration registration,
+                                                             List<ToolInvocation> trace) {
+        if (prose == null || prose.isBlank() || !isLocked(registration)
+                || !hasExactEvidence(registration, trace)) return List.of();
+        if (!POST_HOC_REGISTERED_WINDOW.matcher(prose.toLowerCase(Locale.ROOT)).find()) return List.of();
+        return List.of("Prose calls a registered predicate confirmation window post-hoc or exploratory, "
+                + "but the locked pre-registration and selected trace show it was fixed and executed "
+                + "before results; reserve that label for genuinely additional scans.");
     }
 
     /** Compact directive for the professor's evidence-bearing tool turn. */
