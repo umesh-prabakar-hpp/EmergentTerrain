@@ -3713,11 +3713,11 @@ public class MathToolSuite {
         try {
             for (int i = 0; i < windows.size(); i++) {
                 java.util.Map<String, Double> w = windows.get(i);
-                long start = w.getOrDefault("_window_start",
-                        (double) (windowStart + (long) i * windowSize)).longValue();
+                long start = growthWindowStart(w, windowStart + (long) i * windowSize,
+                        "single-slice", i);
                 starts[i] = start;
                 values[i] = com.emergentterrain.research.conjecture.GrowthScale.transform(
-                        scale, w.getOrDefault(lhs, 0.0), start);
+                        scale, growthWindowValue(w, lhs, "single-slice", i), start);
             }
         } catch (IllegalArgumentException e) {
             return "verify_growth: " + e.getMessage();
@@ -3777,10 +3777,10 @@ public class MathToolSuite {
             try {
                 for (int j = 0; j < ws.size(); j++) {
                     java.util.Map<String, Double> w = ws.get(j);
-                    long start = w.getOrDefault("_window_start",
-                            (double) (s + (long) j * windowSize)).longValue();
+                    long start = growthWindowStart(w, s + (long) j * windowSize,
+                            "scale-ladder rung=" + s, j);
                     sum += com.emergentterrain.research.conjecture.GrowthScale.transform(
-                            scale, w.getOrDefault(lhs, 0.0), start);
+                            scale, growthWindowValue(w, lhs, "scale-ladder rung=" + s, j), start);
                     n++;
                 }
             } catch (IllegalArgumentException e) {
@@ -3814,6 +3814,35 @@ public class MathToolSuite {
                     hi, prev, Math.abs(hi - prev) <= Math.abs(hi) * tol ? "settling" : "still moving"));
         }
         return sb.toString();
+    }
+
+    /** Extracts a verifier-supplied start without unboxing a nullable map entry. */
+    static long growthWindowStart(java.util.Map<String, Double> window, long fallback,
+                                  String phase, int index) {
+        if (window == null) {
+            throw new IllegalArgumentException("missing window record at " + phase + " index=" + index);
+        }
+        Double supplied = window.get("_window_start");
+        if (supplied == null) return fallback;
+        if (!Double.isFinite(supplied) || supplied < 0.0) {
+            throw new IllegalArgumentException("invalid _window_start=" + supplied + " at " + phase
+                    + " index=" + index + " (fallback=" + fallback + ")");
+        }
+        return supplied.longValue();
+    }
+
+    /** Validates that the requested scalar is present before a growth transform runs. */
+    static double growthWindowValue(java.util.Map<String, Double> window, String lhs,
+                                    String phase, int index) {
+        if (window == null) {
+            throw new IllegalArgumentException("missing window record at " + phase + " index=" + index);
+        }
+        Double value = window.get(lhs);
+        if (value == null || !Double.isFinite(value)) {
+            throw new IllegalArgumentException("missing or non-finite scalar '" + lhs + "' at " + phase
+                    + " index=" + index + " (available=" + window.keySet() + ")");
+        }
+        return value;
     }
 
     /** Shared cap-check + window sampling for the frame-2/3 measurement tools. Returns

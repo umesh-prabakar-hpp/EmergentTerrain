@@ -159,7 +159,7 @@ standard error at most 3% and worst per-window relative deviation at most 5%); o
 near-target result is explicitly inconclusive. Best-of-N selection prefers a candidate retaining
 the complete locked constant protocol whenever one exists. Any named numerical
 target, including the Hardy–Littlewood twin-prime target, must complete the normal
-`search_literature → read_reference → Related Work` source chain before candidate scoring. Known
+`search_literature → read_reference → assess_reference_relevance → Related Work` source chain before candidate scoring. Known
 targets remain calibration controls; conjectural/open targets may report only finite-window
 consistency, never proof or novelty. The live trace-definition-availability gate routes a paper to revision if its
 prose says a formula, window construction, or registered instrument is unavailable while the selected
@@ -377,9 +377,18 @@ measurement, never a proof of an asymptotic Mertens/RH statement or a claim of f
 **Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
 `HF...` evidence but the professor omitted every `read_reference` call,
 `app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled` (currently
-`true`) appends one bounded read of the first issued key before student revision. It does not
-choose a source, judge relevance, edit Related Work, or upgrade a label; the student revision
-must still cite that exact key for the normal publication gate to pass.
+`true`) appends one bounded read of the first issued key before student revision. After any
+issued successful read without accepted metadata, it also appends one exact-excerpt
+`assess_reference_relevance` call. Neither action searches again, changes the source, edits
+Related Work, or upgrades a label; the student revision must still cite that exact key for the
+normal publication gate to pass.
+
+**Mean-divisor second-order protocol** — `mean_divisor_count` locks raw `dirichlet_error` before
+the professor sees results: one primary `verify_oscillation` scale ladder with no `scale_rhs`, plus
+exact independent location and changed-width holdouts. The protocol also locks `dirichlet`/
+`divisor` source anchors and the normal search → read → accepted assessment → Related Work chain.
+Missing a registered measurement routes the output to `NEEDS_REVISION`; finite reach is
+calibration, never proof of the Dirichlet exponent.
 
 Phase 35 relevance safety needs no additional index stage. The enabled adapter
 uses only validated adjacent subject phrases, fails closed rather than issuing

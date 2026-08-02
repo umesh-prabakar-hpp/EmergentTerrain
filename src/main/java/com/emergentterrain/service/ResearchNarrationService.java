@@ -735,6 +735,25 @@ public class ResearchNarrationService {
         return trace;
     }
 
+    /** Appends one trace-grounded assessment for a successful issued read before student revision. */
+    private List<com.emergentterrain.llm.ToolInvocation> executeDeterministicPostReadAssessment(
+            PaperDraft draft, List<com.emergentterrain.llm.ToolInvocation> initialTrace,
+            List<String> callPath) {
+        if (!deterministicPostSearchReadEnabled || phase34SqliteLiterature == null) return initialTrace;
+        com.emergentterrain.research.literature.DeterministicPostReadAssessmentExecutor.Outcome outcome =
+                new com.emergentterrain.research.literature.DeterministicPostReadAssessmentExecutor(
+                        phase34SqliteLiterature, objectMapper).execute(initialTrace);
+        if (!outcome.attempted()) return initialTrace;
+        List<com.emergentterrain.llm.ToolInvocation> trace = appendTrace(initialTrace,
+                List.of(outcome.invocation()));
+        callPath.add("literature:auto_assessment:" + (outcome.accepted() ? "accepted" : "rejected")
+                + ":key=" + outcome.key());
+        updateDraftPhase(draft, "narration:literature_post_read_assessment");
+        log.info("deterministic post-read assessment paperId={} key={} outcome={}",
+                draft.paperId(), outcome.key(), outcome.reason());
+        return trace;
+    }
+
     static String shiftCallMarkers(String prose, int offset) {
         if (prose == null || prose.isBlank() || offset == 0) return prose;
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\[call_(\\d+)]").matcher(prose);
@@ -2302,8 +2321,9 @@ public class ResearchNarrationService {
 
     /**
      * Phase 29 §29.1.1 — winner selection: the highest-{@link
-     * #scoreCandidate(NarrationResult) scored} candidate (argmax, first wins on
-     * exact ties via strict {@code >}). The single source of truth for "which
+     * #scoreCandidate(NarrationResult) scored} candidate (argmax). Exact score ties are resolved
+     * by retained deterministic measurement evidence, then fewer failed tool outputs, and only
+     * then original order. The single source of truth for "which
      * candidate gets published"; {@link #produceBestCandidate} only adds the
      * produce-N loop + early-stop around it. Static + package-private so the
      * selection contract is unit-testable on real {@link NarrationResult}
@@ -2319,12 +2339,40 @@ public class ResearchNarrationService {
         double bestScore = Double.NEGATIVE_INFINITY;
         for (NarrationResult candidate : candidates) {
             double score = scoreCandidate(candidate);
-            if (best == null || score > bestScore) {
+            if (best == null || score > bestScore
+                    || (Double.compare(score, bestScore) == 0
+                    && compareEvidenceCompleteness(candidate, best) > 0)) {
                 best = candidate;
                 bestScore = score;
             }
         }
         return best;
+    }
+
+    /**
+     * Tie-break only — never a replacement for panel/self-assessment scoring. Terminal literature
+     * demotions intentionally collapse scores to -∞; preserving list order there discarded a
+     * later candidate that had completed the registered measurement.
+     */
+    static int compareEvidenceCompleteness(NarrationResult left, NarrationResult right) {
+        int leftSuccesses = successfulMeasurementCalls(left);
+        int rightSuccesses = successfulMeasurementCalls(right);
+        if (leftSuccesses != rightSuccesses) return Integer.compare(leftSuccesses, rightSuccesses);
+        return Integer.compare(failedToolCalls(right), failedToolCalls(left));
+    }
+
+    private static int successfulMeasurementCalls(NarrationResult candidate) {
+        if (candidate == null || candidate.toolCallTrace() == null) return 0;
+        return (int) candidate.toolCallTrace().stream()
+                .filter(call -> call != null && MathToolSuite.isSuccessResult(call.resultJson()))
+                .count();
+    }
+
+    private static int failedToolCalls(NarrationResult candidate) {
+        if (candidate == null || candidate.toolCallTrace() == null) return Integer.MAX_VALUE;
+        return (int) candidate.toolCallTrace().stream()
+                .filter(call -> call != null && !MathToolSuite.isSuccessResult(call.resultJson()))
+                .count();
     }
 
     /**
@@ -3297,6 +3345,9 @@ public class ResearchNarrationService {
             // even when the professor stopped after search_literature. This executes only one
             // trace-selected read and remains below the citation/publication gates.
             profTrace = executeDeterministicPostSearchRead(draft, profTrace, callPath);
+            // A cited read needs accepted trace metadata. This adds one assessment of an exact
+            // issued-and-read excerpt; it does not retrieve again or write Related Work prose.
+            profTrace = executeDeterministicPostReadAssessment(draft, profTrace, callPath);
 
             // Second-order coverage stamp (2026-06-13) — for any leading-order
             // conjecture topic, record ONE outcome on the FINAL trace so coverage is
@@ -4859,6 +4910,11 @@ public class ResearchNarrationService {
                                        boolean correctClassification) {
         String preRegLine = draft.preRegistration() != null
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
+        String lockedProtocolLine = com.emergentterrain.research.SecondOrderPivotPreRegistration
+                .exactTestDirective(draft.preRegistration());
+        if (!lockedProtocolLine.isBlank()) {
+            preRegLine += "LOCKED SECOND-ORDER PROTOCOL: " + lockedProtocolLine + "\n";
+        }
         String classLine  = reviewerClassLine(draft, narration, correctClassification);
 
         boolean canParam   = draft.param1() != null
@@ -5394,6 +5450,11 @@ public class ResearchNarrationService {
                                             String literatureContext) {
         String preRegLine = draft.preRegistration() != null
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
+        String lockedProtocolLine = com.emergentterrain.research.SecondOrderPivotPreRegistration
+                .exactTestDirective(draft.preRegistration());
+        if (!lockedProtocolLine.isBlank()) {
+            preRegLine += "LOCKED SECOND-ORDER PROTOCOL: " + lockedProtocolLine + "\n";
+        }
         String classLine  = draft.resultClassification() != null
                 ? "Result classification: " + draft.resultClassification() + "\n" : "";
         // preRegLine + classLine concatenated into a single composite slot; both

@@ -893,7 +893,8 @@ public class ResearchCycleService {
     private static PreRegistration preRegistrationFor(
             com.emergentterrain.research.conjecture.Conjecture conjecture,
             com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec measurementSpec) {
-        PreRegistration measurementStudy = MaxDivisorCountMeasurementPreRegistration.from(conjecture);
+        PreRegistration measurementStudy = SecondOrderPivotPreRegistration.from(conjecture);
+        if (measurementStudy == null) measurementStudy = MaxDivisorCountMeasurementPreRegistration.from(conjecture);
         PreRegistration multiScale = measurementStudy != null ? measurementStudy
                 : MaxPrimeGapMultiScalePreRegistration.from(conjecture);
         return multiScale != null ? multiScale

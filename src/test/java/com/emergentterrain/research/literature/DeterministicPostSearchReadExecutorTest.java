@@ -81,6 +81,25 @@ class DeterministicPostSearchReadExecutorTest {
         assertThat(outcome.reason()).isEqualTo("no_eligible_issued_key");
     }
 
+    @Test
+    void assessesAnExactIssuedAndReadPassageOnce() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        String search = adapter.search("prime gap bound");
+        String key = issuedKey(search);
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("search_literature", "{\"claim\":\"prime gap bound\"}", search, 0),
+                new ToolInvocation("read_reference", "{\"key\":\"" + key + "\"}",
+                        adapter.read(key, "prime gap bound"), 1));
+
+        DeterministicPostReadAssessmentExecutor.Outcome outcome =
+                new DeterministicPostReadAssessmentExecutor(adapter, new ObjectMapper()).execute(trace);
+
+        assertThat(outcome.attempted()).isTrue();
+        assertThat(outcome.accepted()).isTrue();
+        assertThat(outcome.invocation().functionName()).isEqualTo("assess_reference_relevance");
+        assertThat(outcome.invocation().resultJson()).contains("ACCEPTED RELEVANT");
+    }
+
     private Phase34SqliteLiterature indexedAdapter() throws Exception {
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
              Statement sql = connection.createStatement()) {

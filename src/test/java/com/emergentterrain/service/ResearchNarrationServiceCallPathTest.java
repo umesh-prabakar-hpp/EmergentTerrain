@@ -489,6 +489,20 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(ResearchNarrationService.scoreCandidate(ungrounded)).isEqualTo(Double.NEGATIVE_INFINITY);
     }
 
+    @Test
+    void terminalScoreTiePrefersTheCandidateWithCompletedMeasurementEvidence() {
+        NarrationResult failed = new NarrationResult("h", "f", "c", null, "model", 0.99,
+                List.of(), "literature:read_key_omitted:demoted_to_needs_revision", List.of())
+                .withToolCallTrace(List.of(new com.emergentterrain.llm.ToolInvocation("verify_growth", "{}",
+                        "verify_growth scale-ladder eval failed at window_start=100000", 0)));
+        NarrationResult completed = new NarrationResult("h", "f", "c", null, "model", 0.10,
+                List.of(), "literature:read_key_omitted:demoted_to_needs_revision", List.of())
+                .withToolCallTrace(List.of(new com.emergentterrain.llm.ToolInvocation("verify_growth", "{}",
+                        "verify_growth scale-ladder: mean_omega in loglog coords measured across 5 scales.", 0)));
+
+        assertThat(ResearchNarrationService.selectBest(List.of(failed, completed))).isSameAs(completed);
+    }
+
     // ---- Novelty-lens follow-up: revision-stage novelty preservation ----
 
     @Test

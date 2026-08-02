@@ -1410,6 +1410,15 @@ public class UniversityService {
                     draft.paperId(), maxDivisorCountMeasurementPreRegistrationUncovered,
                     maxDivisorCountWigertReferenceUncovered);
         }
+        boolean secondOrderPivotPreRegistrationUncovered =
+                SecondOrderPivotPreRegistration.isLocked(draft.preRegistration())
+                        && !SecondOrderPivotPreRegistration.hasExactEvidence(
+                        draft.preRegistration(), narration.toolCallTrace());
+        if (secondOrderPivotPreRegistrationUncovered) {
+            log.warn("second-order pivot pre-registration check failed paperId={} "
+                            + "(primary ladder, independent holdout, or width holdout missing)",
+                    draft.paperId());
+        }
         boolean affineBindingClaimUncovered = affineBindingClaimGateEnabled
                 && AffineBindingClaimValidator.claimWithoutDocumentedPair(
                         hypothesis, findings, conclusion, narration.toolCallTrace());
@@ -1942,6 +1951,9 @@ public class UniversityService {
                 || maxDivisorCountWigertReferenceUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (secondOrderPivotPreRegistrationUncovered) {
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (affineBindingClaimUncovered) {
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
@@ -2097,7 +2109,8 @@ public class UniversityService {
         if (predicateBaselineSensitivityUncovered || exactPreRegistrationUncovered
                 || constantLimitPreRegistrationUncovered || cramerGapEnvelopeUncovered || mertensEnvelopePreRegistrationUncovered || predicateStudyPreRegistrationUncovered
                 || maxPrimeGapMultiScalePreRegistrationUncovered
-                || maxDivisorCountMeasurementPreRegistrationUncovered) {
+                || maxDivisorCountMeasurementPreRegistrationUncovered
+                || secondOrderPivotPreRegistrationUncovered) {
             publicationDeficits.add(PublicationStateResolver.Deficit.SENSITIVITY);
         }
         if (affineBindingIndependentGridUncovered) {
@@ -2225,6 +2238,12 @@ public class UniversityService {
                     ? "publish:max_divisor_count_wigert_reference_uncovered→needs_revision"
                     : persistedCallPath
                             + " → publish:max_divisor_count_wigert_reference_uncovered→needs_revision";
+        }
+        if (secondOrderPivotPreRegistrationUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:second_order_pivot_preregistration_uncovered→needs_revision"
+                    : persistedCallPath
+                            + " → publish:second_order_pivot_preregistration_uncovered→needs_revision";
         }
         if (predicateBaselineSensitivityUncovered) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
