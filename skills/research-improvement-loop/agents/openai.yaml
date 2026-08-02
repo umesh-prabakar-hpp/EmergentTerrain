@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Improvement Loop"
+  short_description: "Run, review, improve, verify, and ship"
+  default_prompt: "Use $research-improvement-loop to run one guarded EmergentTerrain research-improvement cycle."
