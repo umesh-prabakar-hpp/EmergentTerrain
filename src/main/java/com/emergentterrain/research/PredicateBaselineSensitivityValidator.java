@@ -9,8 +9,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Requires a baseline-comparison predicate study to show both width and offset sensitivity.
- * Exact finite censuses have no sampling uncertainty to rescue an arbitrary window choice.
+ * Requires a baseline-comparison predicate study to show both width and placement sensitivity on
+ * independent data. Exact finite censuses have no sampling uncertainty to rescue an arbitrary
+ * window choice or an overlapping pseudo-holdout.
  */
 public final class PredicateBaselineSensitivityValidator {
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -27,24 +28,23 @@ public final class PredicateBaselineSensitivityValidator {
         if (scans.isEmpty()) return List.of(); // Missing-Methods / baseline-drift cover no-scan failures.
         boolean variedWidth = scans.stream().mapToLong(Scan::width).distinct().count() >= 2;
         boolean sameBaseline = scans.stream().map(Scan::baseline).distinct().count() == 1;
-        boolean offsetOverlap = false;
+        boolean pairwiseDisjoint = true;
         for (int i = 0; i < scans.size(); i++) {
             for (int j = i + 1; j < scans.size(); j++) {
                 Scan a = scans.get(i), b = scans.get(j);
-                if (a.start != b.start && Math.max(a.start, b.start) < Math.min(a.end, b.end)) {
-                    offsetOverlap = true;
-                }
+                if (Math.max(a.start, b.start) < Math.min(a.end, b.end)) pairwiseDisjoint = false;
             }
         }
-        if (scans.size() >= 3 && sameBaseline && variedWidth && offsetOverlap) return List.of();
+        if (scans.size() >= 3 && sameBaseline && variedWidth && pairwiseDisjoint) return List.of();
         List<String> failures = new ArrayList<>();
         if (scans.size() < 3) failures.add("fewer than three exact predicate scans");
         if (!sameBaseline) failures.add("missing or changing baseline");
         if (!variedWidth) failures.add("no second window width");
-        if (!offsetOverlap) failures.add("no overlapping offset window");
+        if (!pairwiseDisjoint) failures.add("overlapping scans are not independent holdouts");
         return List.of("Baseline-comparison predicate study lacks required sensitivity evidence: "
                 + String.join(", ", failures)
-                + ". Retain at least three scans with two widths and one overlapping offset window.");
+                + ". Retain at least three pairwise-disjoint scans with two widths and one independently "
+                + "located confirmation window.");
     }
 
     private static List<Scan> scans(List<ToolInvocation> trace) {

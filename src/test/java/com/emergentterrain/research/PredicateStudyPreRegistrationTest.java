@@ -23,16 +23,16 @@ class PredicateStudyPreRegistrationTest {
     }
 
     @Test
-    void registersPrimaryDisjointLocationAndSecondWidthBeforeTheCensus() {
+    void registersPairwiseDisjointLocationAndSecondWidthBeforeTheCensus() {
         PreRegistration registration = PredicateStudyPreRegistration.from(PROBLEM);
 
         assertThat(PredicateStudyPreRegistration.isLocked(registration)).isTrue();
         assertThat(PredicateStudyPreRegistration.exactTestDirective(registration))
                 .contains("baseline=0.22").contains("expected_relation=APPROXIMATELY_EQUAL")
                 .contains("comparison_tolerance=0.03")
-                .contains("[350,850)").contains("[1350,1850)").contains("[350,600)");
+                .contains("[350,850)").contains("[1350,1850)").contains("[1850,2100)");
         assertThat(PredicateStudyPreRegistration.hasExactEvidence(registration,
-                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(350, 600, 0.22)))).isTrue();
+                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(1850, 2100, 0.22)))).isTrue();
     }
 
     @Test
@@ -40,7 +40,19 @@ class PredicateStudyPreRegistrationTest {
         PreRegistration registration = PredicateStudyPreRegistration.from(PROBLEM);
 
         assertThat(PredicateStudyPreRegistration.hasExactEvidence(registration,
-                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(350, 600, 0.25)))).isFalse();
+                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(1850, 2100, 0.25)))).isFalse();
+    }
+
+    @Test
+    void legacyOverlappingRegistrationCannotBeUsedAsIndependentConfirmation() {
+        PreRegistration legacy = new PreRegistration("h", "p", "f",
+                "locked-predicate-study:v2;predicate=isAbundant;metric=fraction_satisfying;baseline=0.22;"
+                        + "expected_relation=APPROXIMATELY_EQUAL;comparison_tolerance=0.03;"
+                        + "scan=350,850;scan=1350,1850;scan=350,600;");
+
+        assertThat(PredicateStudyPreRegistration.isLocked(legacy)).isTrue();
+        assertThat(PredicateStudyPreRegistration.hasExactEvidence(legacy,
+                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(350, 600, 0.22)))).isFalse();
     }
 
     @Test

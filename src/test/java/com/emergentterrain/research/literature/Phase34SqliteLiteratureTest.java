@@ -476,6 +476,19 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase35MapsAbundantPerfectDensityToTheDirectAbundantDensitySubject() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "The finite-window density of abundant or perfect numbers is compared with a fixed baseline.",
+                java.util.Map.of(), new LiteratureQueryProposal(List.of("abundant", "perfect"),
+                        "finite-window density", "abundant and perfect arithmetic functions"));
+
+        assertThat(plan.candidates()).extracting(LiteratureQueryPlan.Candidate::expression)
+                .containsExactly("abundant AND density");
+        assertThat(plan.candidates().getFirst().requiredTitleAnchors())
+                .containsExactly("abundant", "density");
+    }
+
+    @Test
     void phase35BoundsSearchToolOutputBeforeItReachesTheModelProxy() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));

@@ -597,8 +597,9 @@ public class ResearchNarrationService {
         if (!PredicateBaselineSensitivityValidator.mentionsBaseline(seed)) return "";
         return "\n\nBASELINE-SENSITIVITY NOTE — a finite predicate census compared with a baseline is "
                 + "not established by adjacent equal-width intervals alone. Retain at least three "
-                + "run_predicate_scan calls with the same baseline: use two distinct window widths and "
-                + "one disjoint location holdout. State the source or derivation of the locked baseline; "
+                + "run_predicate_scan calls with the same baseline on pairwise-disjoint ranges: use two "
+                + "distinct window widths and one independently located holdout. State the source or derivation "
+                + "of the locked baseline; "
                 + "otherwise it is an ungrounded calibration. Report exact finite-window values and do not claim "
                 + "persistence or an asymptotic density unless the trace supports it.";
     }
@@ -607,9 +608,13 @@ public class ResearchNarrationService {
         String directive = PredicateStudyPreRegistration.exactTestDirective(registration);
         if (directive.isBlank()) return "";
         return "\n\nPREDICATE-STUDY PRE-REGISTRATION NOTE — before the initial census, the study "
-                + "locked its predicate, metric, baseline, primary range, disjoint location range, and second "
-                + "width. Execute every registered run_predicate_scan call exactly: " + directive + ". "
-                + "Additional scans are exploratory and cannot replace these calls. Report only exact "
+                + "locked its predicate, metric, baseline, primary range, pairwise-disjoint location range, and "
+                + "pairwise-disjoint second width. Execute every registered run_predicate_scan call exactly: "
+                + directive + ". "
+                + "Before framing a convergence or density comparator, call search_literature for the locked "
+                + "arithmetic subject, read any issued source, assess its relevance, and retain its [HF...] key "
+                + "in Related Work. Without that chain, describe the baseline only as stipulated finite-window "
+                + "calibration. Additional scans are exploratory and cannot replace these calls. Report only exact "
                 + "finite-window comparisons; do not infer persistence or asymptotic behavior.";
     }
 

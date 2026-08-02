@@ -53,25 +53,27 @@ class PivotNoteTest {
     }
 
     @Test
-    void baselineSensitivityNoteRequiresWidthsAndAnOffset() {
+    void baselineSensitivityNoteRequiresDisjointWidthsAndAnIndependentLocation() {
         PaperDraft draft = new PaperDraft(null, "bot", "MATHEMATICS", "density", "title",
                 "Exact census baseline 0.220", "Baseline 0.220", "", "EMPIRICAL", List.of(),
                 0.5, 0.5, 0, 0, java.time.Instant.now(), 1, "P-test", null, null, false,
                 null, null, List.of(), null, null,
                 com.emergentterrain.research.ResultClassification.SUPPORTED, null);
         assertThat(ResearchNarrationService.buildPredicateBaselineSensitivityNote(draft))
-                .contains("two distinct window widths").contains("overlapping offset window");
+                .contains("two distinct window widths").contains("pairwise-disjoint ranges");
     }
 
     @Test
     void predicateStudyPreRegistrationNoteNamesTheLockedWindows() {
         var registration = PredicateStudyPreRegistration.from(new DynamicProblem(
                 "d-1", "abundant finite density", 350, 850,
-                "isAbundant", "fraction_satisfying", 0.22, "Finite comparison."));
+                "isAbundant", "fraction_satisfying", 0.22, "Finite comparison.",
+                DynamicProblem.ExpectedRelation.APPROXIMATELY_EQUAL, 0.03));
 
         assertThat(ResearchNarrationService.buildPredicateStudyPreRegistrationNote(registration))
                 .contains("PREDICATE-STUDY PRE-REGISTRATION NOTE")
-                .contains("baseline=0.22").contains("[350,850)").contains("[475,975)");
+                .contains("baseline=0.22").contains("[350,850)").contains("[1350,1850)")
+                .contains("call search_literature").contains("stipulated finite-window calibration");
     }
 
     @Test

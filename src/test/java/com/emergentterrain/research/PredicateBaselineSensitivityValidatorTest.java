@@ -19,14 +19,21 @@ class PredicateBaselineSensitivityValidatorTest {
         assertThat(PredicateBaselineSensitivityValidator.validate("External baseline 0.220",
                 List.of(scan(350, 850), scan(850, 1350), scan(1350, 1850))))
                 .singleElement().asString()
-                .contains("second window width").contains("overlapping offset window");
+                .contains("second window width");
     }
 
     @Test
-    void offsetAndWidthSensitivityPasses() {
+    void pairwiseDisjointLocationAndWidthSensitivityPasses() {
         assertThat(PredicateBaselineSensitivityValidator.validate("baseline 0.220",
-                List.of(scan(350, 850), scan(600, 1100), scan(350, 1350))))
+                List.of(scan(350, 850), scan(1350, 1850), scan(1850, 2100))))
                 .isEmpty();
+    }
+
+    @Test
+    void overlappingPseudoHoldoutDoesNotEstablishSensitivity() {
+        assertThat(PredicateBaselineSensitivityValidator.validate("baseline 0.220",
+                List.of(scan(350, 850), scan(600, 1100), scan(1100, 1350))))
+                .singleElement().asString().contains("not independent holdouts");
     }
 
     @Test

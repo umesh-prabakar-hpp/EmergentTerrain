@@ -12,13 +12,14 @@ import java.util.List;
  * Locked, machine-checkable plan for a dynamic predicate baseline study.
  *
  * <p>The plan is derived from the directive before its first deterministic census runs. It fixes
- * the predicate, metric, baseline, primary range, a disjoint location holdout, and a second
- * width. The professor may add exploratory scans, but those cannot replace the three registered
- * calls that establish the finite comparison's design.
+ * the predicate, metric, baseline, primary range, a disjoint location holdout, and a disjoint
+ * second-width holdout. The professor may add exploratory scans, but those cannot replace the
+ * three registered calls that establish the finite comparison's design.
  */
 public final class PredicateStudyPreRegistration {
     private static final String PREFIX_V1 = "locked-predicate-study:v1;";
     private static final String PREFIX_V2 = "locked-predicate-study:v2;";
+    private static final String PREFIX_V3 = "locked-predicate-study:v3;";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private PredicateStudyPreRegistration() {}
@@ -37,17 +38,18 @@ public final class PredicateStudyPreRegistration {
         List<Scan> scans = List.of(
                 new Scan(start, end),
                 new Scan(end + width, end + 2 * width),
-                new Scan(start, start + narrowWidth));
+                new Scan(end + 2 * width, end + 2 * width + narrowWidth));
         String subject = directive.predicate() + " / " + directive.metric();
         ComputationalStudyPlan plan = new ComputationalStudyPlan(
                 "The directive's initial exact census " + scans.get(0).range() + ".",
-                "The registered disjoint-location and second-width exact censuses "
+                "The registered pairwise-disjoint location and second-width exact censuses "
                         + scans.get(1).range() + " and " + scans.get(2).range() + ".",
                 "Compare all three registered windows against the unchanged baseline "
                         + directive.baseline() + " with the pre-registered relation "
                         + directive.expectedRelation() + toleranceClause(directive)
                         + "; do not select a window after seeing results.",
-                "The disjoint window tests location and the narrower window tests width sensitivity; "
+                "The pairwise-disjoint location window tests placement and the separately located narrower "
+                        + "window tests width sensitivity; "
                         + "additional scans are exploratory and cannot replace these calls.",
                 "");
         return new PreRegistration(
@@ -65,7 +67,8 @@ public final class PredicateStudyPreRegistration {
     public static boolean isLocked(PreRegistration registration) {
         return registration != null && registration.mappingNotes() != null
                 && (registration.mappingNotes().startsWith(PREFIX_V1)
-                || registration.mappingNotes().startsWith(PREFIX_V2));
+                || registration.mappingNotes().startsWith(PREFIX_V2)
+                || registration.mappingNotes().startsWith(PREFIX_V3));
     }
 
     /** True only when every registered predicate scan appears exactly in the selected tool trace. */
@@ -130,7 +133,7 @@ public final class PredicateStudyPreRegistration {
     }
 
     private static String encoded(DynamicProblem directive, List<Scan> scans) {
-        StringBuilder out = new StringBuilder(PREFIX_V2)
+        StringBuilder out = new StringBuilder(PREFIX_V3)
                 .append("predicate=").append(directive.predicate()).append(';')
                 .append("metric=").append(directive.metric()).append(';')
                 .append("baseline=").append(directive.baseline()).append(';');
@@ -149,7 +152,8 @@ public final class PredicateStudyPreRegistration {
         Double comparisonTolerance = null;
         DynamicProblem.ExpectedRelation expectedRelation = DynamicProblem.ExpectedRelation.APPROXIMATELY_EQUAL;
         List<Scan> scans = new ArrayList<>();
-        String prefix = registration.mappingNotes().startsWith(PREFIX_V2) ? PREFIX_V2 : PREFIX_V1;
+        String prefix = registration.mappingNotes().startsWith(PREFIX_V3) ? PREFIX_V3
+                : registration.mappingNotes().startsWith(PREFIX_V2) ? PREFIX_V2 : PREFIX_V1;
         for (String part : registration.mappingNotes().substring(prefix.length()).split(";", -1)) {
             int equals = part.indexOf('=');
             if (equals < 1) continue;
@@ -179,8 +183,25 @@ public final class PredicateStudyPreRegistration {
                 && (comparisonTolerance == null || !Double.isFinite(comparisonTolerance)
                 || comparisonTolerance <= 0.0))
                 || scans.stream().anyMatch(scan -> scan.end <= scan.start
-                || scan.end - scan.start > DynamicComputeEngine.MAX_RANGE)) return null;
+                || scan.end - scan.start > DynamicComputeEngine.MAX_RANGE)
+                || !pairwiseDisjoint(scans)) return null;
         return new Specification(predicate, metric, baseline, expectedRelation, comparisonTolerance, scans);
+    }
+
+    /**
+     * A confirmation that reuses a primary-window integer is sensitivity exploration, not an
+     * independent holdout. Locked predicate studies therefore require all three registered
+     * census intervals to be pairwise disjoint.
+     */
+    private static boolean pairwiseDisjoint(List<Scan> scans) {
+        for (int i = 0; i < scans.size(); i++) {
+            for (int j = i + 1; j < scans.size(); j++) {
+                Scan left = scans.get(i);
+                Scan right = scans.get(j);
+                if (Math.max(left.start, right.start) < Math.min(left.end, right.end)) return false;
+            }
+        }
+        return true;
     }
 
     private record Scan(int start, int end) {

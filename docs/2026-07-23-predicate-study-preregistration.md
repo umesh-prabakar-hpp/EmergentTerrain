@@ -1,4 +1,4 @@
-# Predicate-study pre-registration — 2026-07-23
+# Predicate-study pre-registration — 2026-08-02
 
 Dynamic predicate papers previously had a baseline and an initial finite census, but the professor
 could select width/offset follow-ups after seeing that result. The baseline-sensitivity publication
@@ -14,11 +14,13 @@ window `[a,b)`, it locks:
 - for `APPROXIMATELY_EQUAL`, one positive absolute `comparisonTolerance` chosen before the
   first census.
 - the original exact census `[a,b)`;
-- a same-width overlapping offset census; and
-- a narrower census anchored at `a`.
+- a same-width, pairwise-disjoint location census `[b + (b-a), b + 2(b-a))`; and
+- a narrower, pairwise-disjoint width census beginning at `b + 2(b-a)`.
 
 All registered spans are at most `DynamicComputeEngine.MAX_RANGE` (500). The initial width must
-contain at least four integers; otherwise no sensitivity plan is claimed.
+contain at least four integers; otherwise no sensitivity plan is claimed. An overlapping offset
+or nested-width scan remains usable as labelled exploration, but it is not an independent holdout
+and cannot satisfy the locked study plan.
 
 ## Publication-state separation
 
@@ -55,6 +57,17 @@ post-hoc `PARTIAL` band that can turn a failed declared comparison into a positi
 
 The pre-registration is stored in the ordinary artifact pre-registration section and its
 computational-study plan, so the before-result design and after-result trace are auditable together.
+
+## Comparator and literature positioning
+
+A locked baseline is a finite comparison target, not a source-grounded asymptotic claim by itself.
+The ordinary computational-publication gate still requires an issued local-literature key, a
+successful read, accepted semantic relevance, and a matching `[HF...]` citation in Related Work
+before a study can be source-positioned. For the narrow union `isAbundant OR isPerfect`, Phase 35
+may safely try the component subject pair `abundant AND density` when the model supplies the
+`abundant`/`perfect` subject pair and the claim itself names density. This is only a bounded
+retrieval fallback: it neither asserts that the source proves the union's target nor bypasses
+title/full-text evidence, reading, relevance assessment, or citation gates.
 
 ## Verification
 

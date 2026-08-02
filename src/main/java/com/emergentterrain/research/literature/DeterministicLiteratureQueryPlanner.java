@@ -106,6 +106,17 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
      * claim. Relation and rationale remain auditable model context, never FTS syntax.
      */
     private static LiteratureQueryPlan planValidatedProposal(String claim, LiteratureQueryProposal proposal) {
+        // A union of abundant and perfect numbers may need direct abundant-density context even
+        // when a source title does not repeat both components. This is a bounded subject fallback,
+        // not a theorem assertion: normal title, full-text, read, relevance, and citation gates
+        // still decide whether it can issue evidence.
+        if (isAbundantPerfectDensityPair(claim, proposal.subjectAnchors())) {
+            return new LiteratureQueryPlan(List.of(new LiteratureQueryPlan.Candidate(
+                    LiteratureQueryPlan.QueryKind.AND_PAIR,
+                    List.of("abundant", "density"),
+                    List.of("abundant", "density"),
+                    List.of("abundant", "density"))), "");
+        }
         // `omega` and `Omega` are case-distinct mathematical names but normalize to the same
         // lexical token. Preserve the Phase 35 two-anchor rule by translating only this audited
         // scalar subject to the two title-bearing concepts used by the literature, rather than
@@ -164,6 +175,16 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
         return first != null && second != null
                 && (("omega".equals(first) && "Omega".equals(second))
                 || ("Omega".equals(first) && "omega".equals(second)));
+    }
+
+    private static boolean isAbundantPerfectDensityPair(String claim, List<String> subjectAnchors) {
+        if (subjectAnchors == null || subjectAnchors.size() != 2 || claim == null) return false;
+        Set<String> normalized = subjectAnchors.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(anchor -> anchor.strip().toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toSet());
+        return normalized.equals(Set.of("abundant", "perfect"))
+                && extractAnchors(claim).containsAll(List.of("abundant", "density"));
     }
 
     /**
