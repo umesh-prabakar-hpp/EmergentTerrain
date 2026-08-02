@@ -264,6 +264,16 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   `python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles` before
   relying on title gates. See `phase-37-paper-review-screened-literature/README.md` before changing this lane.
 - **Paper-to-literature key map** — after every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`. It regenerates `docs/paper-literature-key-map.md` from final artifacts in both `research/` and `research/archive/`; retain only a key issued by `search_literature` in `EVIDENCE`, successfully returned by `read_reference`, and cited in that paper's `## Related Work`. Never retain a search hit, snippet, failed read, or model relevance assertion alone. The map is a reviewer index; raw paper/trace artifacts remain authoritative. Both Codex and Claude paper-review skill copies require this regeneration.
+- **Split paper-review records** — do not keep appending new review cycles to one massive
+  `research/REVIEW_REPORT.md`. Migrate a legacy room once with
+  `python3 scripts/migrate-paper-review-layout.py research/<room>`; retain the root report as a
+  frozen history snapshot. Future review passes use `research/<room>/reviews/`: `CURRENT.md` is
+  replace-on-each-pass, `runs/<run-id>.md` is an immutable full record, `paper-index.md` is the
+  compact authority for incremental reviewed-ID detection, and `issue-ledger.md` is the authority
+  for `NEW`, `CARRIED_OVER`, `RESOLVED`, `REGRESSED`, and `NOT_RECHECKED` issue status. Do not mark
+  an item `RESOLVED` without both the implementing change and a test, smoke, or post-fix artifact
+  observation. Validate each changed ledger with
+  `python3 scripts/validate-paper-review-issue-ledger.py research/<room>/reviews/issue-ledger.md`.
 - **Phase 35 deterministic post-search read** — with `app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled=true`, the professor trace gets one bounded read only when it has an `EVIDENCE` result with an issued `HF...` key and no earlier `read_reference` attempt. It selects the first issued key in trace order and uses that search call's structured claim as the focused query; it does not search again, retry a failed read, make a relevance judgment, alter Related Work, or upgrade a label. The read is appended before student revision so the model can cite it, but `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE` still requires the final Related Work to contain that same key. Set the flag false for rollback.
 - **Cramér gap ratio protocol** — `cramer_gap_ratio` is a finite, window-dependent maximum-gap
   envelope, never a `verify_constant` convergence target. `CramerGapEnvelopePreRegistration`

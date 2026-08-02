@@ -1,12 +1,12 @@
 ---
 name: paper-review
-description: Review LLM-generated research papers in a directory for human quality. Maintains a persistent REVIEW_REPORT.md with per-paper ratings, strongest/worst lists, recommendations, batch summary, novelty assessment, and operational-log findings. Re-runs incrementally by reading only papers not yet listed in the report.
+description: Review LLM-generated research papers in a directory for human quality. Maintains a split current summary, immutable run records, paper index, and issue lifecycle ledger. Re-runs incrementally by reading only paper IDs absent from the index.
 ---
 
 # paper-review
 
 Reviews LLM-generated research papers, usually markdown files under `research/<room-id>/`,
-and maintains a persistent quality report.
+and maintains split review records.
 
 ## Invocation
 
@@ -17,7 +17,7 @@ and maintains a persistent quality report.
 ```
 
 - `<research_dir>` is required.
-- `--report` defaults to `<research_dir>/REVIEW_REPORT.md`.
+- `--report` is a legacy override. By default use `<research_dir>/reviews/`.
 - `--pattern` defaults to `P-*.md`.
 - `--logs`, `--julia-log`, and `--gpu-log` override auto-discovered logs.
 - `--no-logs` skips operational-log discovery and creates a papers-only review.
@@ -26,20 +26,47 @@ If no research directory is provided, ask the user for it.
 
 ## Incremental Invariant
 
-Do not re-review papers already present in the per-paper ratings table. Parse the existing
-`REVIEW_REPORT.md`, collect reviewed paper IDs, and review only new paper files. If no new papers
-exist, update the timestamp and say there were no new papers.
+Do not re-review papers already present in `reviews/paper-index.md`. If it does not exist, migrate
+the legacy `REVIEW_REPORT.md` once with `python3 scripts/migrate-paper-review-layout.py
+<research_dir>`. Collect IDs from the index and review only new paper files. If no new papers
+exist, update `reviews/CURRENT.md` and say there were no new papers.
 
 ## Workflow
 
 1. Inventory paper files in `<research_dir>` matching the glob.
-2. Parse existing `REVIEW_REPORT.md` if present.
+2. Parse `reviews/paper-index.md`, falling back to the legacy report only before migration.
 3. Auto-discover logs unless `--no-logs` was supplied.
 4. Review each new paper using the rubric below.
-5. Update `REVIEW_REPORT.md` in place, preserving prior per-paper rows.
+5. Write `reviews/runs/<run-id>.md`, replace `reviews/CURRENT.md`, append compact rows to
+   `reviews/paper-index.md`, and update `reviews/issue-ledger.md`.
 6. Regenerate `docs/paper-literature-key-map.md` with
    `./scripts/update-paper-literature-key-map.sh` from the project root.
-7. End with the closing line.
+7. Validate the lifecycle ledger and end with the closing line.
+
+## Split layout and lifecycle
+
+Use `<research_dir>/reviews/` as the durable review surface:
+
+- `CURRENT.md` is a replace-on-each-pass latest-run summary.
+- `runs/<run-id>.md` is an immutable full record for exactly one app run.
+- `paper-index.md` is the compact monotonic inventory used to identify new paper IDs.
+- `issue-ledger.md` is the compact cross-run lifecycle authority.
+
+After migration, leave the root `REVIEW_REPORT.md` as a frozen historical snapshot; never append
+new reports to it. The ledger columns are `Issue ID`, `State`, `First seen`, `Last checked`,
+`Resolved in`, `Evidence`, and `Summary`; allowed states are `NEW`, `CARRIED_OVER`, `RESOLVED`,
+`REGRESSED`, and `NOT_RECHECKED`.
+
+An item is `RESOLVED` only when a concrete change and a relevant test, smoke, or post-fix artifact
+prove it. An unchanged current defect is `CARRIED_OVER`; a previously resolved defect that returns
+is `REGRESSED`; changed-but-not-observed behavior is `NOT_RECHECKED`. Every recommendation must
+name its ledger ID, and resolved recommendations must remain visible in the ledger rather than
+silently disappearing. Run:
+
+```bash
+python3 scripts/validate-paper-review-issue-ledger.py \
+  <research_dir>/reviews/issue-ledger.md
+```
 
 ## Literature-Key Map
 
@@ -163,20 +190,23 @@ Assign exactly one:
 
 Binary accept is Acceptable or Minor revision.
 
-## Report Sections
+## Run-record Sections
 
-`REVIEW_REPORT.md` has eight standing sections, in this order:
+Each immutable `reviews/runs/<run-id>.md` has eight sections, in this order:
 
 1. Header: last updated, source path, reviewer, cadence, logs found.
 2. Recommendations to raise the batch to human quality.
-3. Strongest papers: ranked top 10-15, marking new entries with **NEW**.
+3. Strongest papers: this run's ranked papers, marking new entries with **NEW**.
 4. Worst papers: ranked table, clustering duplicate failure modes.
-5. Per-paper ratings: monotonic table, one row per paper ever reviewed.
+5. Per-paper ratings: this run only; append the compact result to `paper-index.md`.
 6. Batch summary: verdict counts, acceptance rate, mean/top peer score, trajectory table.
 7. Quality-and-novelty section: current ceiling, novelty assessment, closest-to-interesting paper, next steps.
 8. Operational logs: include only when logs are found or passed and `--no-logs` was not used.
 
 Mark sequence gaps as `*(missing - sequence gap)*`.
+
+`CURRENT.md` links to the latest run record and has only its verdict/count summary, active and
+recently resolved issue IDs, plus navigation links. It must not accumulate history.
 
 ## Operational Logs Section
 

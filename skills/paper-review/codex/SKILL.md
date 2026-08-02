@@ -5,9 +5,9 @@ description: Review LLM-generated research-paper markdown directories for human 
 
 # paper-review for Codex
 
-Use this skill to review LLM-generated research papers and maintain a persistent
-`REVIEW_REPORT.md`. This is the Codex-portable version of the Claude Code
-`/paper-review` skill.
+Use this skill to review LLM-generated research papers using a compact current summary,
+immutable per-run records, and an explicit issue lifecycle. This is the Codex-portable version
+of the Claude Code `/paper-review` skill.
 
 ## Inputs
 
@@ -24,25 +24,66 @@ research directory. If they provide a directory, execute the review.
 
 Defaults:
 
-- `--report`: `<research_dir>/REVIEW_REPORT.md`
+- `--report`: legacy override only. Without it, use the split layout under
+  `<research_dir>/reviews/`.
 - `--pattern`: `*P-*.md` (supports both `P-<id>.md` and timestamp-prefixed
   `<timestamp>_..._P-<id>.md` output filenames)
 - Logs: auto-discover unless `--no-logs` is present
 
 ## Core Rule
 
-Review incrementally. Never re-review paper IDs already present in the per-paper table.
-Read the existing report first, parse reviewed IDs, then review only new papers. If no new
-papers exist, update the timestamp and report "no new papers".
+Review incrementally. Never re-review paper IDs already present in
+`<research_dir>/reviews/paper-index.md`. If the split index does not exist, parse the legacy
+`REVIEW_REPORT.md` once and initialize it with
+`python3 scripts/migrate-paper-review-layout.py <research_dir>`. Read the index first, then
+review only new papers. If no new papers exist, update `reviews/CURRENT.md` and report
+"no new papers" without fabricating a lifecycle change.
 
 ## Discovery
 
 1. Resolve `<research_dir>` to an absolute path.
 2. List paper markdown files matching the pattern. Extract the stable `P-…`
    identifier from each filename rather than assuming the filename begins with it.
-3. Read the existing report if present.
-4. Parse the per-paper ratings table for reviewed paper IDs.
+3. Read `reviews/paper-index.md`; fall back to the legacy report only before migration.
+4. Parse its reviewed paper IDs.
 5. Identify sequence gaps and add `*(missing - sequence gap)*` rows when appropriate.
+
+## Split Review Layout and Issue Lifecycle
+
+Do not grow one cumulative report forever. Use these files under `<research_dir>/reviews/`:
+
+- `CURRENT.md`: replace on every pass; a concise latest-run summary and links only.
+- `runs/<run-id>.md`: immutable full review for one application run. It contains the eight
+  review sections below and records the exact batch window.
+- `paper-index.md`: compact, monotonic one-row-per-paper inventory. This is the only source used
+  to decide whether a paper ID is new; it is not evidence.
+- `issue-ledger.md`: compact cross-run issue lifecycle. It is the authority for whether an issue
+  is new, carried over, resolved, regressed, or not rechecked.
+
+The old root `REVIEW_REPORT.md` is a frozen legacy snapshot after migration. Never append new
+prose to it. Add a short migration notice once, preserve the file for historical reading, and put
+all new output in `reviews/`.
+
+Each ledger row has exactly these fields: `Issue ID`, `State`, `First seen`, `Last checked`,
+`Resolved in`, `Evidence`, and `Summary`. Allowed states are `NEW`, `CARRIED_OVER`, `RESOLVED`,
+`REGRESSED`, and `NOT_RECHECKED`.
+
+- Mark `RESOLVED` only after a concrete commit/configuration change **and** a relevant test,
+  deterministic smoke, or post-fix artifact/log observation. Link both in the row.
+- Keep an issue `CARRIED_OVER` when the same defect appears in the current batch.
+- Mark `REGRESSED` when a previously resolved issue reappears; retain its earlier resolution
+  evidence and add the new artifact/log evidence.
+- Mark `NOT_RECHECKED` when code has changed but the affected path has not run again. Do not call
+  this resolved.
+- Every recommendation in a run record must cite its ledger ID. A recommendation that no longer
+  applies belongs in `RESOLVED`, not silently removed from current output.
+
+Validate every changed ledger before ending the pass:
+
+```bash
+python3 scripts/validate-paper-review-issue-ledger.py \
+  <research_dir>/reviews/issue-ledger.md
+```
 
 ## Literature-Key Map
 
@@ -200,18 +241,22 @@ Assign exactly one:
 
 Use Acceptable/Minor as the binary publishable group.
 
-## Report Format
+## Run-record Format
 
-Maintain these eight sections, in order:
+Each immutable `reviews/runs/<run-id>.md` maintains these eight sections, in order:
 
 1. **Header**: last updated, source path, reviewer, cadence, discovered logs.
 2. **Recommendations to raise the batch to human quality**: add only new failure modes; update counts.
 3. **Strongest papers**: ranked top 10-15. Mark new entries with **NEW**.
 4. **Worst papers**: ranked, clustering duplicate failure modes.
-5. **Per-paper ratings**: monotonic table with one row per paper ever reviewed.
+5. **Per-paper ratings**: this run's papers only; append their compact rows to `paper-index.md`.
 6. **Batch summary**: verdict counts, acceptance rate, mean/top peer score, trajectory table.
 7. **Quality-and-novelty**: current ceiling, novelty assessment, closest-to-interesting paper, next steps.
 8. **Operational logs**: include if logs were found or passed; omit only with `--no-logs` or no logs found.
+
+`CURRENT.md` contains the latest run identifier, a short verdict/count summary, active issue IDs,
+recently resolved issue IDs, and links to the run record, paper index, and ledger. It must not
+copy historical paper tables or old operational logs.
 
 ## Operational Log Review
 

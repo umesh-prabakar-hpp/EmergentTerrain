@@ -195,6 +195,20 @@ and archived final artifacts, retaining only keys that were safely issued, succe
 cited in the corresponding Related Work section. Search hits, unread sources, failed reads, and
 uncited snippets are deliberately excluded; the raw paper and tool trace remain authoritative.
 
+**Split paper-review records** — paper review no longer needs to append every run to one large
+`research/REVIEW_REPORT.md`. Initialize an existing room once with
+`python3 scripts/migrate-paper-review-layout.py research/<room>`. Thereafter the skill keeps a
+replace-on-each-pass `research/<room>/reviews/CURRENT.md`, immutable per-run records in `runs/`,
+a compact `paper-index.md` for incremental deduplication, and an explicit `issue-ledger.md` with
+`NEW`, `CARRIED_OVER`, `RESOLVED`, `REGRESSED`, or `NOT_RECHECKED` state. A resolution must name
+the implementing commit/configuration and its test, smoke, or post-fix artifact evidence. Check
+the ledger after each pass with:
+
+```bash
+python3 scripts/validate-paper-review-issue-ledger.py \
+  research/<room>/reviews/issue-ledger.md
+```
+
 A paper whose recorded literature searches return no relevance-safe evidence may
 say so in Related Work, but cannot publish a claim that outside theory, prior
 work, or the literature establishes a result. That contradiction is persisted as

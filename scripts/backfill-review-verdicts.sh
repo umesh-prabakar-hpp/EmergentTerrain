@@ -2,9 +2,9 @@
 # Phase 32 Wave 3 substrate (32.4, ARC §B7 slot) — durable operator-verdict store.
 #
 # Every /paper-review session assigns each paper a verdict (Acceptable / Minor
-# revision / Major revision / Reject) in REVIEW_REPORT.md's "Per-paper ratings"
-# table — and the table dies with the room reset. This script harvests every
-# report (archived room snapshots + the live room) into one append-safe CSV:
+# revision / Major revision / Reject) in either the legacy REVIEW_REPORT.md
+# table or the split reviews/paper-index.md. This script harvests every
+# report/index (archived room snapshots + the live room) into one append-safe CSV:
 # the labeled calibration set for the 32.4 review head (target >= 100 rows).
 #
 # Idempotent: rows are keyed (paperId,source); re-runs replace the file from
@@ -35,16 +35,16 @@ harvest() {
     awk -v rev="$reviewed" -v src="$source" '
         function clean(s) { gsub(/^ +| +$/, "", s); gsub(/\*/, "", s); return s }
         function csv(s)   { gsub(/"/, "\"\"", s); return "\"" s "\"" }
-        /^## Per-paper ratings/ { inSection=1; next }
+        /^## Per-paper ratings/ || /^# Paper Review Index/ { inSection=1; next }
         /^## / { inSection=0 }
         inSection && /^\|/ && !haveHeader {
             n = split($0, h, /\|/)
             for (i = 2; i <= n; i++) {
                 col = tolower(clean(h[i]))
                 if (col ~ /^paper/)        idP = i
-                else if (col ~ /^topic/)   idT = i
+                else if (col ~ /^(topic|method)/) idT = i
                 else if (col ~ /^peer/)    idPe = i
-                else if (col ~ /^status/)  idS = i
+                else if (col ~ /status/)   idS = i
                 else if (col ~ /^verdict/) idV = i
                 else if (col ~ /^key/)     idK = i
             }
@@ -73,12 +73,40 @@ while IFS= read -r report; do
     count=$((count+1))
 done < <(find "$ROOT/archive" -maxdepth 2 -name REVIEW_REPORT.md 2>/dev/null | sort)
 
+# Split-layout archive indexes. A room may retain its legacy report as a frozen snapshot;
+# de-duplicate rows below by (paperId, source) once the CSV is rebuilt.
+while IFS= read -r report; do
+    src="$(basename "$(dirname "$(dirname "$report")")")"
+    harvest "$report" "$src"
+    count=$((count+1))
+done < <(find "$ROOT/archive" -maxdepth 3 -path '*/reviews/paper-index.md' -print 2>/dev/null | sort)
+
 # Live room reports (will be re-harvested from archive after the next reset).
 while IFS= read -r report; do
     src="live-$(basename "$(dirname "$report")")"
     harvest "$report" "$src"
     count=$((count+1))
 done < <(find "$ROOT" -maxdepth 2 -not -path "$ROOT/archive/*" -name REVIEW_REPORT.md 2>/dev/null | sort)
+
+while IFS= read -r report; do
+    src="live-$(basename "$(dirname "$(dirname "$report")")")"
+    harvest "$report" "$src"
+    count=$((count+1))
+done < <(find "$ROOT" -maxdepth 3 -not -path "$ROOT/archive/*" -path '*/reviews/paper-index.md' -print 2>/dev/null | sort)
+
+dedup="$(mktemp)"
+awk '
+    NR == 1 { print; next }
+    {
+        first = $0
+        sub(/,.*/, "", first)
+        last = $0
+        sub(/^.*,/, "", last)
+        key = first SUBSEP last
+        if (!seen[key]++) print
+    }
+' "$tmp" > "$dedup"
+mv "$dedup" "$tmp"
 
 mv "$tmp" "$OUT"
 rows=$(( $(wc -l < "$OUT") - 1 ))
