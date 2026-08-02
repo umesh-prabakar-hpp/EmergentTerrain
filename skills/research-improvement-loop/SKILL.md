@@ -9,6 +9,13 @@ Run one complete cycle by default. Repeat only when the user explicitly asks for
 or a terminal condition. The objective is source-grounded, reproducible research quality—not a
 cosmetic `PUBLISHED` status or a paper count.
 
+## North star
+
+Build an autonomous research system that can produce genuinely novel, human-quality frontier
+research: source-grounded claims, pre-registered and independently reproducible computation,
+credible holdouts, and an auditable path from evidence to conclusion. Treat every cycle as progress
+toward that standard; never mistake fluent prose, a positive score, or a workflow label for it.
+
 ## Preconditions
 
 1. Work from the EmergentTerrain repository root.
@@ -72,6 +79,12 @@ holdouts, and keep literature evidence auditable. Do not claim novelty from a fi
   Related Work, publication labels, or artifact-writing behavior.
 - Update `README.md` and `AGENTS.md` whenever setup, runtime behavior, or performance workflow
   changes.
+- Create a new `phases-for-human-like-performance/phase-<n>-<slug>/README.md` when a change
+  introduces a durable research-quality capability, protocol, architecture, or acceptance policy.
+  Otherwise update the applicable existing phase document. Record the motivation, scoped design,
+  success criteria, validation evidence, and explicit resolution status (`PROPOSED`, `IMPLEMENTED`,
+  `VALIDATED`, `CARRIED_OVER`, or `BLOCKED`). Update that status and unresolved-item list as later
+  cycles supply evidence; do not silently leave a completed or superseded phase open.
 - Validate changed review issue ledgers. Mark an item `RESOLVED` only with an implementation and
   test, smoke, or post-fix artifact observation; otherwise retain `NEW`, `CARRIED_OVER`, or
   `NOT_RECHECKED`.
