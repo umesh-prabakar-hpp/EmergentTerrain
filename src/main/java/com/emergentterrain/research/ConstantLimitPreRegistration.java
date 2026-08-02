@@ -10,6 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Locked, executable scale-ladder measurement for a registered constant-limit scalar. */
 public final class ConstantLimitPreRegistration {
@@ -18,6 +20,12 @@ public final class ConstantLimitPreRegistration {
     private static final String PREFIX_V3 = "locked-constant-limit:v3;";
     private static final String PREFIX_V4 = "locked-constant-limit:v4;";
     private static final String PREFIX_V5 = "locked-constant-limit:v5;";
+    private static final String PREFIX_V6 = "locked-constant-limit:v6;";
+    private static final double HOLDOUT_MAX_RELATIVE_SE = 0.03;
+    private static final double HOLDOUT_MAX_RELATIVE_SPREAD = 0.05;
+    private static final Pattern DIRECT_MEAN = Pattern.compile("~\\s*([-+]?\\d+(?:\\.\\d+)?)");
+    private static final Pattern STANDARD_ERROR = Pattern.compile("\\bse=([-+]?\\d+(?:\\.\\d+)?)");
+    private static final Pattern WINDOW_SPREAD = Pattern.compile("per-window spread\\s+([-+]?\\d+(?:\\.\\d+)?)");
     private static final int PRIMARY_WINDOW_SIZE = 5_000;
     private static final int PRIMARY_NUM_WINDOWS = 5;
     private static final int CONFIRMATION_WINDOW_SIZE = 10_000;
@@ -59,7 +67,7 @@ public final class ConstantLimitPreRegistration {
                 "A successful primary scale ladder plus independent location and width verify_constant holdouts record the observed trajectory"
                         + (target.isBlank() ? "." : " relative to target=" + target + "."),
                 "The constant-limit study is incomplete when the registered ladder or either independent holdout is absent, fails, or executes a collapsed placement.",
-                PREFIX_V5 + "lhs=" + conjecture.lhs() + ";target=" + target + ";"
+                PREFIX_V6 + "lhs=" + conjecture.lhs() + ";target=" + target + ";"
                         + "known_limit=" + (knownLimit == null ? "" : knownLimit.id()) + ";scale_ladder=true;"
                         + "primary_window_size=" + PRIMARY_WINDOW_SIZE + ";primary_num_windows=" + PRIMARY_NUM_WINDOWS + ";"
                         + "primary_ladder_start=" + PRIMARY_LADDER_START + ";"
@@ -80,7 +88,8 @@ public final class ConstantLimitPreRegistration {
                 || registration.mappingNotes().startsWith(PREFIX_V2)
                 || registration.mappingNotes().startsWith(PREFIX_V3)
                 || registration.mappingNotes().startsWith(PREFIX_V4)
-                || registration.mappingNotes().startsWith(PREFIX_V5));
+                || registration.mappingNotes().startsWith(PREFIX_V5)
+                || registration.mappingNotes().startsWith(PREFIX_V6));
     }
 
     /** A named numerical target needs a readable source before it can be scored as a positioned result. */
@@ -142,10 +151,12 @@ public final class ConstantLimitPreRegistration {
                             && recordsLadderStart(invocation.resultJson(), spec.primaryLadderStart)
                             && args.path("deadline_aware").asBoolean(false)) primary = true;
                     if (!args.path("scale_ladder").asBoolean(false) && completedDirect(invocation.resultJson())) {
-                        if (matchesDirectAllocation(args, spec.locationHoldoutWindowSize, spec.locationHoldoutNumWindows,
-                                spec.locationHoldoutStart)) locationHoldout = true;
-                        if (matchesDirectAllocation(args, spec.widthHoldoutWindowSize, spec.widthHoldoutNumWindows,
-                                spec.widthHoldoutStart)) widthHoldout = true;
+                        boolean precision = !requiresHoldoutPrecision(registration)
+                                || directHoldoutPrecisionAcceptable(invocation.resultJson());
+                        if (precision && matchesDirectAllocation(args, spec.locationHoldoutWindowSize,
+                                spec.locationHoldoutNumWindows, spec.locationHoldoutStart)) locationHoldout = true;
+                        if (precision && matchesDirectAllocation(args, spec.widthHoldoutWindowSize,
+                                spec.widthHoldoutNumWindows, spec.widthHoldoutStart)) widthHoldout = true;
                     }
                     continue;
                 }
@@ -223,13 +234,37 @@ public final class ConstantLimitPreRegistration {
                 && !result.contains(" evaluation failed") && !result.contains("No windows evaluated");
     }
 
+    private static boolean requiresHoldoutPrecision(PreRegistration registration) {
+        return registration.mappingNotes().startsWith(PREFIX_V6);
+    }
+
+    /** Reject a nominally converged holdout when its own uncertainty/spread is too broad. */
+    private static boolean directHoldoutPrecisionAcceptable(String result) {
+        if (result == null) return false;
+        Matcher mean = DIRECT_MEAN.matcher(result);
+        Matcher se = STANDARD_ERROR.matcher(result);
+        if (!mean.find() || !se.find()) return false;
+        try {
+            double center = Math.abs(Double.parseDouble(mean.group(1)));
+            double standardError = Math.abs(Double.parseDouble(se.group(1)));
+            if (!(center > 0.0) || standardError / center > HOLDOUT_MAX_RELATIVE_SE) return false;
+            Matcher spread = WINDOW_SPREAD.matcher(result);
+            return !spread.find() || Math.abs(Double.parseDouble(spread.group(1))) / center
+                    <= HOLDOUT_MAX_RELATIVE_SPREAD;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
     private static Specification parse(PreRegistration registration) {
         if (!isLocked(registration)) return null;
-        boolean v5 = registration.mappingNotes().startsWith(PREFIX_V5);
+        boolean v6 = registration.mappingNotes().startsWith(PREFIX_V6);
+        boolean v5 = v6 || registration.mappingNotes().startsWith(PREFIX_V5);
         boolean requiresConfirmation = registration.mappingNotes().startsWith(PREFIX_V2)
                 || registration.mappingNotes().startsWith(PREFIX_V3)
                 || registration.mappingNotes().startsWith(PREFIX_V4);
-        String prefix = v5 ? PREFIX_V5 : registration.mappingNotes().startsWith(PREFIX_V4) ? PREFIX_V4
+        String prefix = v6 ? PREFIX_V6 : registration.mappingNotes().startsWith(PREFIX_V5) ? PREFIX_V5
+                : registration.mappingNotes().startsWith(PREFIX_V4) ? PREFIX_V4
                 : registration.mappingNotes().startsWith(PREFIX_V3) ? PREFIX_V3
                 : requiresConfirmation ? PREFIX_V2 : PREFIX_V1;
         String lhs = null;

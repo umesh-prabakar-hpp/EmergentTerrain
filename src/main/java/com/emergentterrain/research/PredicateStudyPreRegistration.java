@@ -12,12 +12,13 @@ import java.util.List;
  * Locked, machine-checkable plan for a dynamic predicate baseline study.
  *
  * <p>The plan is derived from the directive before its first deterministic census runs. It fixes
- * the predicate, metric, baseline, primary range, an overlapping offset range, and a second
+ * the predicate, metric, baseline, primary range, a disjoint location holdout, and a second
  * width. The professor may add exploratory scans, but those cannot replace the three registered
  * calls that establish the finite comparison's design.
  */
 public final class PredicateStudyPreRegistration {
-    private static final String PREFIX = "locked-predicate-study:v1;";
+    private static final String PREFIX_V1 = "locked-predicate-study:v1;";
+    private static final String PREFIX_V2 = "locked-predicate-study:v2;";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private PredicateStudyPreRegistration() {}
@@ -32,22 +33,21 @@ public final class PredicateStudyPreRegistration {
         int width = end - start;
         if (width < 4) return null;
 
-        int offset = Math.max(1, width / 4);
         int narrowWidth = Math.max(1, width / 2);
         List<Scan> scans = List.of(
                 new Scan(start, end),
-                new Scan(start + offset, start + offset + width),
+                new Scan(end + width, end + 2 * width),
                 new Scan(start, start + narrowWidth));
         String subject = directive.predicate() + " / " + directive.metric();
         ComputationalStudyPlan plan = new ComputationalStudyPlan(
                 "The directive's initial exact census " + scans.get(0).range() + ".",
-                "The registered offset and second-width exact censuses "
+                "The registered disjoint-location and second-width exact censuses "
                         + scans.get(1).range() + " and " + scans.get(2).range() + ".",
                 "Compare all three registered windows against the unchanged baseline "
                         + directive.baseline() + " with the pre-registered relation "
                         + directive.expectedRelation() + toleranceClause(directive)
                         + "; do not select a window after seeing results.",
-                "The offset window tests alignment and the narrower window tests width sensitivity; "
+                "The disjoint window tests location and the narrower window tests width sensitivity; "
                         + "additional scans are exploratory and cannot replace these calls.",
                 "");
         return new PreRegistration(
@@ -64,7 +64,8 @@ public final class PredicateStudyPreRegistration {
 
     public static boolean isLocked(PreRegistration registration) {
         return registration != null && registration.mappingNotes() != null
-                && registration.mappingNotes().startsWith(PREFIX);
+                && (registration.mappingNotes().startsWith(PREFIX_V1)
+                || registration.mappingNotes().startsWith(PREFIX_V2));
     }
 
     /** True only when every registered predicate scan appears exactly in the selected tool trace. */
@@ -129,7 +130,7 @@ public final class PredicateStudyPreRegistration {
     }
 
     private static String encoded(DynamicProblem directive, List<Scan> scans) {
-        StringBuilder out = new StringBuilder(PREFIX)
+        StringBuilder out = new StringBuilder(PREFIX_V2)
                 .append("predicate=").append(directive.predicate()).append(';')
                 .append("metric=").append(directive.metric()).append(';')
                 .append("baseline=").append(directive.baseline()).append(';');
@@ -148,7 +149,8 @@ public final class PredicateStudyPreRegistration {
         Double comparisonTolerance = null;
         DynamicProblem.ExpectedRelation expectedRelation = DynamicProblem.ExpectedRelation.APPROXIMATELY_EQUAL;
         List<Scan> scans = new ArrayList<>();
-        for (String part : registration.mappingNotes().substring(PREFIX.length()).split(";", -1)) {
+        String prefix = registration.mappingNotes().startsWith(PREFIX_V2) ? PREFIX_V2 : PREFIX_V1;
+        for (String part : registration.mappingNotes().substring(prefix.length()).split(";", -1)) {
             int equals = part.indexOf('=');
             if (equals < 1) continue;
             String key = part.substring(0, equals);

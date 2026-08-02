@@ -334,6 +334,12 @@ python3 scripts/prepare-paper-review-screened-literature-index.py \
 
 The importer validates source hashes, rejects non-retained entries and source replacement, records
 source provenance, and performs only incremental FTS inserts. It does not modify the primary index.
+It also extracts readable TeX titles (including `\\title[]{...}`); after upgrading this script,
+repair previously imported display titles offline with:
+
+```bash
+python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles
+```
 
 **Prime-gap study protocol** — `cramer_gap_ratio` is a finite, window-dependent extreme-value
 measurement, not a registered constant limit. New investigations lock one discovery grid plus

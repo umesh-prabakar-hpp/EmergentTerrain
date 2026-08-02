@@ -3,6 +3,7 @@ package com.emergentterrain.service;
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.ConjecturePreRegistration;
 import com.emergentterrain.research.ConstantLimitPreRegistration;
+import com.emergentterrain.research.OscillationEnvelopePreRegistration;
 import com.emergentterrain.research.CramerGapEnvelopePreRegistration;
 import com.emergentterrain.research.MertensEnvelopePreRegistration;
 import com.emergentterrain.research.LiteratureReference;
@@ -583,6 +584,13 @@ public class ResearchNarrationService {
                 + "asymptotic Mertens/RH claim, and do not describe a fitted affine coefficient as a discovery.";
     }
 
+    static String buildOscillationEnvelopePreRegistrationNote(PreRegistration registration) {
+        if (!OscillationEnvelopePreRegistration.isLocked(registration)) return "";
+        return "\n\nOSCILLATION-ENVELOPE PRE-REGISTRATION NOTE — use the locked normalized scale ladder, "
+                + "then the locked independent location and width checks in the mapping notes. Do not replace "
+                + "them with a fitted affine relation or claim an asymptotic theorem from finite amplitudes.";
+    }
+
     static String buildPredicateBaselineSensitivityNote(PaperDraft draft) {
         String seed = (draft.templateHypothesis() == null ? "" : draft.templateHypothesis())
                 + "\n" + (draft.rawFindings() == null ? "" : draft.rawFindings());
@@ -590,7 +598,8 @@ public class ResearchNarrationService {
         return "\n\nBASELINE-SENSITIVITY NOTE — a finite predicate census compared with a baseline is "
                 + "not established by adjacent equal-width intervals alone. Retain at least three "
                 + "run_predicate_scan calls with the same baseline: use two distinct window widths and "
-                + "one overlapping offset window. Report exact finite-window values and do not claim "
+                + "one disjoint location holdout. State the source or derivation of the locked baseline; "
+                + "otherwise it is an ungrounded calibration. Report exact finite-window values and do not claim "
                 + "persistence or an asymptotic density unless the trace supports it.";
     }
 
@@ -598,7 +607,7 @@ public class ResearchNarrationService {
         String directive = PredicateStudyPreRegistration.exactTestDirective(registration);
         if (directive.isBlank()) return "";
         return "\n\nPREDICATE-STUDY PRE-REGISTRATION NOTE — before the initial census, the study "
-                + "locked its predicate, metric, baseline, primary range, offset range, and second "
+                + "locked its predicate, metric, baseline, primary range, disjoint location range, and second "
                 + "width. Execute every registered run_predicate_scan call exactly: " + directive + ". "
                 + "Additional scans are exploratory and cannot replace these calls. Report only exact "
                 + "finite-window comparisons; do not infer persistence or asymptotic behavior.";
@@ -2880,6 +2889,8 @@ public class ResearchNarrationService {
                             ? buildCramerGapEnvelopePreRegistrationNote(draft.preRegistration()) : "")
                     + (MertensEnvelopePreRegistration.isLocked(draft.preRegistration())
                             ? buildMertensEnvelopePreRegistrationNote(draft.preRegistration()) : "")
+                    + (OscillationEnvelopePreRegistration.isLocked(draft.preRegistration())
+                            ? buildOscillationEnvelopePreRegistrationNote(draft.preRegistration()) : "")
                     + (PredicateStudyPreRegistration.isLocked(draft.preRegistration())
                             ? buildPredicateStudyPreRegistrationNote(draft.preRegistration()) : "")
                     + (MaxPrimeGapMultiScalePreRegistration.isLocked(draft.preRegistration())
@@ -5259,8 +5270,9 @@ public class ResearchNarrationService {
 
     static final String CITATION_GROUNDING_RULE =
             "\n\nCITATION GROUNDING: To cite prior work, you MUST first call the "
-            + "search_literature tool and cite ONLY the exact citation strings it "
-            + "returns. Never invent author-year references. If search_literature "
+            + "search_literature tool, then read_reference for the issued key, then "
+            + "assess_reference_relevance with an exact returned excerpt and verdict RELEVANT. "
+            + "Cite ONLY the exact citation strings it returns. Never invent author-year references. If search_literature "
             + "returns no relevance-safe evidence, Related Work may report that "
             + "absence but MUST NOT assert that external theory, prior work, or "
             + "the literature establishes any claim. For a mined predicate or density, write the "

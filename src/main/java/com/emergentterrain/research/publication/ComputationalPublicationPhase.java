@@ -22,6 +22,9 @@ public final class ComputationalPublicationPhase {
             "(?s)^read_reference\\s+([A-Za-z0-9]+)(?:\\s+—|\\s+\\[).*Top passages matching.*");
     private static final Pattern ACCEPTED_RELEVANT_REFERENCE = Pattern.compile(
             "^reference_relevance_assessment\\s+([A-Za-z0-9]+)\\s+— ACCEPTED RELEVANT:.*");
+    private static final Pattern SUBJECT_ANCHORS = Pattern.compile(
+            "\\\"subject_anchors\\\"\\s*:\\s*\\[\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"([^\\\"]+)\\\"\\s*]",
+            Pattern.CASE_INSENSITIVE);
 
     private ComputationalPublicationPhase() {}
 
@@ -66,12 +69,18 @@ public final class ComputationalPublicationPhase {
         return new PublicationAssessment(label, List.copyOf(missing));
     }
 
-    /** True only when a searched, successfully read source is explicitly cited in Related Work. */
+    /**
+     * True only when a searched, successfully read source is explicitly cited, has an accepted
+     * RELEVANT assessment, and its returned title/passage contains both locked search anchors.
+     * This is intentionally deterministic: an issued key or model assertion alone cannot turn a
+     * lexical collision into related-work grounding.
+     */
     public static boolean hasLiteraturePositioning(String relatedWork, List<ToolInvocation> trace) {
         if (relatedWork == null || relatedWork.isBlank() || trace == null) {
             return false;
         }
-        return successfullyReadSearchKeys(trace).stream().anyMatch(key -> citesKey(relatedWork, key));
+        return successfullyReadSearchKeys(trace).stream()
+                .anyMatch(key -> citesKey(relatedWork, key) && hasSemanticGrounding(trace, key));
     }
 
     /**
@@ -147,6 +156,38 @@ public final class ComputationalPublicationPhase {
             if (call == null || !"assess_reference_relevance".equals(call.functionName())) continue;
             Matcher assessment = ACCEPTED_RELEVANT_REFERENCE.matcher(nullToEmpty(call.resultJson()));
             if (assessment.matches() && key.equals(assessment.group(1))) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasSemanticGrounding(List<ToolInvocation> trace, String key) {
+        if (!hasAcceptedRelevantAssessment(trace, key)) return false;
+        List<String> anchors = subjectAnchorsForIssuedKey(trace, key);
+        return anchors.size() == 2 && readTitleOrPassageContainsAll(trace, key, anchors);
+    }
+
+    private static List<String> subjectAnchorsForIssuedKey(List<ToolInvocation> trace, String key) {
+        for (ToolInvocation call : trace) {
+            if (call == null || !"search_literature".equals(call.functionName())
+                    || !referenceKeys(nullToEmpty(call.resultJson())).contains(key)) continue;
+            Matcher anchors = SUBJECT_ANCHORS.matcher(nullToEmpty(call.argsJson()));
+            if (!anchors.find()) return List.of();
+            String first = anchors.group(1).strip().toLowerCase(java.util.Locale.ROOT);
+            String second = anchors.group(2).strip().toLowerCase(java.util.Locale.ROOT);
+            return first.length() >= 3 && second.length() >= 3 && !first.equals(second)
+                    ? List.of(first, second) : List.of();
+        }
+        return List.of();
+    }
+
+    private static boolean readTitleOrPassageContainsAll(List<ToolInvocation> trace, String key,
+                                                          List<String> anchors) {
+        for (ToolInvocation call : trace) {
+            if (call == null || !"read_reference".equals(call.functionName())) continue;
+            Matcher read = REFERENCE_READ.matcher(nullToEmpty(call.resultJson()));
+            if (!read.matches() || !key.equals(read.group(1))) continue;
+            String normalized = call.resultJson().toLowerCase(java.util.Locale.ROOT);
+            return anchors.stream().allMatch(normalized::contains);
         }
         return false;
     }

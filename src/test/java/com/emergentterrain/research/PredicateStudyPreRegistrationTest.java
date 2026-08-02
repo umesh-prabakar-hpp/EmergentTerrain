@@ -23,16 +23,16 @@ class PredicateStudyPreRegistrationTest {
     }
 
     @Test
-    void registersPrimaryOffsetAndSecondWidthBeforeTheCensus() {
+    void registersPrimaryDisjointLocationAndSecondWidthBeforeTheCensus() {
         PreRegistration registration = PredicateStudyPreRegistration.from(PROBLEM);
 
         assertThat(PredicateStudyPreRegistration.isLocked(registration)).isTrue();
         assertThat(PredicateStudyPreRegistration.exactTestDirective(registration))
                 .contains("baseline=0.22").contains("expected_relation=APPROXIMATELY_EQUAL")
                 .contains("comparison_tolerance=0.03")
-                .contains("[350,850)").contains("[475,975)").contains("[350,600)");
+                .contains("[350,850)").contains("[1350,1850)").contains("[350,600)");
         assertThat(PredicateStudyPreRegistration.hasExactEvidence(registration,
-                List.of(scan(350, 850, 0.22), scan(475, 975, 0.22), scan(350, 600, 0.22)))).isTrue();
+                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(350, 600, 0.22)))).isTrue();
     }
 
     @Test
@@ -40,7 +40,7 @@ class PredicateStudyPreRegistrationTest {
         PreRegistration registration = PredicateStudyPreRegistration.from(PROBLEM);
 
         assertThat(PredicateStudyPreRegistration.hasExactEvidence(registration,
-                List.of(scan(350, 850, 0.22), scan(475, 975, 0.22), scan(350, 600, 0.25)))).isFalse();
+                List.of(scan(350, 850, 0.22), scan(1350, 1850, 0.22), scan(350, 600, 0.25)))).isFalse();
     }
 
     @Test

@@ -258,7 +258,10 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   databases. A screened source still needs the normal issued key → successful read → matching
   Related Work citation chain before it supports evidence or changes a publication label. A missing
   companion is coverage state; a timeout is `UNRESOLVED_RETRIEVAL`, not proof that literature is
-  absent. See `phase-37-paper-review-screened-literature/README.md` before changing this lane.
+  absent. The importer recognizes `\\title{...}` and `\\title[]{...}` source forms; after an
+  importer upgrade, repair existing screened display titles offline with
+  `python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles` before
+  relying on title gates. See `phase-37-paper-review-screened-literature/README.md` before changing this lane.
 - **Paper-to-literature key map** — after every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`. It regenerates `docs/paper-literature-key-map.md` from final artifacts in both `research/` and `research/archive/`; retain only a key issued by `search_literature` in `EVIDENCE`, successfully returned by `read_reference`, and cited in that paper's `## Related Work`. Never retain a search hit, snippet, failed read, or model relevance assertion alone. The map is a reviewer index; raw paper/trace artifacts remain authoritative. Both Codex and Claude paper-review skill copies require this regeneration.
 - **Phase 35 deterministic post-search read** — with `app.research.literature.phase34-sqlite.deterministic-post-search-read.enabled=true`, the professor trace gets one bounded read only when it has an `EVIDENCE` result with an issued `HF...` key and no earlier `read_reference` attempt. It selects the first issued key in trace order and uses that search call's structured claim as the focused query; it does not search again, retry a failed read, make a relevance judgment, alter Related Work, or upgrade a label. The read is appended before student revision so the model can cite it, but `ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE` still requires the final Related Work to contain that same key. Set the flag false for rollback.
 - **Cramér gap ratio protocol** — `cramer_gap_ratio` is a finite, window-dependent maximum-gap

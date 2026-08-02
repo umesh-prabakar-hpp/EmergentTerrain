@@ -89,7 +89,9 @@ final class LiteratureTraceAudit {
 
         Gate gate = new Gate(List.copyOf(issuedKeys), List.copyOf(successfullyReadKeys), citedKeys,
                 List.copyOf(citedReadKeys), List.copyOf(unreadIssuedKeys), List.copyOf(readButUncitedKeys),
-                List.copyOf(citedReadReviewedKeys), !citedReadKeys.isEmpty(), paper == null ? "" : nullToEmpty(paper.status()),
+                List.copyOf(citedReadReviewedKeys), paper != null
+                        && ComputationalPublicationPhase.hasLiteraturePositioning(paper.relatedWork(), safeTrace),
+                paper == null ? "" : nullToEmpty(paper.status()),
                 paper == null || paper.publicationLabel() == null ? "" : paper.publicationLabel().name(),
                 assessment == null ? List.of() : assessment.missingRequirements());
         return new Report(1, List.copyOf(searches), List.copyOf(reads), List.copyOf(assessments), gate);

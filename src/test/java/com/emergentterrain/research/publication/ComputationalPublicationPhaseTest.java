@@ -51,25 +51,47 @@ class ComputationalPublicationPhaseTest {
     }
 
     @Test
-    void successfulReadOfAFoundReferenceCitedInRelatedWorkQualifies() {
+    void acceptedReadWhosePassageContainsBothSearchAnchorsQualifies() {
         ComputationalStudyPlan plan = new ComputationalStudyPlan(
                 "integer windows [1e6, 1e7)", "integer windows [1e8, 1e9)",
                 "choose lowest RMSE", "repeat at three widths", "./reproduce.sh");
         PublicationAssessment assessment = ComputationalPublicationPhase.assess(
                 new PreRegistration("h", "p", "f", "", plan),
                 List.of(
-                        new ToolInvocation("search_literature", "{}",
+                        new ToolInvocation("search_literature",
+                                "{\"subject_anchors\":[\"dirichlet\",\"divisor\"]}",
                                 "search_literature (grounded, corpus of 10 works): EVIDENCE\n- [W123] Prior work",
                                 0),
                         new ToolInvocation("read_reference", "{}",
                                 "read_reference W123 — Prior work [source: ar5iv HTML]\n"
-                                        + "Top passages matching \"claim\":\n---\nPassage",
-                                1)),
+                                        + "Top passages matching \"claim\":\n---\n"
+                                        + "The Dirichlet divisor problem has this error term.",
+                                1),
+                        new ToolInvocation("assess_reference_relevance", "{}",
+                                "reference_relevance_assessment W123 — ACCEPTED RELEVANT: matched passage.",
+                                2)),
                 "## Related Work\n\nWe extend the tested range in [W123].", "PUBLISHED");
 
         assertThat(assessment.label())
                 .isEqualTo(PublicationLabel.ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE);
         assertThat(assessment.missingRequirements()).isEmpty();
+    }
+
+    @Test
+    void citedReadWithoutAcceptedSemanticAssessmentDoesNotQualify() {
+        ComputationalStudyPlan plan = new ComputationalStudyPlan(
+                "discovery", "confirmation", "fixed rule", "sensitivity", "./reproduce.sh");
+        PublicationAssessment assessment = ComputationalPublicationPhase.assess(
+                new PreRegistration("h", "p", "f", "", plan), List.of(
+                        new ToolInvocation("search_literature",
+                                "{\"subject_anchors\":[\"dirichlet\",\"divisor\"]}",
+                                "search_literature: EVIDENCE [W123]", 0),
+                        new ToolInvocation("read_reference", "{}",
+                                "read_reference W123 — source\nTop passages matching \"claim\":\n---\n"
+                                        + "The Dirichlet divisor problem.", 1)),
+                "Related Work [W123].", "PUBLISHED");
+
+        assertThat(assessment.missingRequirements()).contains("source-grounded related-work positioning");
     }
 
     @Test
@@ -79,7 +101,7 @@ class ComputationalPublicationPhaseTest {
         PreRegistration registration = new PreRegistration("h", "p", "f",
                 "locked-constant-limit:v1;lhs=omega_Omega_gap;literature_required=true", plan);
         List<ToolInvocation> offTargetTrace = List.of(
-                new ToolInvocation("search_literature", "{}",
+                new ToolInvocation("search_literature", "{\"subject_anchors\":[\"omega\",\"gap\"]}",
                         "search_literature: EVIDENCE [HF77] Characters of prime power degree", 0),
                 new ToolInvocation("read_reference", "{}",
                         "read_reference HF77 — Characters of prime power degree [source: core]\n"
@@ -94,7 +116,7 @@ class ComputationalPublicationPhaseTest {
         assertThat(offTarget.missingRequirements()).contains("source-grounded related-work positioning");
 
         List<ToolInvocation> groundedTrace = List.of(
-                new ToolInvocation("search_literature", "{}",
+                new ToolInvocation("search_literature", "{\"subject_anchors\":[\"omega\",\"gap\"]}",
                         "search_literature: EVIDENCE [HF78] Prime factor multiplicities", 0),
                 new ToolInvocation("read_reference", "{}",
                         "read_reference HF78 — Prime factor multiplicities [source: core]\n"

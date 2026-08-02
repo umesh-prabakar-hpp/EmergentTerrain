@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -25,11 +26,16 @@ IMPORTABLE_RELEVANCE_TIERS = {"DIRECT_TARGET", "METHOD_CONTEXT"}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--staged-text-manifest", required=True, type=Path,
+    parser.add_argument("--staged-text-manifest", type=Path,
                         help="paper-review provenance manifest containing RETAINED_FOR_IMPORT sources")
     parser.add_argument("--index-dir", type=Path, default=DEFAULT_INDEX_DIR,
                         help=f"separate incremental SQLite/FTS5 index (default: {DEFAULT_INDEX_DIR})")
-    return parser.parse_args()
+    parser.add_argument("--repair-titles", action="store_true",
+                        help="repair TeX-derived display titles already present in the screened index")
+    args = parser.parse_args()
+    if args.staged_text_manifest is None and not args.repair_titles:
+        parser.error("--staged-text-manifest is required unless --repair-titles is supplied")
+    return args
 
 
 def sha256_file(path: Path) -> str:
@@ -45,15 +51,33 @@ def normalized_text(value: str) -> str:
 
 
 def title_from_text(text: str, fallback: str) -> str:
-    for line in text.splitlines()[:80]:
+    title_pattern = re.compile(r"^\\title(?:\[[^]]*])?\s*\{(.+)}\s*$")
+    for line in text.splitlines()[:500]:
         candidate = line.strip()
-        if candidate.startswith("\\title{") and candidate.endswith("}"):
-            return candidate[len("\\title{"):-1].strip()[:500]
+        title = title_pattern.match(candidate)
+        if title:
+            cleaned = clean_title(title.group(1))
+            if cleaned:
+                return cleaned[:500]
         if candidate.startswith("#"):
             candidate = candidate.lstrip("#").strip()
-        if candidate and not candidate.startswith(("%", "\\documentclass", "\\usepackage")):
-            return candidate[:500]
+        # TeX commands are never a useful fallback title.  A real \title was handled above;
+        # skipping every other command prevents metadata such as \@namedef or \DeclarePairedDelimiter.
+        if candidate.startswith("\\"):
+            continue
+        if candidate and not candidate.startswith("%"):
+            cleaned = clean_title(candidate)
+            if cleaned and not cleaned.startswith("\\"):
+                return cleaned[:500]
     return fallback
+
+
+def clean_title(value: str) -> str:
+    """Return readable metadata, never a TeX declaration or macro definition."""
+    cleaned = re.sub(r"\\(?:textit|textbf|emph|mathrm|mathit)\s*\{([^{}]*)}", r"\1", value)
+    cleaned = re.sub(r"\\[A-Za-z@]+(?:\[[^]]*])?", "", cleaned)
+    cleaned = cleaned.replace("{", "").replace("}", "")
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def read_retained_sources(manifest_path: Path) -> list[dict]:
@@ -190,6 +214,23 @@ def import_sources(conn: sqlite3.Connection, manifest_path: Path, sources: list[
     return imported, already_present
 
 
+def repair_titles(conn: sqlite3.Connection) -> int:
+    """Refresh historical TeX-derived display titles without replacing source text."""
+    repaired = 0
+    rows = conn.execute("""SELECT f.rowid, f.paper_id, f.text, p.title
+                           FROM fulltext f JOIN papers p ON p.paper_id = f.paper_id""").fetchall()
+    for rowid, paper_id, text, old_title in rows:
+        new_title = title_from_text(text, paper_id)
+        if new_title == old_title:
+            continue
+        conn.execute("UPDATE papers SET title = ? WHERE paper_id = ?", (new_title, paper_id))
+        conn.execute("DELETE FROM fulltext_fts WHERE rowid = ?", (rowid,))
+        conn.execute("INSERT INTO fulltext_fts(rowid, paper_id, title, text) VALUES (?, ?, ?, ?)",
+                     (rowid, paper_id, new_title, text))
+        repaired += 1
+    return repaired
+
+
 def write_manifest(conn: sqlite3.Connection, index_dir: Path) -> None:
     payload = {
         "format": "paper-review-screened-v1",
@@ -208,16 +249,20 @@ def write_manifest(conn: sqlite3.Connection, index_dir: Path) -> None:
 
 def main() -> int:
     args = parse_args()
-    manifest_path = args.staged_text_manifest.expanduser().resolve()
     index_dir = args.index_dir.expanduser().resolve()
-    sources = read_retained_sources(manifest_path)
     conn = connect(index_dir)
     try:
-        imported, already_present = import_sources(conn, manifest_path, sources)
+        repaired = repair_titles(conn) if args.repair_titles else 0
+        imported = already_present = 0
+        if args.staged_text_manifest is not None:
+            manifest_path = args.staged_text_manifest.expanduser().resolve()
+            sources = read_retained_sources(manifest_path)
+            imported, already_present = import_sources(conn, manifest_path, sources)
         write_manifest(conn, index_dir)
     finally:
         conn.close()
-    print(f"paper-review-screened-index: imported={imported} already_present={already_present} index={index_dir}")
+    print("paper-review-screened-index: "
+          f"imported={imported} already_present={already_present} repaired_titles={repaired} index={index_dir}")
     return 0
 
 

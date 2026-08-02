@@ -31,6 +31,11 @@ public final class ConjectureInvestigationProtocol {
                 return new Allocation(Route.REGISTERED_MEASUREMENT,
                         MertensEnvelopePreRegistration.from(conjecture), "registered_mertens_window_envelope_measurement");
             }
+            if (measurementSpec.frame() == ScalarOpenness.MeasurementFrame.OSCILLATION) {
+                return new Allocation(Route.REGISTERED_MEASUREMENT,
+                        OscillationEnvelopePreRegistration.from(conjecture),
+                        "registered_oscillation_envelope_measurement");
+            }
             return new Allocation(Route.REGISTERED_MEASUREMENT, null,
                     "registered_" + measurementSpec.frame().name().toLowerCase() + "_measurement");
         }

@@ -59,6 +59,22 @@ class ConjectureInvestigationProtocolTest {
     }
 
     @Test
+    void dirichletOscillationRoutesToLockedProtocolBeforeCloneScreening() {
+        Conjecture conjecture = new Conjecture("MATHEMATICS", "dirichlet_error",
+                "_constant_", 0.0, 0.0);
+
+        ConjectureInvestigationProtocol.Allocation allocation =
+                ConjectureInvestigationProtocol.allocate(conjecture,
+                        ScalarOpenness.measurementFrame("dirichlet_error"));
+
+        assertThat(allocation.route()).isEqualTo(ConjectureInvestigationProtocol.Route.REGISTERED_MEASUREMENT);
+        assertThat(OscillationEnvelopePreRegistration.isLocked(allocation.registration())).isTrue();
+        assertThat(allocation.registration().mappingNotes())
+                .contains("lhs=dirichlet_error").contains("scale_rhs=")
+                .contains("location_start=1500000000").contains("width_start=1500100000");
+    }
+
+    @Test
     void unknownAffineScalarIsRejectedBeforeDraftAllocation() {
         Conjecture conjecture = new Conjecture("MATHEMATICS", "max_prime_gap",
                 "_constant_", 0.0, 0.36);
@@ -83,7 +99,7 @@ class ConjectureInvestigationProtocolTest {
 
         assertThat(allocation.route()).isEqualTo(ConjectureInvestigationProtocol.Route.CONSTANT_LIMIT);
         assertThat(allocation.registration().mappingNotes())
-                .startsWith("locked-constant-limit:v5;")
+                .startsWith("locked-constant-limit:v6;")
                 .contains("known_limit=mean_divisor_excess:local-window:v1")
                 .contains("target=1.1544313298030657")
                 .contains("primary_ladder_start=100000")
@@ -112,11 +128,11 @@ class ConjectureInvestigationProtocolTest {
                 new ToolInvocation("verify_constant",
                         "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500000000,"
                                 + "\"window_size\":5000,\"num_windows\":5}",
-                        "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 5000 starting at 1500000000.", 0),
+                        "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 5000 starting at 1500000000. sd=0.001 se=0.0004 per-window spread 0.001", 0),
                 new ToolInvocation("verify_constant",
                         "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500100000,"
                                 + "\"window_size\":10000,\"num_windows\":5}",
-                        "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 10000 starting at 1500100000.", 0));
+                        "verify_constant: omega_Omega_gap ~ 0.77316 over 5 window(s) of size 10000 starting at 1500100000. sd=0.001 se=0.0004 per-window spread 0.001", 0));
 
         assertThat(ConstantLimitPreRegistration.hasExactEvidence(registration, trace)).isTrue();
 
@@ -137,5 +153,27 @@ class ConjectureInvestigationProtocolTest {
         assertThat(ConstantLimitPreRegistration.isEstablishedCalibration(registration)).isFalse();
         assertThat(ConstantLimitPreRegistration.literatureSubject(registration))
                 .isEqualTo("Hardy-Littlewood twin prime constant");
+    }
+
+    @Test
+    void impreciseLocationHoldoutCannotSatisfyV6ConstantPlan() {
+        var registration = ConstantLimitPreRegistration.from(
+                new Conjecture("MATHEMATICS", "omega_Omega_gap", "_constant_", 0.0, 0.0),
+                ScalarOpenness.measurementFrame("omega_Omega_gap"));
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
+                                + "\"window_size\":5000,\"num_windows\":5,\"ladder_start\":100000,\"deadline_aware\":true}",
+                        "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales.", 0),
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500000000,"
+                                + "\"window_size\":5000,\"num_windows\":5}",
+                        "verify_constant: omega_Omega_gap ~ 0.77316 sd=0.04 se=0.017 per-window spread 0.074", 0),
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500100000,"
+                                + "\"window_size\":10000,\"num_windows\":5}",
+                        "verify_constant: omega_Omega_gap ~ 0.77316 sd=0.001 se=0.0004 per-window spread 0.001", 0));
+
+        assertThat(ConstantLimitPreRegistration.hasExactEvidence(registration, trace)).isFalse();
     }
 }
