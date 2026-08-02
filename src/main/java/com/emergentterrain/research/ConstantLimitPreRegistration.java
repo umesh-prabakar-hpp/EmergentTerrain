@@ -2,6 +2,7 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.llm.ToolInvocation;
 import com.emergentterrain.research.conjecture.Conjecture;
+import com.emergentterrain.research.conjecture.ConstantConvergence;
 import com.emergentterrain.research.conjecture.KnownLimitRegistry;
 import com.emergentterrain.research.conjecture.ScalarOpenness;
 import com.emergentterrain.research.publication.ComputationalStudyPlan;
@@ -21,8 +22,8 @@ public final class ConstantLimitPreRegistration {
     private static final String PREFIX_V4 = "locked-constant-limit:v4;";
     private static final String PREFIX_V5 = "locked-constant-limit:v5;";
     private static final String PREFIX_V6 = "locked-constant-limit:v6;";
-    private static final double HOLDOUT_MAX_RELATIVE_SE = 0.03;
-    private static final double HOLDOUT_MAX_RELATIVE_SPREAD = 0.05;
+    private static final double HOLDOUT_MAX_RELATIVE_SE = ConstantConvergence.HOLDOUT_MAX_RELATIVE_SE;
+    private static final double HOLDOUT_MAX_RELATIVE_SPREAD = ConstantConvergence.HOLDOUT_MAX_RELATIVE_SPREAD;
     private static final Pattern DIRECT_MEAN = Pattern.compile("~\\s*([-+]?\\d+(?:\\.\\d+)?)");
     private static final Pattern STANDARD_ERROR = Pattern.compile("\\bse=([-+]?\\d+(?:\\.\\d+)?)");
     private static final Pattern WINDOW_SPREAD = Pattern.compile("per-window spread\\s+([-+]?\\d+(?:\\.\\d+)?)");

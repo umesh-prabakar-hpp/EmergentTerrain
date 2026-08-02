@@ -15,6 +15,10 @@ package com.emergentterrain.research.conjecture;
  */
 public final class ConstantConvergence {
 
+    /** Locked v6 constant-plan limits for a direct location/width holdout. */
+    public static final double HOLDOUT_MAX_RELATIVE_SE = 0.03;
+    public static final double HOLDOUT_MAX_RELATIVE_SPREAD = 0.05;
+
     private ConstantConvergence() {}
 
     /**
@@ -78,5 +82,30 @@ public final class ConstantConvergence {
         double meanRelDev = target != null ? Math.abs(mean - target) / Math.max(Math.abs(target), EPS) : 0.0;
         boolean converged = target != null ? (meanRelDev <= tol) : (relSpread <= tol);
         return new Assessment(mean, min, max, estimate, worstDev, worstStart, relSpread, meanRelDev, converged);
+    }
+
+    /**
+     * A direct holdout must estimate its own mean precisely enough to be called a confirmation.
+     * This deliberately does not change an exploratory scale-ladder trend; it prevents five noisy
+     * windows from receiving a definitive ``CONVERGED`` label solely because their mean crosses a
+     * tolerance boundary.
+     */
+    public static boolean hasAdequateHoldoutPrecision(double[] values, double targetOrMean) {
+        if (values == null || values.length == 0) return false;
+        double center = Math.abs(targetOrMean);
+        if (!(center > EPS)) return false;
+        double mean = 0.0;
+        for (double value : values) mean += value;
+        mean /= values.length;
+        double sumSquares = 0.0;
+        double worstDeviation = 0.0;
+        for (double value : values) {
+            sumSquares += (value - mean) * (value - mean);
+            worstDeviation = Math.max(worstDeviation, Math.abs(value - mean));
+        }
+        double standardError = values.length > 1
+                ? Math.sqrt(sumSquares / (values.length - 1)) / Math.sqrt(values.length) : 0.0;
+        return standardError / center <= HOLDOUT_MAX_RELATIVE_SE
+                && worstDeviation / center <= HOLDOUT_MAX_RELATIVE_SPREAD;
     }
 }

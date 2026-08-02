@@ -82,6 +82,24 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void readFailsClosedWhenIssuedTitleAndIndexedPassageDoNotDescribeSameRecord() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        String search = adapter.search("prime gap bound");
+        Matcher key = Pattern.compile("\\[(HF[0-9A-F]+)]").matcher(search);
+        assertThat(key.find()).isTrue();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("DELETE FROM fulltext_fts WHERE rowid = 1");
+            sql.execute("INSERT INTO fulltext_fts(rowid, paper_id, title, text) VALUES "
+                    + "(1, '2401.01234', 'Prime gap bounds', 'D-brane boundary states and orbifold planes.')");
+        }
+
+        assertThat(adapter.read(key.group(1), "prime gap bound"))
+                .contains("failed the issued-record consistency check")
+                .doesNotStartWith("read_reference " + key.group(1));
+    }
+
+    @Test
     void routedShardsIssueKeysAndRouteTheSubsequentReadToTheirOwningShard() throws Exception {
         indexedAdapter();
         Path shardsDir = indexDir.resolve("shards");
@@ -122,6 +140,26 @@ class Phase34SqliteLiteratureTest {
         assertThat(keys).hasSize(2);
         assertThat(adapter.read(keys.get(1), "confirmed prime gap bound"))
                 .contains("paper-review-screened literature index", "confirmed prime gap bound");
+    }
+
+    @Test
+    void screenedReadAlsoFailsClosedWhenTheIssuedTitleAndPassageDiverge() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapterWithPaperReviewScreenedIndex();
+        String search = adapter.search("prime gap bound");
+        List<String> keys = new ArrayList<>();
+        Matcher matcher = Pattern.compile("\\[(HF[0-9A-F]+)]").matcher(search);
+        while (matcher.find()) keys.add(matcher.group(1));
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:"
+                + indexDir.resolve("paper-review-screened/literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("DELETE FROM fulltext_fts WHERE rowid = 1");
+            sql.execute("INSERT INTO fulltext_fts(rowid, paper_id, title, text) VALUES "
+                    + "(1, '1709.04799', 'Prime gaps and bounds from a screened review source', "
+                    + "'D-brane boundary states and orbifold planes.')");
+        }
+
+        assertThat(adapter.read(keys.get(1), "confirmed prime gap bound"))
+                .contains("failed the issued-record consistency check");
     }
 
     @Test

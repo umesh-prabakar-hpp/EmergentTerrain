@@ -88,7 +88,7 @@ final class PaperReviewScreenedLiterature {
         return List.copyOf(distinct.values());
     }
 
-    String read(String key, String paperId, String query) {
+    String read(String key, String paperId, String issuedTitle, String query) {
         String ftsQuery = Phase34SqliteLiterature.legacyFtsQuery(query);
         if (ftsQuery.isBlank()) {
             return "read_reference: provide a focused claim or quantity to locate in the source.";
@@ -117,6 +117,10 @@ final class PaperReviewScreenedLiterature {
                 String passage = blankAs(row.getString(3), "No passage text was returned.");
                 if (passage.length() > MAX_PASSAGE_CHARS) {
                     passage = passage.substring(0, MAX_PASSAGE_CHARS) + "…";
+                }
+                if (!Phase34SqliteLiterature.passageMatchesIssuedTitle(issuedTitle, title, passage)) {
+                    return "read_reference: indexed passage failed the issued-record consistency check for " + key
+                            + "; no source evidence was returned.";
                 }
                 return "read_reference " + key + " — " + title
                         + " [source: paper-review-screened literature index, record " + sourceKey

@@ -29,7 +29,23 @@ public final class QuestionServedProtocolCloneGuard {
         }
         String sourceFingerprint = question.protocolFingerprint();
         String candidateFingerprint = fingerprint(candidateRegistration);
-        return sourceFingerprint != null && candidateFingerprint != null
-                && sourceFingerprint.equals(candidateFingerprint);
+        return equivalent(sourceFingerprint, candidateFingerprint);
+    }
+
+    /**
+     * Compare protocol substance rather than the migration label.  Constant-limit v5/v6 records
+     * can describe the same ladder and holdouts; treating a safety-rule version bump as a novel
+     * experiment merely re-runs the prior calibration after every deployment.
+     */
+    public static boolean equivalent(String sourceFingerprint, String candidateFingerprint) {
+        if (sourceFingerprint == null || candidateFingerprint == null) return false;
+        return canonicalFingerprint(sourceFingerprint).equals(canonicalFingerprint(candidateFingerprint));
+    }
+
+    private static String canonicalFingerprint(String fingerprint) {
+        String normalized = fingerprint.replaceAll("\\s+", "");
+        if (!normalized.startsWith("locked-constant-limit:v")) return normalized;
+        String body = normalized.replaceFirst("^locked-constant-limit:v\\d+;", "");
+        return body.replaceAll("(?:literature_required|literature_subject|target_framing)=[^;]*;", "");
     }
 }

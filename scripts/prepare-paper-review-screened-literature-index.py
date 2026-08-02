@@ -51,14 +51,14 @@ def normalized_text(value: str) -> str:
 
 
 def title_from_text(text: str, fallback: str) -> str:
-    title_pattern = re.compile(r"^\\title(?:\[[^]]*])?\s*\{(.+)}\s*$")
-    for line in text.splitlines()[:500]:
+    prefix = "\n".join(text.splitlines()[:500])
+    title = extract_tex_title(prefix)
+    if title:
+        cleaned = clean_title(title)
+        if cleaned:
+            return cleaned[:500]
+    for line in prefix.splitlines():
         candidate = line.strip()
-        title = title_pattern.match(candidate)
-        if title:
-            cleaned = clean_title(title.group(1))
-            if cleaned:
-                return cleaned[:500]
         if candidate.startswith("#"):
             candidate = candidate.lstrip("#").strip()
         # TeX commands are never a useful fallback title.  A real \title was handled above;
@@ -70,6 +70,37 @@ def title_from_text(text: str, fallback: str) -> str:
             if cleaned and not cleaned.startswith("\\"):
                 return cleaned[:500]
     return fallback
+
+
+def extract_tex_title(text: str) -> str | None:
+    """Extract one balanced, optionally-parameterized TeX ``\\title`` block.
+
+    TeX sources commonly split the title over several lines or place braces inside
+    math/macros.  A line regex therefore falls through to preamble declarations.
+    This scanner is deliberately small but balanced-brace aware; malformed source
+    simply returns no title and never makes a command a fallback title.
+    """
+    match = re.search(r"(?m)^\\title(?:\[[^]]*])?\s*\{", text)
+    if not match:
+        return None
+    start = match.end()
+    depth = 1
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index]
+    return None
 
 
 def clean_title(value: str) -> str:

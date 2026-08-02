@@ -3276,15 +3276,23 @@ public class MathToolSuite {
                 lhs, a.mean(), windows.size(), windowSize, windowStart));
         sb.append(windowUncertainty(values));
         if (target != null) {
-            // Convergence is judged by the MEAN's deviation from the target (the limit), with the
-            // per-window spread reported as sampling noise — a sparse quantity (twin primes) is noisy
-            // per window even once its average has converged.
+            boolean preciseHoldout = com.emergentterrain.research.conjecture.ConstantConvergence
+                    .hasAdequateHoldoutPrecision(values, target);
+            boolean confirmed = a.converged() && preciseHoldout;
             sb.append(String.format(
                     "%s target %.5f: mean rel-dev %.4f, per-window spread %.4f (worst |dev| %.5f at window "
                             + "starting %d) (tol %.4f).",
-                    a.converged() ? "CONVERGED to" : "NOT converged to",
+                    confirmed ? "CONVERGED to" : a.converged()
+                            ? "INCONCLUSIVE near target — holdout precision failed for"
+                            : "NOT converged to",
                     target, a.meanRelDeviation(), a.relativeSpread(), a.worstDeviation(),
                     a.worstWindowStart(), tol));
+            if (a.converged() && !preciseHoldout) {
+                sb.append(String.format(" Direct confirmation requires relative SE <= %.2f and per-window "
+                                + "spread <= %.2f; this holdout remains inconclusive.",
+                        com.emergentterrain.research.conjecture.ConstantConvergence.HOLDOUT_MAX_RELATIVE_SE,
+                        com.emergentterrain.research.conjecture.ConstantConvergence.HOLDOUT_MAX_RELATIVE_SPREAD));
+            }
         } else {
             sb.append(String.format(
                     "no target — estimated limit %.5f (range [%.5f, %.5f]), per-window spread %.4f %s.",

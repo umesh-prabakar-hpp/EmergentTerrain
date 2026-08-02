@@ -47,6 +47,17 @@ class QuestionServedProtocolCloneGuardTest {
                         + "target=1.15443;scale_ladder=true;"))).isFalse();
     }
 
+    @Test
+    void constantProtocolVersionBumpDoesNotCreateANewExperiment() {
+        String v5 = "locked-constant-limit:v5;lhs=mean_divisor_excess;target=1.15443;"
+                + "scale_ladder=true;primary_window_size=5000;location_holdout_start=1500000000;"
+                + "width_holdout_start=1500100000;literature_required=true;"
+                + "literature_subject=Dirichlet divisor summatory function;target_framing=established_calibration;";
+        String v6 = v5.replace("locked-constant-limit:v5", "locked-constant-limit:v6");
+
+        assertThat(QuestionServedProtocolCloneGuard.equivalent(v5, v6)).isTrue();
+    }
+
     private static PreRegistration registration(String mappingNotes) {
         return new PreRegistration("h", "p", "f", mappingNotes);
     }

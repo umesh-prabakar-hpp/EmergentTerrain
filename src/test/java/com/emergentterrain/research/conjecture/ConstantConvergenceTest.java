@@ -33,6 +33,13 @@ class ConstantConvergenceTest {
         assertThat(a.relativeSpread()).isGreaterThan(0.15);   // noisy per window
         assertThat(a.meanRelDeviation()).isLessThan(0.01);    // but the mean is on target
         assertThat(a.converged()).isTrue();                   // judged by the mean, not the worst window
+        assertThat(ConstantConvergence.hasAdequateHoldoutPrecision(v, 1.34)).isFalse();
+    }
+
+    @Test
+    void preciseDirectHoldoutCanConfirmTarget() {
+        double[] v = {1.3199, 1.3202, 1.3204, 1.3201, 1.3200};
+        assertThat(ConstantConvergence.hasAdequateHoldoutPrecision(v, 1.32032)).isTrue();
     }
 
     @Test

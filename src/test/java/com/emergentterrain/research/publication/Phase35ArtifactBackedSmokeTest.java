@@ -74,11 +74,21 @@ class Phase35ArtifactBackedSmokeTest {
         assertThat(postSearchRead.key()).isEqualTo(key);
         assertThat(postSearchRead.invocation().resultJson()).startsWith("read_reference " + key)
                 .contains("Top passages matching");
+        String readResult = postSearchRead.invocation().resultJson();
+        int passageStart = readResult.indexOf("\n---\n");
+        assertThat(passageStart).isGreaterThanOrEqualTo(0);
+        String supportingExcerpt = readResult.substring(passageStart + 5)
+                .substring(0, Math.min(200, readResult.length() - passageStart - 5));
+        String relevance = literature.assessRelevance(key, supportingExcerpt, "RELEVANT");
+        assertThat(relevance).contains("ACCEPTED RELEVANT");
         List<ToolInvocation> completeTrace = List.of(
                 searchOnlyTrace.get(0), searchOnlyTrace.get(1),
                 new ToolInvocation(postSearchRead.invocation().functionName(),
                         postSearchRead.invocation().argsJson(), postSearchRead.invocation().resultJson(),
-                        postSearchRead.invocation().round(), "call_read"));
+                        postSearchRead.invocation().round(), "call_read"),
+                new ToolInvocation("assess_reference_relevance", mapper.writeValueAsString(java.util.Map.of(
+                        "key", key, "supporting_excerpt", supportingExcerpt, "verdict", "RELEVANT")), relevance,
+                        postSearchRead.invocation().round() + 1, "call_assess"));
         PublicationAssessment assessment = ComputationalPublicationPhase.assess(
                 registration, completeTrace, relatedWork, "PUBLISHED");
         assertThat(assessment.label()).isEqualTo(PublicationLabel.ARTIFACT_BACKED_COMPUTATIONAL_PAPER_CANDIDATE);

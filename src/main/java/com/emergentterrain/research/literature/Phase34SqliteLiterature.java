@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -282,7 +283,8 @@ public final class Phase34SqliteLiterature {
             StringBuilder output = new StringBuilder("search_literature (Phase 34 SQLite + paper-review-screened indexes): "
                     + "EVIDENCE — cite only the returned [HF…] keys.\n");
             for (Citation citation : merged) {
-                sourceForKey.put(citation.key(), new IssuedSource(citation.paperId(), citation.sourceIndex()));
+                sourceForKey.put(citation.key(), new IssuedSource(citation.paperId(), citation.sourceIndex(),
+                        citation.title()));
                 StringBuilder rendered = new StringBuilder("- [").append(citation.key()).append("] ")
                         .append(blankAs(citation.title(), "Untitled record"))
                         .append(" (source: ").append(citation.paperId()).append(", index: ")
@@ -336,7 +338,8 @@ public final class Phase34SqliteLiterature {
         for (PaperReviewScreenedLiterature.Match match : screened) {
             String identity = "paper-review-screened:" + match.paperId();
             String key = keyFor(identity);
-            sourceForKey.put(key, new IssuedSource(match.paperId(), SourceIndex.PAPER_REVIEW_SCREENED));
+            sourceForKey.put(key, new IssuedSource(match.paperId(), SourceIndex.PAPER_REVIEW_SCREENED,
+                    match.title()));
             rendered.putIfAbsent(key, "- [" + key + "] " + blankAs(match.title(), "Untitled record")
                     + " (source: " + match.paperId() + ", index: paper-review-screened)");
         }
@@ -500,7 +503,7 @@ public final class Phase34SqliteLiterature {
             if (paperReviewScreenedLiterature == null || !paperReviewScreenedLiterature.available()) {
                 return "read_reference: paper-review-screened literature index is not available.";
             }
-            String output = paperReviewScreenedLiterature.read(key.strip(), issued.paperId(), query);
+            String output = paperReviewScreenedLiterature.read(key.strip(), issued.paperId(), issued.title(), query);
             if (output.startsWith("read_reference " + key.strip())) readOutputForKey.put(key.strip(), output);
             return output;
         }
@@ -536,6 +539,10 @@ public final class Phase34SqliteLiterature {
                 String sourceKey = blankAs(row.getString(2), issued.paperId());
                 String passage = blankAs(row.getString(3), "No passage text was returned.");
                 if (passage.length() > MAX_PASSAGE_CHARS) passage = passage.substring(0, MAX_PASSAGE_CHARS) + "…";
+                if (!passageMatchesIssuedTitle(issued.title(), title, passage)) {
+                    return "read_reference: indexed passage failed the issued-record consistency check for " + key
+                            + "; no source evidence was returned.";
+                }
                 String output = "read_reference " + key + " — " + title
                         + " [source: Phase 34 Marin ar5iv Markdown, record " + sourceKey
                         + "; paraphrase and cite the key]\nTop passages matching \""
@@ -579,6 +586,26 @@ public final class Phase34SqliteLiterature {
 
     private static String normalizeEvidenceText(String text) {
         return text == null ? "" : text.replaceAll("\\s+", " ").strip().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * A key is a capability for one issued record, not merely a paper-id-shaped handle.  Require a
+     * returned passage to retain a substantive word from the issued title; this catches
+     * broken full-text joins (for example a twin-prime title with D-brane passage text) before a
+     * model can assess or cite it.  A malformed TeX title also fails closed instead of becoming
+     * apparently grounded evidence.
+     */
+    static boolean passageMatchesIssuedTitle(String issuedTitle, String returnedTitle, String passage) {
+        if (!normalizeEvidenceText(issuedTitle).equals(normalizeEvidenceText(returnedTitle))) {
+            return false;
+        }
+        List<String> titleTerms = normalizedTokenTerms(issuedTitle).stream()
+                .filter(term -> term.length() >= 4 && !Set.of("with", "from", "some", "that", "this",
+                        "into", "over", "under", "about", "results", "problem", "function").contains(term))
+                .distinct().toList();
+        if (titleTerms.size() < 2) return false;
+        List<String> passageTerms = normalizedTokenTerms(passage);
+        return titleTerms.stream().anyMatch(passageTerms::contains);
     }
 
     private Connection open() throws Exception {
@@ -738,7 +765,7 @@ public final class Phase34SqliteLiterature {
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet, SourceIndex sourceIndex) {}
 
-    private record IssuedSource(String paperId, SourceIndex sourceIndex) {}
+    private record IssuedSource(String paperId, SourceIndex sourceIndex, String title) {}
 
     private enum SourceIndex {
         PRIMARY("primary"),

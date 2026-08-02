@@ -72,6 +72,17 @@ public final class RelatedWorkEvidenceValidator {
         return List.of();
     }
 
+    /**
+     * Replaces an overclaiming no-evidence paragraph with the only safe statement the trace can
+     * support.  This is deliberately provenance-only: it makes no claim about novelty, mechanism,
+     * or the state of the literature outside the bounded retrieval.
+     */
+    public static String neutralizeNoEvidenceRelatedWork(String relatedWork, List<ToolInvocation> trace) {
+        if (validate(relatedWork, trace).isEmpty()) return relatedWork;
+        return "The recorded bounded literature search returned no relevance-safe source for this claim. "
+                + "This is retrieval coverage state only and does not establish an external conclusion.";
+    }
+
     private static boolean issuedRelevanceSafeEvidence(String result) {
         if (result == null || result.isBlank()) {
             return false;

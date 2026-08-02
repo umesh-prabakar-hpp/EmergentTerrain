@@ -2212,7 +2212,7 @@ public class ResearchNarrationService {
                     String.format("%.4f", scoreCandidate(candidate)), candidate.isSuppressed());
             candidates.add(candidate);
         }
-        NarrationResult best = selectBest(candidates);
+        NarrationResult best = selectBestForLockedProtocol(draft.preRegistration(), candidates);
         log.info("best-of-n paperId={} selected winner candidateId={} score={}", draft.paperId(),
                 best == null ? "none" : best.callPath().split(" → ", 2)[0], String.format("%.4f", scoreCandidate(best)));
         return best;
@@ -2271,7 +2271,7 @@ public class ResearchNarrationService {
                     candidate.isSuppressed());
             finished.add(candidate);
         }
-        NarrationResult best = selectBest(finished);
+        NarrationResult best = selectBestForLockedProtocol(draft.preRegistration(), finished);
         log.info("cascade paperId={} selected winner candidateId={} score={}", draft.paperId(),
                 best == null ? "none" : best.callPath().split(" → ", 2)[0], String.format("%.4f", scoreCandidate(best)));
         return best;
@@ -2320,6 +2320,25 @@ public class ResearchNarrationService {
             }
         }
         return best;
+    }
+
+    /**
+     * A complete locked constant-limit protocol is a selection prerequisite, not merely a
+     * publication-time demotion.  Best-of-N previously selected the prettiest candidate even when
+     * another candidate had retained the required ladder and both independent holdouts; the later
+     * validator then rejected the winner for evidence it had actually computed and discarded.
+     */
+    static NarrationResult selectBestForLockedProtocol(PreRegistration registration,
+                                                       List<NarrationResult> candidates) {
+        if (!ConstantLimitPreRegistration.isLocked(registration) || candidates == null || candidates.isEmpty()) {
+            return selectBest(candidates);
+        }
+        List<NarrationResult> complete = candidates.stream()
+                .filter(candidate -> candidate != null
+                        && ConstantLimitPreRegistration.hasExactEvidence(registration,
+                        candidate.toolCallTrace()))
+                .toList();
+        return selectBest(complete.isEmpty() ? candidates : complete);
     }
 
     /**
@@ -2573,8 +2592,11 @@ public class ResearchNarrationService {
                     finalResult.relatedWork(), finalResult.toolCallTrace());
             if (!relatedWorkFailures.isEmpty()) {
                 callPath.add("related_work:no_evidence_external_claim:demoted_to_needs_revision");
+                finalResult = finalResult.withDiscussionAndRelatedWork(finalResult.discussion(),
+                        RelatedWorkEvidenceValidator.neutralizeNoEvidenceRelatedWork(
+                                finalResult.relatedWork(), finalResult.toolCallTrace()));
                 log.warn("related-work-evidence-gate failed paperId={} reasons={} — "
-                                + "demoting PUBLISHED → NEEDS_REVISION",
+                                + "demoting PUBLISHED → NEEDS_REVISION and replacing unsupported prose",
                         draft.paperId(), relatedWorkFailures);
             }
         }

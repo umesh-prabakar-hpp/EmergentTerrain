@@ -46,6 +46,19 @@ class RelatedWorkEvidenceValidatorTest {
     }
 
     @Test
+    void rewritesNoEvidenceInferenceToBoundedOperationalStatement() {
+        List<ToolInvocation> trace = List.of(new ToolInvocation(
+                "search_literature", "{}",
+                "search_literature (Phase 34 SQLite): no theorem-index matches for the supplied query.",
+                0, "call_1"));
+
+        assertThat(RelatedWorkEvidenceValidator.neutralizeNoEvidenceRelatedWork(
+                "This supports novelty and no structural mechanism is known.", trace))
+                .contains("retrieval coverage state")
+                .doesNotContain("novelty");
+    }
+
+    @Test
     void permitsRelatedWorkWhenTraceContainsSafeEvidence() {
         List<ToolInvocation> trace = List.of(new ToolInvocation(
                 "search_literature", "{}",

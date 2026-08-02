@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import com.emergentterrain.research.PanelOutcome;
 import com.emergentterrain.research.PanelReview;
 import com.emergentterrain.research.NarrationResult;
+import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.llm.ToolInvocation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -16,6 +18,39 @@ import static org.assertj.core.api.Assertions.assertThat;
  * exact stamp format is pinned without standing up a full ResearchNarrationService.
  */
 class ResearchNarrationServiceCallPathTest {
+
+    @Test
+    void bestOfNPrefersCandidateThatRetainsLockedConstantProtocol() {
+        PreRegistration registration = new PreRegistration("h", "p", "f",
+                "locked-constant-limit:v6;lhs=omega_Omega_gap;target=0.77316;scale_ladder=true;"
+                        + "primary_window_size=5000;primary_num_windows=5;primary_ladder_start=100000;"
+                        + "deadline_aware=true;location_holdout_window_size=5000;location_holdout_num_windows=5;"
+                        + "location_holdout_start=1500000000;width_holdout_window_size=10000;"
+                        + "width_holdout_num_windows=5;width_holdout_start=1500100000;");
+        NarrationResult polishedButIncomplete = narration(0.95, List.of());
+        NarrationResult complete = narration(0.50, List.of(
+                invocation("{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"scale_ladder\":true,"
+                        + "\"window_size\":5000,\"num_windows\":5,\"ladder_start\":100000,\"deadline_aware\":true}",
+                        "verify_constant scale-ladder: omega_Omega_gap ladder_start=100000 measured across 5 scales."),
+                invocation("{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500000000,"
+                        + "\"window_size\":5000,\"num_windows\":5}",
+                        "verify_constant: omega_Omega_gap ~ 0.77316 n=5, sd=0.001, se=0.0004 per-window spread 0.001"),
+                invocation("{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316,\"window_start\":1500100000,"
+                        + "\"window_size\":10000,\"num_windows\":5}",
+                        "verify_constant: omega_Omega_gap ~ 0.77316 n=5, sd=0.001, se=0.0004 per-window spread 0.001")));
+
+        assertThat(ResearchNarrationService.selectBestForLockedProtocol(
+                registration, List.of(polishedButIncomplete, complete))).isSameAs(complete);
+    }
+
+    private static NarrationResult narration(double confidence, List<ToolInvocation> trace) {
+        return new NarrationResult("h", "f", "c", null, null, confidence, List.of())
+                .withToolCallTrace(trace);
+    }
+
+    private static ToolInvocation invocation(String args, String result) {
+        return new ToolInvocation("verify_constant", args, result, 0);
+    }
 
     @Test
     void fullPanelStampsAgreementOnly() {

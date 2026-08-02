@@ -153,7 +153,11 @@ only a mined scalar nickname or fitted coefficient, before the normal source cha
 Constant-limit studies now pre-register one deadline-aware primary ladder plus non-overlapping
 high-range location and width holdouts, and must execute all three. The ladder uses a separately
 configured per-rung deadline budget while the holdouts retain their declared window shapes; every
-result reports disjoint-window sample standard deviation and standard error. Any named numerical
+result reports disjoint-window sample standard deviation and standard error. A direct target is
+`CONVERGED` only when both the mean tolerance and the holdout precision limits hold (relative
+standard error at most 3% and worst per-window relative deviation at most 5%); otherwise a
+near-target result is explicitly inconclusive. Best-of-N selection prefers a candidate retaining
+the complete locked constant protocol whenever one exists. Any named numerical
 target, including the Hardy–Littlewood twin-prime target, must complete the normal
 `search_literature → read_reference → Related Work` source chain before candidate scoring. Known
 targets remain calibration controls; conjectural/open targets may report only finite-window
@@ -163,7 +167,8 @@ trace or locked registration records it.
 
 For an established constant target, that chain additionally requires an accepted `RELEVANT`
 reference assessment and a returned passage that names the registered scalar; a polysemous title
-match alone cannot ground a candidate label. `verify_conjecture` emits deterministic
+match alone cannot ground a candidate label. A `read_reference` must also remain consistent with
+the issued indexed record title and passage, or it returns no evidence. `verify_conjecture` emits deterministic
 `held/refuted/total` window counts, and final prose that gives an explicit count is checked against
 those labels. A no-evidence Related Work section may state the bounded retrieval outcome, but may
 not infer novelty or an absent mechanism from it.

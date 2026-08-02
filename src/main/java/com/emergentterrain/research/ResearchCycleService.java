@@ -807,7 +807,8 @@ public class ResearchCycleService {
         boolean priorProtocolClone = candidateFingerprint != null
                 && ctx.getPublishedPapers(roomId, 80).stream().anyMatch(prior ->
                         topicName.equals(prior.topic())
-                                && candidateFingerprint.equals(prior.protocolFingerprint()));
+                                && QuestionServedProtocolCloneGuard.equivalent(
+                                prior.protocolFingerprint(), candidateFingerprint));
         if (priorProtocolClone) {
             log.info("protocol-clone: declined identical locked protocol before draft allocation family={} mappingNotes={}",
                     conjecture.lhs(), candidateRegistration.mappingNotes());
