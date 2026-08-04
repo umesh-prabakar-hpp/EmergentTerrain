@@ -40,6 +40,7 @@ public class SecurityConfig {
             "/game/snapshot/latest",
             "/game/snapshot/load",
             "/game/quest/save",
+            "/api/v1/game/rooms/*/research-context",
             "/room/**",
             "/diag/**",
             "/ws/**"

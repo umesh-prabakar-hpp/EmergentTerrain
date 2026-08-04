@@ -4,13 +4,10 @@ import com.emergentterrain.domain.Room;
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
-import com.emergentterrain.repo.RoomStateRepository;
 import com.emergentterrain.research.UniversityService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.eq;
@@ -25,7 +22,7 @@ class ResearchWorkerSchedulerTest {
     void runsUniversityCycleFromPersistedRoomDataWithoutRoomService() {
         RoomRepository rooms = mock(RoomRepository.class);
         RoomBotRepository bots = mock(RoomBotRepository.class);
-        RoomStateRepository states = mock(RoomStateRepository.class);
+        ResearchGameContextProvider gameContext = mock(ResearchGameContextProvider.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -35,10 +32,10 @@ class ResearchWorkerSchedulerTest {
         when(room.getId()).thenReturn(roomId);
         when(rooms.findAll()).thenReturn(List.of(room));
         when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(activeBots);
-        when(states.findByRoom(room)).thenReturn(Optional.empty());
+        when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
-        new ResearchWorkerScheduler(rooms, bots, states, checkpoints, university, new ObjectMapper())
+        new ResearchWorkerScheduler(rooms, bots, gameContext, checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
@@ -50,7 +47,7 @@ class ResearchWorkerSchedulerTest {
     void resumesAboveItsDurableCheckpointAfterRestart() {
         RoomRepository rooms = mock(RoomRepository.class);
         RoomBotRepository bots = mock(RoomBotRepository.class);
-        RoomStateRepository states = mock(RoomStateRepository.class);
+        ResearchGameContextProvider gameContext = mock(ResearchGameContextProvider.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -60,10 +57,10 @@ class ResearchWorkerSchedulerTest {
         when(room.getId()).thenReturn(roomId);
         when(rooms.findAll()).thenReturn(List.of(room));
         when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(activeBots);
-        when(states.findByRoom(room)).thenReturn(Optional.empty());
+        when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null));
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
-        new ResearchWorkerScheduler(rooms, bots, states, checkpoints, university, new ObjectMapper())
+        new ResearchWorkerScheduler(rooms, bots, gameContext, checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());

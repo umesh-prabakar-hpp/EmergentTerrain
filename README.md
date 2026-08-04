@@ -30,7 +30,9 @@ and runs the university cycle from persisted room state. PostgreSQL is required.
 game display this service's results, start the game with `app.research-api.mode=remote` and
 `app.university.enabled=false`; see `apps/research-service/README.md` for the command. The
 research worker stores durable per-room checkpoints, so restarting it does not reset its own tick
-progress.
+progress. Set `RESEARCH_GAME_CONTEXT_MODE=remote` and
+`RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081` when research should obtain its government
+context through the game-owned v1 API instead of the transition database path.
 
 ## Features
 - User registration + login (session-based)

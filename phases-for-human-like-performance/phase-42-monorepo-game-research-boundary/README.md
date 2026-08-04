@@ -20,6 +20,9 @@
 - The research worker persists its per-room progress in the research-owned
   `research_service_checkpoints` table. It resumes above its last successful checkpoint and the
   current government tick, so restarting it does not reset research tick progress.
+- Game service exposes the read-only `GET /api/v1/game/rooms/{roomId}/research-context` snapshot.
+  The research worker can select it with `RESEARCH_GAME_CONTEXT_MODE=remote`; `database` remains
+  the compatibility default until bot-state extraction is complete.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

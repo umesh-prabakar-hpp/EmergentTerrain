@@ -40,6 +40,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResearchStats'
+  /api/v1/game/rooms/{roomId}/research-context:
+    get:
+      operationId: getResearchGameContext
+      description: |
+        Game-owned, read-only context for an autonomous research worker. The response is a
+        snapshot; it never grants the research service authority to mutate game state.
+      parameters:
+        - $ref: '#/components/parameters/roomId'
+      responses:
+        '200':
+          description: Most recent persisted government context for the room.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchGameContext'
+        '404':
+          description: Room does not exist.
 components:
   parameters:
     roomId:
@@ -84,3 +101,12 @@ components:
         byDomain:
           type: object
           additionalProperties: { type: integer, format: int64 }
+    ResearchGameContext:
+      type: object
+      required: [roomId, gameTick, governmentState]
+      properties:
+        roomId: { type: string, format: uuid }
+        gameTick: { type: integer, format: int64, minimum: 0 }
+        governmentState:
+          type: object
+          description: Opaque JSON representation of the game-owned government state.

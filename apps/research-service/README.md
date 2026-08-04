@@ -26,3 +26,16 @@ the next extraction replaces that shared-database read with a versioned game-sta
 Each completed room tick is checkpointed in the research-owned
 `research_service_checkpoints` table. After a restart the worker resumes above both its last
 checkpoint and the latest persisted government tick, avoiding a reset to an in-memory counter.
+
+For the next migration cut, make government context game-owned over HTTP rather than reading it
+from the shared database:
+
+```bash
+RESEARCH_GAME_CONTEXT_MODE=remote \
+  RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081 \
+  ./scripts/start-research-service.sh
+```
+
+The default `database` mode remains the standalone compatibility path when no game service is
+running. Remote mode reads only `GET /api/v1/game/rooms/{roomId}/research-context`; it does not
+start, control, or write to the game service.

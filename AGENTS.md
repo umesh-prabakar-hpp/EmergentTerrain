@@ -18,6 +18,10 @@ uses `app.research-api.mode=remote`, it does not create a local `ResearchTickGat
 Use `./scripts/start-research-service.sh` to run the research worker without starting the game.
 It depends on PostgreSQL and the shared transition-period `game-service` artifact, but its Spring
 scan excludes game controllers, WebSockets, RoomService, world generation, and GPU services.
+Its default `RESEARCH_GAME_CONTEXT_MODE=database` reads the migration database; set
+`RESEARCH_GAME_CONTEXT_MODE=remote` with `RESEARCH_GAME_API_BASE_URL` to use the game-owned,
+read-only `GET /api/v1/game/rooms/{roomId}/research-context` snapshot instead. That endpoint is
+context-only; research must not mutate game state through it.
 
 ## Required environment
 - Java 21
