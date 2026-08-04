@@ -26,6 +26,7 @@ class ResearchWorkerSchedulerTest {
         RoomRepository rooms = mock(RoomRepository.class);
         RoomBotRepository bots = mock(RoomBotRepository.class);
         RoomStateRepository states = mock(RoomStateRepository.class);
+        ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
         UUID roomId = UUID.randomUUID();
@@ -35,10 +36,36 @@ class ResearchWorkerSchedulerTest {
         when(rooms.findAll()).thenReturn(List.of(room));
         when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(activeBots);
         when(states.findByRoom(room)).thenReturn(Optional.empty());
+        when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
-        new ResearchWorkerScheduler(rooms, bots, states, university, new ObjectMapper())
+        new ResearchWorkerScheduler(rooms, bots, states, checkpoints, university, new ObjectMapper())
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
+        verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->
+                checkpoint.getRoomId().equals(roomId) && checkpoint.getLastTick() == 1L));
+    }
+
+    @Test
+    void resumesAboveItsDurableCheckpointAfterRestart() {
+        RoomRepository rooms = mock(RoomRepository.class);
+        RoomBotRepository bots = mock(RoomBotRepository.class);
+        RoomStateRepository states = mock(RoomStateRepository.class);
+        ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
+        UniversityService university = mock(UniversityService.class);
+        Room room = mock(Room.class);
+        UUID roomId = UUID.randomUUID();
+        List<RoomBot> activeBots = List.of(mock(RoomBot.class));
+
+        when(room.getId()).thenReturn(roomId);
+        when(rooms.findAll()).thenReturn(List.of(room));
+        when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(activeBots);
+        when(states.findByRoom(room)).thenReturn(Optional.empty());
+        when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
+
+        new ResearchWorkerScheduler(rooms, bots, states, checkpoints, university, new ObjectMapper())
+                .runResearchTicks();
+
+        verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());
     }
 }

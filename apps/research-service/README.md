@@ -22,3 +22,7 @@ Set the game process to `app.research-api.mode=remote` when it should display th
 results. In that mode it does not create `ResearchTickGateway`, so only this process runs research
 ticks. The service reads persisted room bot and government state during this transitional stage;
 the next extraction replaces that shared-database read with a versioned game-state snapshot API.
+
+Each completed room tick is checkpointed in the research-owned
+`research_service_checkpoints` table. After a restart the worker resumes above both its last
+checkpoint and the latest persisted government tick, avoiding a reset to an in-memory counter.

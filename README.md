@@ -28,7 +28,9 @@ Run `./scripts/start-research-service.sh` to run research without starting the g
 services, WebSocket stack, or LLM subscription proxies. It serves research API v1 on port `8082`
 and runs the university cycle from persisted room state. PostgreSQL is required. To have a running
 game display this service's results, start the game with `app.research-api.mode=remote` and
-`app.university.enabled=false`; see `apps/research-service/README.md` for the command.
+`app.university.enabled=false`; see `apps/research-service/README.md` for the command. The
+research worker stores durable per-room checkpoints, so restarting it does not reset its own tick
+progress.
 
 ## Features
 - User registration + login (session-based)

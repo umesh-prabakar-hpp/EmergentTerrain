@@ -17,10 +17,13 @@
 - `apps/game-service/` and `apps/research-service/` are now Maven modules. The research module
   runs the university cycle independently from persisted bot/government state and excludes the
   game UI, world, GPU, and WebSocket runtime components.
+- The research worker persists its per-room progress in the research-owned
+  `research_service_checkpoints` table. It resumes above its last successful checkpoint and the
+  current government tick, so restarting it does not reset research tick progress.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
-monorepo checkout has been validated. The remaining worker/persistence extraction is described in
-the migration plan below; remote tick submission is deliberately not enabled until its complete
+monorepo checkout has been validated. The remaining persistence extraction is described in the
+migration plan below; remote tick submission is deliberately not enabled until its complete
 game-state snapshot/action contract exists.
 
 ## Goal

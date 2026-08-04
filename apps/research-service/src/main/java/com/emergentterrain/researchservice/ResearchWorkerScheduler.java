@@ -16,13 +16,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Runs the existing university cycle without RoomService or the gameplay maintenance loop.
  *
- * <p>It reads the last persisted government state as research context and maintains an independent,
+ * <p>It reads the last persisted government state as research context and persists an independent,
  * monotonic research tick per room. A future game-snapshot API replaces these database reads when
  * the game and research databases are fully separated.</p>
  */
@@ -36,16 +34,19 @@ public class ResearchWorkerScheduler {
     private final RoomRepository rooms;
     private final RoomBotRepository bots;
     private final RoomStateRepository states;
+    private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
     private final ObjectMapper objectMapper;
-    private final ConcurrentHashMap<UUID, AtomicLong> ticks = new ConcurrentHashMap<>();
 
     public ResearchWorkerScheduler(RoomRepository rooms, RoomBotRepository bots,
-                                   RoomStateRepository states, UniversityService university,
+                                   RoomStateRepository states,
+                                   ResearchWorkerCheckpointRepository checkpoints,
+                                   UniversityService university,
                                    ObjectMapper objectMapper) {
         this.rooms = rooms;
         this.bots = bots;
         this.states = states;
+        this.checkpoints = checkpoints;
         this.university = university;
         this.objectMapper = objectMapper;
     }
@@ -61,10 +62,13 @@ public class ResearchWorkerScheduler {
                 GovernmentState government = states.findByRoom(room)
                         .map(state -> parseGovernment(state.getGovernmentStateJson(), room.getId()))
                         .orElse(null);
-                long tick = ticks.computeIfAbsent(room.getId(), ignored -> new AtomicLong(
-                                government == null ? 0L : government.getTick()))
-                        .incrementAndGet();
+                long governmentTick = government == null ? 0L : government.getTick();
+                long lastTick = checkpoints.findById(room.getId())
+                        .map(ResearchWorkerCheckpoint::getLastTick)
+                        .orElse(governmentTick);
+                long tick = Math.max(lastTick, governmentTick) + 1;
                 university.maybeTick(room.getId(), active, tick, government);
+                checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
             } catch (Exception e) {
                 log.error("Research-only tick failed for roomId={}", room.getId(), e);
             }

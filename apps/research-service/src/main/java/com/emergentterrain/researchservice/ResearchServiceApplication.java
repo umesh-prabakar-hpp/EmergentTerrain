@@ -27,8 +27,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
                         + "MapIndexService|OccupancyService|PayloadService|PolicyConsultationService|"
                         + "ProfileService|QrService|RoomProposalService|SnapshotTokenService|"
                         + "TileValidatorService|UserService|ExplanationService)"))
-@EntityScan(basePackages = {"com.emergentterrain.domain", "com.emergentterrain.research"})
-@EnableJpaRepositories(basePackages = "com.emergentterrain.repo")
+@EntityScan(basePackages = {
+        "com.emergentterrain.domain",
+        "com.emergentterrain.research",
+        "com.emergentterrain.researchservice"
+})
+@EnableJpaRepositories(basePackages = {
+        "com.emergentterrain.repo",
+        "com.emergentterrain.researchservice"
+})
 @EnableScheduling
 public class ResearchServiceApplication {
 
