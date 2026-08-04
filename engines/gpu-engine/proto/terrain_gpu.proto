@@ -1,0 +1,192 @@
+syntax = "proto3";
+
+package emergentterrain.gpu.v1;
+
+option java_multiple_files = true;
+option java_package = "com.emergentterrain.gpu.v1";
+option java_outer_classname = "GpuEngineProto";
+
+message Region {
+  int32 x = 1;
+  int32 y = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+message Rect {
+  int32 x = 1;
+  int32 y = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+enum TileEncoding {
+  TILE_ENCODING_UNSPECIFIED = 0;
+  TILE_ENCODING_U8 = 1;
+  TILE_ENCODING_I32 = 2;
+}
+
+message TileGrid {
+  uint32 width = 1;
+  uint32 height = 2;
+  bytes tiles = 3;
+  TileEncoding encoding = 4;
+}
+
+message BoolGrid {
+  uint32 width = 1;
+  uint32 height = 2;
+  bytes values = 3;
+}
+
+message TileEdit {
+  int32 x = 1;
+  int32 y = 2;
+  int32 type = 3;
+}
+
+message BotState {
+  string id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  bytes state = 4;
+  float forest = 5;
+  float water = 6;
+  float industry = 7;
+  float clear = 8;
+  float mobility = 9;
+}
+
+message GenerateRegionRequest {
+  string request_id = 1;
+  uint64 seed = 2;
+  Region region = 3;
+  string params_json = 4;
+}
+
+message GenerateRegionResponse {
+  string request_id = 1;
+  TileGrid tiles = 2;
+  BoolGrid highways = 3;
+  string debug_json = 4;
+  // Phase 20.7 — per-pipeline performance counters. Always populated; the
+  // caller can ignore the field when not interested in instrumentation.
+  PipelineStats stats = 5;
+}
+
+message RebuildPatchRequest {
+  string request_id = 1;
+  TileGrid tiles = 2;
+  BoolGrid highways = 3;
+  Region region = 4;
+  Rect patch = 5;
+  repeated TileEdit applied_edits = 6;
+  string params_json = 7;
+}
+
+message RebuildPatchResponse {
+  string request_id = 1;
+  Rect patch = 2;
+  TileGrid patch_tiles = 3;
+  BoolGrid patch_highways = 4;
+  string debug_json = 5;
+  // Phase 20.7 — per-pipeline performance counters.
+  PipelineStats stats = 6;
+}
+
+message SimulateBotsRequest {
+  string request_id = 1;
+  TileGrid tiles = 2;
+  BoolGrid highways = 3;
+  repeated BotState bots = 4;
+  string params_json = 5;
+  uint32 steps = 6;
+  string world_id = 7;
+  repeated TileEdit tile_edits = 8;
+}
+
+message SimulateBotsResponse {
+  string request_id = 1;
+  repeated BotState bots = 2;
+  repeated TileEdit edits = 3;
+  string debug_json = 4;
+  // Phase 20.7 — per-pipeline performance counters.
+  PipelineStats stats = 5;
+}
+
+// Phase 20.7 — per-RPC performance counters. latency_us is the
+// CPU-observed wall-clock around dispatch+submit+readback (includes any
+// queue wait time). bytes_read / bytes_written are the sum of input /
+// output buffer sizes for this dispatch. flops_estimate is a per-shader
+// hand-coded constant times the dispatch's work-item count; intended for
+// detecting regressions (a workgroup-size change shows up as a percent
+// drop) more than as an absolute MFU number. Add adapter peak rates
+// from GetEngineCapabilities (future RPC) to derive MFU / MBU %.
+message PipelineStats {
+  string pipeline_name = 1;
+  uint64 latency_us = 2;
+  uint64 bytes_read = 3;
+  uint64 bytes_written = 4;
+  uint64 flops_estimate = 5;
+  // GB/s = bytes_read+written / latency_us * 1e-3 (filled by engine).
+  double mem_bw_gbps = 6;
+  // TFLOPS = flops_estimate / latency_us * 1e-6 (filled by engine).
+  double flops_tflops = 7;
+}
+
+// Phase 8 Tier 4 — evaluate a pure scalar expression f(n) for every integer
+// n in [start, end) on the GPU, then aggregate. The "formula" is a strict
+// subset of SandboxEngine syntax: just expressions (no control flow, no
+// function defs, no user-defined names) over the single bound variable `n`,
+// with arithmetic + sqrt/log/exp/pow/sin/cos/tan and floating-point literals.
+// The receiving Rust engine parses it, generates WGSL, dispatches on wgpu,
+// and reads back the aggregate.
+message EvalExprRequest {
+  string request_id = 1;
+  string formula = 2;        // e.g. "sqrt(n) * log(n) + sin(n)"
+  int32  start = 3;          // inclusive
+  int32  end = 4;            // exclusive — must be > start
+}
+
+message EvalExprResponse {
+  string request_id = 1;
+  double mean = 2;
+  double std_dev = 3;
+  double min = 4;
+  double max = 5;
+  double sum = 6;
+  uint64 n = 7;              // = end - start (after clamping)
+  uint32 finite_count = 8;   // how many samples were finite (rest were NaN/inf)
+  string debug_json = 9;
+}
+
+// Phase 20.8 — server-streaming update frame for SimulateBotsV2. Carries
+// either a Progress update (during the run) or the terminal SimulateBotsResponse.
+message SimulateBotsUpdate {
+  oneof payload {
+    Progress progress = 1;
+    SimulateBotsResponse done = 2;
+  }
+}
+
+message Progress {
+  // 0-based step index just completed (or stage marker for non-step phases).
+  uint32 completed = 1;
+  // Total expected steps (= req.steps).
+  uint32 total = 2;
+  // Human-readable stage tag, e.g. "dispatch", "step:0", "step:1", "readback".
+  string current_op = 3;
+}
+
+service GpuTerrainService {
+  rpc GenerateRegion(GenerateRegionRequest) returns (GenerateRegionResponse);
+  rpc RebuildPatch(RebuildPatchRequest) returns (RebuildPatchResponse);
+  rpc SimulateBots(SimulateBotsRequest) returns (SimulateBotsResponse);
+  // Phase 8 Tier 4.
+  rpc EvalExpr(EvalExprRequest) returns (EvalExprResponse);
+  // Phase 20.8 — server-streaming variant of SimulateBots. Emits Progress
+  // updates during long-running multi-step simulations + a terminal Done
+  // frame carrying the same SimulateBotsResponse as the unary variant.
+  // The unary SimulateBots is preserved so existing clients keep working.
+  rpc SimulateBotsV2(SimulateBotsRequest) returns (stream SimulateBotsUpdate);
+}
