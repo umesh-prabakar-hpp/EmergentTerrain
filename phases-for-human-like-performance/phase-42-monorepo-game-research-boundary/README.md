@@ -24,7 +24,9 @@
   current government tick, so restarting it does not reset research tick progress.
 - Game service exposes the read-only `GET /api/v1/game/rooms/{roomId}/research-context` snapshot.
   The research worker can select it with `RESEARCH_GAME_CONTEXT_MODE=remote`; `database` remains
-  the compatibility default until bot-state extraction is complete.
+  the compatibility default until bot-state extraction is complete. The snapshot includes the
+  game-selected active bots and lifecycle payloads, so remote mode already uses game-owned bot
+  selection even while it reloads mutable bot entities from the transition database.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

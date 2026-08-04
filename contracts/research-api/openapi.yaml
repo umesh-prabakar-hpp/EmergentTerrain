@@ -103,10 +103,25 @@ components:
           additionalProperties: { type: integer, format: int64 }
     ResearchGameContext:
       type: object
-      required: [roomId, gameTick, governmentState]
+      required: [roomId, gameTick, capturedAt, governmentState, activeBots]
       properties:
         roomId: { type: string, format: uuid }
         gameTick: { type: integer, format: int64, minimum: 0 }
+        capturedAt: { type: string, format: date-time }
         governmentState:
           type: object
           description: Opaque JSON representation of the game-owned government state.
+        activeBots:
+          type: array
+          description: Active game-owned bots selected for the research cycle at this snapshot.
+          items:
+            $ref: '#/components/schemas/ResearchBotSnapshot'
+    ResearchBotSnapshot:
+      type: object
+      required: [botId, type]
+      properties:
+        botId: { type: string, format: uuid }
+        type: { type: string }
+        lifecycleJson:
+          type: string
+          description: Opaque bot research lifecycle payload; the game remains its source of truth during migration.

@@ -5,9 +5,11 @@ import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.research.UniversityService;
+import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.eq;
@@ -27,12 +29,14 @@ class ResearchWorkerSchedulerTest {
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
         UUID roomId = UUID.randomUUID();
-        List<RoomBot> activeBots = List.of(mock(RoomBot.class));
+        RoomBot activeBot = activeBot(room, roomId);
+        List<RoomBot> activeBots = List.of(activeBot);
 
         when(room.getId()).thenReturn(roomId);
         when(rooms.findAll()).thenReturn(List.of(room));
-        when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(activeBots);
-        when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null));
+        when(bots.findAllById(List.of(activeBot.getId()))).thenReturn(activeBots);
+        when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null,
+                List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, checkpoints, university)
@@ -52,17 +56,29 @@ class ResearchWorkerSchedulerTest {
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
         UUID roomId = UUID.randomUUID();
-        List<RoomBot> activeBots = List.of(mock(RoomBot.class));
+        RoomBot activeBot = activeBot(room, roomId);
+        List<RoomBot> activeBots = List.of(activeBot);
 
         when(room.getId()).thenReturn(roomId);
         when(rooms.findAll()).thenReturn(List.of(room));
-        when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(activeBots);
-        when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null));
+        when(bots.findAllById(List.of(activeBot.getId()))).thenReturn(activeBots);
+        when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null,
+                List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());
+    }
+
+    private static RoomBot activeBot(Room room, UUID roomId) {
+        RoomBot bot = mock(RoomBot.class);
+        UUID botId = UUID.randomUUID();
+        when(bot.getId()).thenReturn(botId);
+        when(bot.getRoom()).thenReturn(room);
+        when(bot.getStatus()).thenReturn(RoomBot.BotStatus.ACTIVE);
+        when(room.getId()).thenReturn(roomId);
+        return bot;
     }
 }

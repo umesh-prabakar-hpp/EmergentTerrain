@@ -12,14 +12,16 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Runs the existing university cycle without RoomService or the gameplay maintenance loop.
  *
- * <p>It reads the last persisted government state as research context and persists an independent,
- * monotonic research tick per room. A future game-snapshot API replaces these database reads when
- * the game and research databases are fully separated.</p>
+ * <p>It obtains game-owned government and active-bot selection context from a provider and
+ * persists an independent, monotonic research tick per room. Mutable bot entities remain on the
+ * migration database until bot-state ownership moves into the research service.</p>
  */
 @Service
 @ConditionalOnProperty(name = "app.research-service.worker.enabled", havingValue = "true",
@@ -49,11 +51,11 @@ public class ResearchWorkerScheduler {
     public void runResearchTicks() {
         for (Room room : rooms.findAll()) {
             try {
-                List<RoomBot> active = bots.findByRoom_IdAndStatus(room.getId(), RoomBot.BotStatus.ACTIVE);
+                ResearchGameContext context = gameContext.contextFor(room);
+                List<RoomBot> active = activeBotsFor(room, context);
                 if (active.isEmpty()) {
                     continue;
                 }
-                ResearchGameContext context = gameContext.contextFor(room);
                 long governmentTick = context.gameTick();
                 long lastTick = checkpoints.findById(room.getId())
                         .map(ResearchWorkerCheckpoint::getLastTick)
@@ -67,4 +69,21 @@ public class ResearchWorkerScheduler {
         }
     }
 
+    private List<RoomBot> activeBotsFor(Room room, ResearchGameContext context) {
+        if (context.activeBots().isEmpty()) {
+            return List.of();
+        }
+        Map<java.util.UUID, RoomBot> persisted = bots.findAllById(context.activeBots().stream()
+                        .map(snapshot -> snapshot.botId())
+                        .filter(java.util.Objects::nonNull)
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(RoomBot::getId, Function.identity()));
+        return context.activeBots().stream()
+                .map(snapshot -> persisted.get(snapshot.botId()))
+                .filter(bot -> bot != null
+                        && RoomBot.BotStatus.ACTIVE == bot.getStatus()
+                        && room.getId().equals(bot.getRoom().getId()))
+                .toList();
+    }
 }

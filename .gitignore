@@ -4,6 +4,7 @@
 *.class
 *.jar
 *.war
+.attach_pid*
 *.ear
 *.log
 

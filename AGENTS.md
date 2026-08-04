@@ -23,7 +23,8 @@ scan excludes game controllers, WebSockets, RoomService, world generation, and G
 Its default `RESEARCH_GAME_CONTEXT_MODE=database` reads the migration database; set
 `RESEARCH_GAME_CONTEXT_MODE=remote` with `RESEARCH_GAME_API_BASE_URL` to use the game-owned,
 read-only `GET /api/v1/game/rooms/{roomId}/research-context` snapshot instead. That endpoint is
-context-only; research must not mutate game state through it.
+context-only; it includes the game-selected active bots and their lifecycle payloads, and research
+must not mutate game state through it.
 
 ## Required environment
 - Java 21

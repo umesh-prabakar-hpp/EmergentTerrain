@@ -35,6 +35,9 @@ research worker stores durable per-room checkpoints, so restarting it does not r
 progress. Set `RESEARCH_GAME_CONTEXT_MODE=remote` and
 `RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081` when research should obtain its government
 context through the game-owned v1 API instead of the transition database path.
+That snapshot now includes the game-selected active bots and their research lifecycle payloads as
+well as government state; research reloads mutable bot entities only during the remaining database
+migration step.
 
 ## Features
 - User registration + login (session-based)

@@ -9,7 +9,16 @@
   <description>Versioned Java DTOs shared by the game and research services.</description>
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
+    <jackson.version>2.17.1</jackson.version>
   </properties>
+  <dependencies>
+    <!-- JSON is part of the wire contract, but this module intentionally has no Spring or ORM API. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+  </dependencies>
   <build>
     <plugins>
       <plugin>
