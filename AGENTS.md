@@ -27,6 +27,8 @@ context-only; it includes the game-selected active bots and their lifecycle payl
 must not mutate game state through it. Research imports every snapshot into
 `research_bot_replicas` before the legacy university engine reloads its mutable transition rows;
 keep that replica monotonic by game tick during the remaining extraction.
+`research_bot_states` is the next ownership layer: seed its lifecycle once from a replica, but do
+not overwrite that lifecycle from later game snapshots.
 
 ## Required environment
 - Java 21

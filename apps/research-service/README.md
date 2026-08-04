@@ -45,3 +45,8 @@ That table records the bot selection and lifecycle payload at its game tick, and
 inactive only when a same-or-newer game snapshot omits it. The university engine still reloads
 mutable transition-period `RoomBot` rows after that import; the replica is the durable handoff for
 the next engine extraction step.
+
+The worker also seeds `research_bot_states` from each replica. New bots begin with the source
+lifecycle payload, but later game snapshots update only bot type/activity/source tick and never
+overwrite `research_bot_states.lifecycle_json`. That lifecycle field is reserved for research
+ownership when `UniversityService` is extracted.

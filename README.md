@@ -38,7 +38,8 @@ context through the game-owned v1 API instead of the transition database path.
 That snapshot now includes the game-selected active bots and their research lifecycle payloads as
 well as government state; research reloads mutable bot entities only during the remaining database
 migration step. It first stores each game snapshot in its research-owned bot-replica table, so the
-input handoff is durable before the university engine is moved off game entities.
+input handoff is durable before the university engine is moved off game entities. Research then
+seeds its separate mutable bot-state table without overwriting lifecycle changes it will own.
 
 ## Features
 - User registration + login (session-based)

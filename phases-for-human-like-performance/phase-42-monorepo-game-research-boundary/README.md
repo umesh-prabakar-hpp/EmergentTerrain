@@ -31,6 +31,9 @@
   `research_bot_replicas` table before running the legacy university engine. A same-or-newer game
   snapshot is required to overwrite or deactivate a replica, preserving a monotonic migration
   handoff while the engine still needs mutable transition rows.
+- The worker now seeds separate mutable `research_bot_states` records from those replicas. Source
+  snapshots may update the bot type, activity, and source tick, but never overwrite the lifecycle
+  JSON after initial creation; that field is reserved for the extracted research engine.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the
