@@ -1,7 +1,7 @@
 package com.emergentterrain.controller;
 
-import com.emergentterrain.research.api.ResearchPaperSummary;
 import com.emergentterrain.research.api.ResearchQueryClient;
+import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

@@ -15,6 +15,8 @@ repository with their histories under `engines/gpu-engine/` and `services/julia-
 The Spring application now lives in `apps/game-service/`; `apps/research-service/` is a separate
 research-only runtime. Shared research implementation code remains in the game-service artifact
 while it is being extracted, but the research runtime does not scan or start gameplay components.
+`libs/research-contract/` owns Java DTOs shared by both services; it deliberately has no Spring,
+game, or persistence dependency.
 The game-facing research reads are available through the versioned
 [`contracts/research-api/openapi.yaml`](contracts/research-api/openapi.yaml) contract; the current
 default is the co-located implementation (`app.research-api.mode=local`).

@@ -1,9 +1,14 @@
-package com.emergentterrain.researchservice;
+package com.emergentterrain.researchcontract;
 
 import java.util.List;
 import java.util.UUID;
 
-/** JSON representation defined by contracts/research-api/openapi.yaml. */
+/**
+ * Stable projection of a published paper shared across the v1 service boundary.
+ *
+ * <p>The contract deliberately has no dependency on a persistence entity or either Spring
+ * application. Keep database mappings and service-local conversion outside this module.</p>
+ */
 public record ResearchPaperSummary(
         String paperId,
         UUID roomId,

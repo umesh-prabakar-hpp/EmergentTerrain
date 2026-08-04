@@ -1,5 +1,6 @@
 package com.emergentterrain.research.api;
 
+import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;

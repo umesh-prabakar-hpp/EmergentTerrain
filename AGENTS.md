@@ -5,6 +5,7 @@ Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 ## Repository layout
 - Java game web app: `apps/game-service/`
 - Research-only runtime: `apps/research-service/`
+- Shared Java API DTOs: `libs/research-contract/`
 - Rust GPU engine: `engines/gpu-engine/`
 - Julia/Python math sidecar: `services/julia-math-sidecar/`
 - Research API contract: `contracts/research-api/openapi.yaml`
@@ -12,7 +13,8 @@ Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 The GPU engine and Julia sidecar histories are imported into this monorepo. Do not restore them as
 Git submodules or nested Git repositories. Game-facing research reads must use
 `ResearchQueryClient` / the v1 API contract rather than exposing `ResearchPaper` entities as a
-cross-service contract. `apps/research-service/` is the autonomous research runtime; when the game
+cross-service contract. `libs/research-contract/` is the Java representation of those stable DTOs
+and must remain free of Spring and persistence types. `apps/research-service/` is the autonomous research runtime; when the game
 uses `app.research-api.mode=remote`, it does not create a local `ResearchTickGateway`.
 
 Use `./scripts/start-research-service.sh` to run the research worker without starting the game.

@@ -24,6 +24,11 @@
     </dependencies>
   </dependencyManagement>
   <dependencies>
+    <dependency>
+      <groupId>com.emergentterrain</groupId>
+      <artifactId>research-contract</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+    </dependency>
     <!-- Reuses the existing research engine while the worker extraction proceeds. The research
          process selects only research/LLM beans; gameplay components are not scanned. -->
     <dependency>

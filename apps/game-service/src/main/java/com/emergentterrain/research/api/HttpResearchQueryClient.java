@@ -1,5 +1,6 @@
 package com.emergentterrain.research.api;
 
+import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;

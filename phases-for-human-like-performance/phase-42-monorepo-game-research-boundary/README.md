@@ -8,6 +8,8 @@
   histories preserved in the main Git graph.
 - Top-level GPU, setup, performance, and related-service scripts now default to the monorepo paths.
 - `contracts/research-api/openapi.yaml` defines the stable v1 game-to-research read surface.
+- `libs/research-contract/` contains the corresponding Spring-free Java paper-summary DTO, used by
+  both services instead of duplicate application-local response classes.
 - The legacy browser paths and the new v1 paths both use `ResearchQueryClient`; they no longer
   expose the research JPA entity as the cross-service response type.
 - `RoomService` invokes research ticks through `ResearchTickGateway`, rather than directly calling
@@ -43,6 +45,8 @@ EmergentTerrain/
   apps/
     game-service/          # Spring Boot game API, UI, rooms, bots, government, world state
     research-service/      # research cycles, papers, LLM, literature, evidence and artifacts
+  libs/
+    research-contract/     # Spring-free Java DTOs shared by both service clients
   engines/
     gpu-engine/            # Rust GPU engine (current EmergentTerrainGPUEngine repository)
   services/

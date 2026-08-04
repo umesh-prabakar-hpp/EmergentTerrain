@@ -8,6 +8,7 @@
   <packaging>pom</packaging>
   <name>EmergentTerrain monorepo</name>
   <modules>
+    <module>libs/research-contract</module>
     <module>apps/game-service</module>
     <module>apps/research-service</module>
   </modules>

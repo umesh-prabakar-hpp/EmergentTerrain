@@ -1,6 +1,8 @@
 package com.emergentterrain.research.api;
 
+import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
+import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -24,12 +26,20 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
     @Override
     public List<ResearchPaperSummary> getPublishedPapers(UUID roomId, int limit) {
         return universityService.getPublishedPapers(roomId, limit).stream()
-                .map(ResearchPaperSummary::from)
+                .map(LocalResearchQueryClient::summary)
                 .toList();
     }
 
     @Override
     public Map<String, Object> getStats(UUID roomId) {
         return universityService.getStats(roomId);
+    }
+
+    private static ResearchPaperSummary summary(ResearchPaper paper) {
+        return new ResearchPaperSummary(
+                paper.paperId(), paper.roomId(), paper.authorBotId(), paper.domain(), paper.topic(),
+                paper.title(), paper.hypothesis(), paper.methodology(), paper.findings(), paper.conclusion(),
+                List.copyOf(paper.reviewerBotIds()), paper.peerScore(), paper.status(), paper.tick(),
+                paper.generation());
     }
 }

@@ -1,5 +1,6 @@
 package com.emergentterrain.researchservice;
 
+import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
