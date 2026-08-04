@@ -50,3 +50,9 @@ The worker also seeds `research_bot_states` from each replica. New bots begin wi
 lifecycle payload, but later game snapshots update only bot type/activity/source tick and never
 overwrite `research_bot_states.lifecycle_json`. That lifecycle field is reserved for research
 ownership when `UniversityService` is extracted.
+
+Before moving lifecycle transitions, enable the read-only parity audit with
+`RESEARCH_LIFECYCLE_SHADOW_ENABLED=true`. It compares persisted lifecycle fields in
+`research_bot_states` against the legacy transition rows immediately before the legacy university
+cycle, records an append-only `research_lifecycle_shadow_records` observation, and never mutates
+either lifecycle authority.

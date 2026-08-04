@@ -29,6 +29,9 @@ must not mutate game state through it. Research imports every snapshot into
 keep that replica monotonic by game tick during the remaining extraction.
 `research_bot_states` is the next ownership layer: seed its lifecycle once from a replica, but do
 not overwrite that lifecycle from later game snapshots.
+`RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` enables the read-only lifecycle parity audit; it records
+pre-cycle comparisons in `research_lifecycle_shadow_records` and must not mutate either lifecycle
+authority.
 
 ## Required environment
 - Java 21

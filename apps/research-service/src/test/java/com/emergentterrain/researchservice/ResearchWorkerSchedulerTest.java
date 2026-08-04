@@ -27,6 +27,7 @@ class ResearchWorkerSchedulerTest {
         ResearchGameContextProvider gameContext = mock(ResearchGameContextProvider.class);
         ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
+        ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -41,12 +42,14 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, checkpoints, university)
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
+                checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
         verify(botReplicas).apply(eq(roomId), org.mockito.ArgumentMatchers.any());
         verify(botStates).seedFromSnapshot(eq(roomId), org.mockito.ArgumentMatchers.any());
+        verify(lifecycleShadow).compareBeforeLegacyCycle(eq(roomId), eq(1L), eq(activeBots));
         verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->
                 checkpoint.getRoomId().equals(roomId) && checkpoint.getLastTick() == 1L));
     }
@@ -58,6 +61,7 @@ class ResearchWorkerSchedulerTest {
         ResearchGameContextProvider gameContext = mock(ResearchGameContextProvider.class);
         ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
+        ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -72,7 +76,8 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, checkpoints, university)
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
+                checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());

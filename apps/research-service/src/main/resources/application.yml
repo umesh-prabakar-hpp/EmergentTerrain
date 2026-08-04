@@ -21,6 +21,9 @@ app:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}
       base-url: ${RESEARCH_GAME_API_BASE_URL:http://127.0.0.1:8081}
+    lifecycle-shadow:
+      # Read-only migration parity audit; enable before moving lifecycle transitions.
+      enabled: ${RESEARCH_LIFECYCLE_SHADOW_ENABLED:false}
     worker:
       enabled: ${RESEARCH_SERVICE_WORKER_ENABLED:true}
       interval-ms: ${RESEARCH_SERVICE_WORKER_INTERVAL_MS:1000}

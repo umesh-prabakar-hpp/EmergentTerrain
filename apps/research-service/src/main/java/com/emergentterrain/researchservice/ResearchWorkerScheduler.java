@@ -35,6 +35,7 @@ public class ResearchWorkerScheduler {
     private final ResearchGameContextProvider gameContext;
     private final ResearchBotReplicaService botReplicas;
     private final ResearchBotStateService botStates;
+    private final ResearchLifecycleShadowService lifecycleShadow;
     private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
 
@@ -42,6 +43,7 @@ public class ResearchWorkerScheduler {
                                    ResearchGameContextProvider gameContext,
                                    ResearchBotReplicaService botReplicas,
                                    ResearchBotStateService botStates,
+                                   ResearchLifecycleShadowService lifecycleShadow,
                                    ResearchWorkerCheckpointRepository checkpoints,
                                    UniversityService university) {
         this.rooms = rooms;
@@ -49,6 +51,7 @@ public class ResearchWorkerScheduler {
         this.gameContext = gameContext;
         this.botReplicas = botReplicas;
         this.botStates = botStates;
+        this.lifecycleShadow = lifecycleShadow;
         this.checkpoints = checkpoints;
         this.university = university;
     }
@@ -69,6 +72,7 @@ public class ResearchWorkerScheduler {
                         .map(ResearchWorkerCheckpoint::getLastTick)
                         .orElse(governmentTick);
                 long tick = Math.max(lastTick, governmentTick) + 1;
+                lifecycleShadow.compareBeforeLegacyCycle(room.getId(), tick, active);
                 university.maybeTick(room.getId(), active, tick, context.governmentState());
                 checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
             } catch (Exception e) {

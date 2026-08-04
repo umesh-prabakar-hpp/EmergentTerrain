@@ -40,6 +40,8 @@ well as government state; research reloads mutable bot entities only during the 
 migration step. It first stores each game snapshot in its research-owned bot-replica table, so the
 input handoff is durable before the university engine is moved off game entities. Research then
 seeds its separate mutable bot-state table without overwriting lifecycle changes it will own.
+Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
+before extracting the university lifecycle transitions.
 
 ## Features
 - User registration + login (session-based)

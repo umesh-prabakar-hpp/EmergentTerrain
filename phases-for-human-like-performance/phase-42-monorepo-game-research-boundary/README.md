@@ -34,6 +34,10 @@
 - The worker now seeds separate mutable `research_bot_states` records from those replicas. Source
   snapshots may update the bot type, activity, and source tick, but never overwrite the lifecycle
   JSON after initial creation; that field is reserved for the extracted research engine.
+- With `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true`, the worker records a pre-cycle parity comparison
+  between research-owned lifecycle state and the legacy rows in
+  `research_lifecycle_shadow_records`. This is strictly read-only and is the gate before moving
+  lifecycle transitions to research ownership.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the
