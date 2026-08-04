@@ -25,6 +25,7 @@ class ResearchWorkerSchedulerTest {
         RoomRepository rooms = mock(RoomRepository.class);
         RoomBotRepository bots = mock(RoomBotRepository.class);
         ResearchGameContextProvider gameContext = mock(ResearchGameContextProvider.class);
+        ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -39,10 +40,11 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, checkpoints, university)
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
+        verify(botReplicas).apply(eq(roomId), org.mockito.ArgumentMatchers.any());
         verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->
                 checkpoint.getRoomId().equals(roomId) && checkpoint.getLastTick() == 1L));
     }
@@ -52,6 +54,7 @@ class ResearchWorkerSchedulerTest {
         RoomRepository rooms = mock(RoomRepository.class);
         RoomBotRepository bots = mock(RoomBotRepository.class);
         ResearchGameContextProvider gameContext = mock(ResearchGameContextProvider.class);
+        ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -66,7 +69,7 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, checkpoints, university)
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, checkpoints, university)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());

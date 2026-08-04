@@ -24,7 +24,9 @@ Its default `RESEARCH_GAME_CONTEXT_MODE=database` reads the migration database; 
 `RESEARCH_GAME_CONTEXT_MODE=remote` with `RESEARCH_GAME_API_BASE_URL` to use the game-owned,
 read-only `GET /api/v1/game/rooms/{roomId}/research-context` snapshot instead. That endpoint is
 context-only; it includes the game-selected active bots and their lifecycle payloads, and research
-must not mutate game state through it.
+must not mutate game state through it. Research imports every snapshot into
+`research_bot_replicas` before the legacy university engine reloads its mutable transition rows;
+keep that replica monotonic by game tick during the remaining extraction.
 
 ## Required environment
 - Java 21

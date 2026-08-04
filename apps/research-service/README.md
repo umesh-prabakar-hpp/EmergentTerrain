@@ -39,3 +39,9 @@ RESEARCH_GAME_CONTEXT_MODE=remote \
 The default `database` mode remains the standalone compatibility path when no game service is
 running. Remote mode reads only `GET /api/v1/game/rooms/{roomId}/research-context`; it does not
 start, control, or write to the game service.
+
+Every execution snapshot is first imported into the research-owned `research_bot_replicas` table.
+That table records the bot selection and lifecycle payload at its game tick, and marks a bot
+inactive only when a same-or-newer game snapshot omits it. The university engine still reloads
+mutable transition-period `RoomBot` rows after that import; the replica is the durable handoff for
+the next engine extraction step.

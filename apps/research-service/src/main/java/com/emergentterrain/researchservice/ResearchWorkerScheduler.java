@@ -33,16 +33,19 @@ public class ResearchWorkerScheduler {
     private final RoomRepository rooms;
     private final RoomBotRepository bots;
     private final ResearchGameContextProvider gameContext;
+    private final ResearchBotReplicaService botReplicas;
     private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
 
     public ResearchWorkerScheduler(RoomRepository rooms, RoomBotRepository bots,
                                    ResearchGameContextProvider gameContext,
+                                   ResearchBotReplicaService botReplicas,
                                    ResearchWorkerCheckpointRepository checkpoints,
                                    UniversityService university) {
         this.rooms = rooms;
         this.bots = bots;
         this.gameContext = gameContext;
+        this.botReplicas = botReplicas;
         this.checkpoints = checkpoints;
         this.university = university;
     }
@@ -52,6 +55,7 @@ public class ResearchWorkerScheduler {
         for (Room room : rooms.findAll()) {
             try {
                 ResearchGameContext context = gameContext.contextFor(room);
+                botReplicas.apply(room.getId(), context);
                 List<RoomBot> active = activeBotsFor(room, context);
                 if (active.isEmpty()) {
                     continue;

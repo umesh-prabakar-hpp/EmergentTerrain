@@ -27,6 +27,10 @@
   the compatibility default until bot-state extraction is complete. The snapshot includes the
   game-selected active bots and lifecycle payloads, so remote mode already uses game-owned bot
   selection even while it reloads mutable bot entities from the transition database.
+- The research worker durably imports those immutable bot inputs into its own
+  `research_bot_replicas` table before running the legacy university engine. A same-or-newer game
+  snapshot is required to overwrite or deactivate a replica, preserving a monotonic migration
+  handoff while the engine still needs mutable transition rows.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the
