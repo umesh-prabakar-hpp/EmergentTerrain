@@ -1,0 +1,543 @@
+# =====================================================================
+# numbertheory.jl — number-theoretic predicates + window aggregator
+# =====================================================================
+#
+# Port of the JVM `MathConjectureSubstrate` (phase 28 §28.1). Exposes a
+# smallest-prime-factor (SPF) sieve + the same nine per-window scalars
+# the JVM substrate computes, so the conjecture mining + verification
+# pipeline can delegate compute to the sidecar.
+#
+# Why a module-level sieve
+# ------------------------
+# The SPF table for n ≤ 2_000_000 is ~8 MB (Int32-sized). It builds in
+# ~100 ms single-threaded. Building it on every /numbertheory/window call
+# would dominate the request latency; caching it process-wide is the right
+# move. Concurrent requests share the read-only table after the one-time
+# build.
+#
+# Lazy build
+# ----------
+# The table is built on first call rather than at module load so that:
+#   - module load stays fast (the test runner constructs the module
+#     several times in dependency probing);
+#   - a process that never hits the conjecture endpoints doesn't pay
+#     the memory cost.
+#
+# Parity with the JVM
+# -------------------
+# Output field names, ordering, and numeric semantics match
+# `MathConjectureSubstrate.evaluateWindow` byte-for-byte. The Java
+# `LinkedHashMap` returns keys in insertion order; the Julia
+# `OrderedDict` (via JSON3 → JSON object) does the same. The parity
+# check that ships with §28.2 confirms equality across a fixed window
+# corpus.
+# =====================================================================
+
+using JSON3
+using Base.Threads: ReentrantLock
+
+# Sieve ceiling. Covers `ConjectureVerifier.MAX_N` (2_000_000) in full —
+# raised from 1_050_000 in phase-28 §28.6 (conjecture legacy removal) so the
+# sidecar is the SOLE number-theory-window compute path: the JVM's in-process
+# MathConjectureSubstrate (which previously covered the 1.05M–2M range via
+# fallback) was deleted, so the sidecar must serve the verifier's whole range.
+# 2026-06-16 (object-substrate-expansion.md) — lockstep dense-sieve reach bump 2e6 → 2e7. A 10x larger
+# Int32 SPF array (~80 MB, build <0.5s); same linear-sieve algorithm, no correctness change. MUST stay
+# in lockstep with ConjectureVerifier.MAX_N on the Java side. The cumulative dirichlet_error/mertens use
+# the O(√x) hyperbola method (not this array), so they extend with it. ≥1e9 needs the segmented window
+# sieve (Stage 2), not a bigger dense array.
+const NT_MAX_N = 20_000_000
+
+# Module-state holders. `Ref` so we can lazily set them under a lock
+# without making the sieve a `const` (which would force build-at-load).
+const NT_SPF      = Ref{Vector{Int32}}()
+const NT_BUILT    = Ref{Bool}(false)
+const NT_BUILD_LOCK = ReentrantLock()
+
+# 2026-06-16 (object-substrate-expansion.md Stage 2) — SEGMENTED reach beyond the dense SPF array.
+# For n in (NT_MAX_N, NT_SEGMENTED_MAX], nt_factor / nt_is_prime fall back to TRIAL DIVISION by a cached
+# list of small primes up to √NT_SEGMENTED_MAX (built once). Every per-n function routes through
+# nt_factor, so window-local scalars (densities, means, divisor extremes) and the O(√x) cumulative
+# dirichlet_error all reach high x — with the dense path (n ≤ NT_MAX_N) BYTE-IDENTICAL (only the
+# n>NT_MAX_N branch is new). The 1e12 cap keeps the small-prime sieve at √1e12 = 1e6 primes and trial
+# division ~sub-second per window; the Java verify path (int MAX_N) caps lower, this is headroom.
+const NT_SEGMENTED_MAX = 1_000_000_000_000
+const NT_SMALL_PRIMES  = Ref{Vector{Int}}()
+const NT_SMALL_BUILT   = Ref{Bool}(false)
+const NT_SMALL_LOCK    = ReentrantLock()
+
+# Primes up to isqrt(NT_SEGMENTED_MAX) = 1e6 — enough to fully factor any n ≤ NT_SEGMENTED_MAX by trial
+# division (the unfactored remainder is then a single prime > 1e6). Built lazily on first high-x call.
+function nt_ensure_small_primes!()
+    NT_SMALL_BUILT[] && return nothing
+    lock(NT_SMALL_LOCK) do
+        NT_SMALL_BUILT[] && return nothing
+        lim = isqrt(NT_SEGMENTED_MAX)
+        sieve = trues(lim)
+        @inbounds for i in 2:isqrt(lim)
+            if sieve[i]
+                for j in i*i:i:lim
+                    sieve[j] = false
+                end
+            end
+        end
+        primes = Int[]
+        @inbounds for i in 2:lim
+            sieve[i] && push!(primes, i)
+        end
+        NT_SMALL_PRIMES[] = primes
+        NT_SMALL_BUILT[] = true
+    end
+    return nothing
+end
+
+# Trial-division factorization for NT_MAX_N < n ≤ NT_SEGMENTED_MAX. Returns the same (prime, exponent)
+# shape as the dense path, so every downstream arithmetic function (ω, Ω, σ, d, μ) is identical.
+function nt_factor_trial(n::Integer)
+    nt_ensure_small_primes!()
+    out = Tuple{Int,Int}[]
+    m = Int(n)
+    @inbounds for p in NT_SMALL_PRIMES[]
+        Int64(p) * p > m && break
+        if m % p == 0
+            e = 0
+            while m % p == 0
+                m ÷= p
+                e += 1
+            end
+            push!(out, (p, e))
+        end
+    end
+    m > 1 && push!(out, (m, 1))   # the single remaining prime factor > √n
+    return out
+end
+
+"""
+    nt_ensure_sieve!()
+
+Build the SPF sieve on first call. Concurrent callers race the lock
+but only the first wins the build; subsequent callers see
+`NT_BUILT[] == true` on the fast path.
+"""
+function nt_ensure_sieve!()
+    NT_BUILT[] && return nothing
+    lock(NT_BUILD_LOCK) do
+        NT_BUILT[] && return nothing
+        spf = Vector{Int32}(undef, NT_MAX_N + 1)
+        @inbounds for i in 0:NT_MAX_N
+            spf[i + 1] = Int32(i)
+        end
+        # Standard linear-sieve variant used by the JVM port.
+        i = 2
+        @inbounds while Int64(i) * i <= NT_MAX_N
+            if spf[i + 1] == i
+                j = i * i
+                while j <= NT_MAX_N
+                    if spf[j + 1] == j
+                        spf[j + 1] = Int32(i)
+                    end
+                    j += i
+                end
+            end
+            i += 1
+        end
+        NT_SPF[] = spf
+        NT_BUILT[] = true
+    end
+    return nothing
+end
+
+"""
+    nt_factor(n) -> Vector{Tuple{Int,Int}}
+
+Prime factorization of `n` as a list of `(prime, exponent)` tuples,
+using the cached SPF sieve. Returns an empty vector for `n < 2`.
+"""
+function nt_factor(n::Integer)
+    n < 2 && return Tuple{Int,Int}[]
+    if n > NT_MAX_N
+        n > NT_SEGMENTED_MAX && throw(ArgumentError("n=$n exceeds NT_SEGMENTED_MAX=$NT_SEGMENTED_MAX"))
+        return nt_factor_trial(n)   # segmented (trial-division) path beyond the dense array
+    end
+    nt_ensure_sieve!()
+    spf = NT_SPF[]
+    out = Tuple{Int,Int}[]
+    m = Int(n)
+    while m > 1
+        p = Int(spf[m + 1])
+        e = 0
+        while m % p == 0
+            m ÷= p
+            e += 1
+        end
+        push!(out, (p, e))
+    end
+    return out
+end
+
+function nt_is_prime(n::Integer)
+    n < 2 && return false
+    if n <= NT_MAX_N
+        nt_ensure_sieve!()
+        return NT_SPF[][n + 1] == n
+    end
+    n > NT_SEGMENTED_MAX && return false
+    nt_ensure_small_primes!()   # segmented path: prime iff no small prime ≤ √n divides it
+    @inbounds for p in NT_SMALL_PRIMES[]
+        Int64(p) * p > n && return true
+        n % p == 0 && return false
+    end
+    return true
+end
+
+"""
+    nt_prime_indicator(n) -> Int
+
+1 if `n` is prime, else 0 — the per-n term whose cumulative sum is the prime-counting
+function π(x). Lets the discovery oracle escalate π(x) the same way it does M(x) / D(x):
+a trusted per-n Int function the cumulative pass sums (see `handle_discover_validate`).
+"""
+nt_prime_indicator(n::Integer)::Int = nt_is_prime(n) ? 1 : 0
+
+function nt_omega(n::Integer)
+    n < 2 && return 0
+    return length(nt_factor(n))
+end
+
+function nt_big_omega(n::Integer)
+    n < 2 && return 0
+    s = 0
+    for (_, e) in nt_factor(n)
+        s += e
+    end
+    return s
+end
+
+"""
+    nt_sigma(n) -> Int64
+
+Sum of divisors of `n`. Returns 0 for `n < 1`, 1 for `n == 1`.
+"""
+function nt_sigma(n::Integer)
+    n < 1 && return Int64(0)
+    n == 1 && return Int64(1)
+    result = Int64(1)
+    for (p, e) in nt_factor(n)
+        pe1 = Int64(1)
+        for _ in 0:e
+            pe1 *= p
+        end
+        result *= (pe1 - 1) ÷ (p - 1)
+    end
+    return result
+end
+
+function nt_divisor_count(n::Integer)
+    n < 1 && return 0
+    n == 1 && return 1
+    result = 1
+    for (_, e) in nt_factor(n)
+        result *= (e + 1)
+    end
+    return result
+end
+
+function nt_mobius(n::Integer)
+    n < 1 && return 0
+    n == 1 && return 1
+    result = 1
+    for (_, e) in nt_factor(n)
+        e > 1 && return 0
+        result = -result
+    end
+    return result
+end
+
+"""
+    nt_is_happy(n) -> Bool
+
+Happy-number predicate. Mirrors the JVM substrate: a number is happy
+if iterating `n → sum-of-digit-squares` reaches 1; iterating it cycles
+otherwise. Bounded at 100 iterations as a safety net.
+"""
+function nt_is_happy(n::Integer)
+    n < 1 && return false
+    seen0 = -1
+    seen1 = -1
+    seen2 = -1
+    cur = Int(n)
+    for _ in 1:100
+        cur == 1 && return true
+        (cur == seen0 || cur == seen1 || cur == seen2) && return false
+        seen2 = seen1
+        seen1 = seen0
+        seen0 = cur
+        s = 0
+        x = cur
+        while x > 0
+            d = x % 10
+            s += d * d
+            x ÷= 10
+        end
+        cur = s
+    end
+    return false
+end
+
+"""
+    nt_divisor_summatory(x) -> Int64
+
+D(x) = Σ_{n≤x} d(n), via the hyperbola method in O(√x):
+`2·Σ_{d≤√x} floor(x/d) − floor(√x)²`. Used for the Dirichlet divisor error term
+Δ(x) = D(x) − x(ln x + 2γ − 1).
+"""
+function nt_divisor_summatory(x::Integer)::Int64
+    x < 1 && return Int64(0)
+    sq = isqrt(x)                       # floor(sqrt(x))
+    s = Int64(0)
+    @inbounds for d in 1:sq
+        s += div(Int64(x), Int64(d))    # floor(x/d)
+    end
+    return 2 * s - Int64(sq) * Int64(sq)
+end
+
+"""
+    nt_evaluate_window(start, size) -> Vector{Pair{String,Float64}}
+
+Per-window aggregate of nine scalars over `[start, start+size)`.
+Integers below 2 are excluded (the JVM substrate skips them too).
+
+Returns a `Vector{Pair}` rather than a `Dict` to preserve insertion
+order on JSON serialisation — the JVM `LinkedHashMap` parity check in
+§28.2 compares ordered key sequences.
+
+Throws `ArgumentError` if `start + size > NT_MAX_N + 1`.
+"""
+function nt_evaluate_window(start::Integer, size::Integer)
+    end_ = start + size
+    if end_ > NT_SEGMENTED_MAX + 1
+        throw(ArgumentError(
+            "window [$start, $end_) exceeds NT_SEGMENTED_MAX=$NT_SEGMENTED_MAX"))
+    end
+    nt_ensure_sieve!()
+
+    actual_start = max(2, Int(start))
+    actual_size = Int(end_) - actual_start
+
+    if actual_size <= 0
+        # Match the JVM: empty window → empty map. Caller decides how to
+        # represent that on the wire; we return an empty Vector.
+        return Pair{String,Float64}[]
+    end
+
+    n_abundant = 0
+    n_deficient = 0
+    n_prime = 0
+    n_happy = 0
+    sum_omega = Int64(0)
+    sum_big_omega = Int64(0)
+    sum_big_omega_sq = Int64(0)   # 2026-06-13 — Σ Ω(n)² for the Erdős–Kac variance
+    sum_divisor_count = Int64(0)
+    max_divisor_count = 0
+    mertens_delta = 0
+    # Phase 30 §5.2 vocabulary enrichment (2026-06-05) — open-behavior scalars:
+    # largest prime gap inside the window (gap records: Cramér-conjecture
+    # territory) and twin-pair count (Hardy–Littlewood territory). Both fall
+    # out of the same single pass.
+    n_twin = 0               # n with n and n+2 both prime (n in window)
+    max_prime_gap = 0        # largest gap between consecutive primes IN the window
+    last_prime = 0           # 0 = no prime seen yet in this window
+    # 2026-06-16 (object-substrate-expansion.md Stage 1) — three per-integer object densities computed
+    # from the ω/Ω/d primitives already in this pass (no extra factorization). squarefree (Ω==ω) is a
+    # KNOWN-constant validation object (→ 6/π²); richly-divisible (d>ω²) and omega-excess (Ω−ω≥2) are
+    # genuinely uncharted natural densities — the first new conjecture targets beyond the original 25.
+    n_squarefree = 0
+    n_richly = 0
+    n_omega_excess = 0
+
+    @inbounds for n in actual_start:(Int(end_) - 1)
+        s = nt_sigma(n)
+        if s > 2 * Int64(n)
+            n_abundant += 1
+        elseif s < 2 * Int64(n)
+            n_deficient += 1
+        end
+        # n == perfect (s == 2n) intentionally excluded per JVM substrate.
+
+        if nt_is_prime(n)
+            n_prime += 1
+            if last_prime > 0
+                g = n - last_prime
+                g > max_prime_gap && (max_prime_gap = g)
+            end
+            last_prime = n
+            nt_is_prime(n + 2) && (n_twin += 1)
+        end
+        nt_is_happy(n) && (n_happy += 1)
+
+        om = nt_omega(n)
+        sum_omega += om
+        bo = nt_big_omega(n)
+        sum_big_omega += bo
+        sum_big_omega_sq += Int64(bo) * Int64(bo)
+        d = nt_divisor_count(n)
+        sum_divisor_count += d
+        d > max_divisor_count && (max_divisor_count = d)
+        mertens_delta += nt_mobius(n)
+        # Stage 1 per-integer objects (ω/Ω/d already in hand)
+        bo == om && (n_squarefree += 1)            # squarefree: every prime exponent is 1
+        d > om * om && (n_richly += 1)             # richly divisible relative to its distinct-prime count
+        bo - om >= 2 && (n_omega_excess += 1)      # a cube, or ≥2 squared primes
+    end
+
+    inv = 1.0 / actual_size
+    # 2026-06-13 second-order BASE scalars (single source of truth here; MathInvariants.BASE
+    # lists them and passes them through, so Java and Julia agree by construction). Erdős–Kac:
+    # Var(Ω)/ln ln x → 1; Dirichlet divisor error Δ(x)/x^{1/4} (oscillates, bounded iff the
+    # Dirichlet conjecture |Δ|=O(x^{1/4+ε}) holds). x = requested window centre.
+    mO     = sum_big_omega * inv
+    mOsq   = sum_big_omega_sq * inv
+    ovar   = mOsq - mO * mO                                  # Var(Ω) over the window
+    cx     = start + div(size, 2)
+    lnc    = cx > 1 ? log(Float64(cx)) : 0.0                 # ln(centre)
+    ek     = lnc > 1.0 ? ovar / log(lnc) : 0.0              # Var(Ω) / ln ln x  → 1
+    gamma  = 0.5772156649015329
+    ddelta = cx > 0 ? Float64(nt_divisor_summatory(cx)) - Float64(cx) * (lnc + 2 * gamma - 1.0) : 0.0
+    derr   = cx > 0 ? ddelta / Float64(cx)^0.25 : 0.0        # Δ(x) / x^{1/4}
+    return Pair{String,Float64}[
+        "abundant_density"   => n_abundant * inv,
+        "deficient_density"  => n_deficient * inv,
+        "prime_density"      => n_prime * inv,
+        "happy_density"      => n_happy * inv,
+        "mean_omega"         => sum_omega * inv,
+        "mean_Omega"         => sum_big_omega * inv,
+        "mean_divisor_count" => sum_divisor_count * inv,
+        "max_divisor_count"  => Float64(max_divisor_count),
+        "mertens_delta"      => Float64(mertens_delta),
+        "max_prime_gap"      => Float64(max_prime_gap),
+        "twin_prime_density" => n_twin * inv,
+        "omega_ek_ratio"     => ek,
+        "dirichlet_error"    => derr,
+        # Stage 1 per-integer object densities (object-substrate-expansion.md)
+        "squarefree_density"       => n_squarefree * inv,
+        "richly_divisible_density" => n_richly * inv,
+        "omega_excess_density"     => n_omega_excess * inv,
+    ]
+end
+
+# =====================================================================
+# Phase 30 — cumulative Mertens function M(x) beyond NT_MAX_N
+# =====================================================================
+# Spike: phases-for-human-like-performance/phase-30-conjecture/
+#        segmented-mertens-spike.md
+#
+# Two paths to M(x) = Σ_{n=1}^{x} μ(n):
+#   - nt_mertens_dense(x)      — trusted ground truth; reuses the dense
+#       SPF sieve via nt_mobius. Capped at NT_MAX_N (the dense array).
+#   - nt_mertens_segmented(x)  — a segmented Möbius sieve that needs only
+#       primes ≤ √x (drawn from the same SPF sieve), so x may exceed
+#       NT_MAX_N up to NT_MAX_N². Linear in x.
+#
+# The two MUST agree exactly on the overlap range [0, NT_MAX_N] — that
+# equality is the trust gate (the Java SegmentedMertensValidator checks
+# it before any out-of-range value is believed). |M(x)| ~ √x, so values
+# stay tiny and Int64 is safe.
+# =====================================================================
+
+"""
+    nt_mertens_dense(x) -> Int64
+
+Cumulative Mertens function `M(x) = Σ_{n=1}^{x} μ(n)`, summed directly
+over the dense SPF sieve (the trusted reference). Returns 0 for `x < 1`.
+Throws `ArgumentError` for `x > NT_MAX_N` — use `nt_mertens_segmented`
+beyond the dense array.
+"""
+function nt_mertens_dense(x::Integer)
+    x < 1 && return Int64(0)
+    x > NT_MAX_N && throw(ArgumentError(
+        "x=$x exceeds NT_MAX_N=$NT_MAX_N; use nt_mertens_segmented"))
+    nt_ensure_sieve!()
+    total = Int64(0)
+    @inbounds for n in 1:Int(x)
+        total += nt_mobius(n)
+    end
+    return total
+end
+
+"""
+    nt_mertens_segmented(x; block=1_000_000) -> Int64
+
+⚠️ PHASE-1 THROWAWAY BASELINE. This body is hand-written *only* to prove the
+moat (overlap-equality against `nt_mertens_dense`) end-to-end. It is NOT the
+intended source of the method: per `segmented-mertens-spike.md` fork #2, clever
+`M(x)` methods are meant to be **LLM-proposed and gated by this same moat at
+runtime**, not authored here. Treat this as a stand-in candidate until the
+runtime self-verifying path lands.
+
+Cumulative Mertens function `M(x) = Σ_{n=1}^{x} μ(n)` via a segmented
+Möbius sieve. Sieves `μ` over blocks `[lo, hi]` using only primes
+`≤ √x` (drawn from the SPF sieve), so the dense `NT_MAX_N` array is not
+needed: `x` may range up to `NT_MAX_N²` (primes ≤ √x must exist in the
+sieve). Linear in `x`; the caller enforces the work guard. Returns 0 for
+`x < 1`. Throws `ArgumentError` if `√x` exceeds `NT_MAX_N`.
+
+Method: init `μ = +1`, track the unfactored cofactor `rem = n`. For each
+prime `p ≤ √x`: flip `μ` and divide `rem` by `p` on multiples of `p`,
+zero `μ` on multiples of `p²` (square factor). After all such primes, any
+`rem > 1` is a single leftover prime `> √x`, so flip `μ` once more.
+"""
+function nt_mertens_segmented(x::Integer; block::Integer = 1_000_000)
+    x < 1 && return Int64(0)
+    xx = Int64(x)
+    r = isqrt(xx)
+    r > NT_MAX_N && throw(ArgumentError(
+        "x=$xx needs primes up to √x=$r which exceeds NT_MAX_N=$NT_MAX_N"))
+    nt_ensure_sieve!()
+    spf = NT_SPF[]
+
+    # Primes ≤ √x, pulled from the SPF sieve (spf[p+1] == p ⇔ p prime).
+    primes = Int[]
+    @inbounds for p in 2:Int(r)
+        spf[p + 1] == p && push!(primes, p)
+    end
+
+    total = Int64(0)
+    blk = Int64(block)
+    lo = Int64(1)
+    while lo <= xx
+        hi = min(lo + blk - 1, xx)
+        len = Int(hi - lo + 1)
+        mu = ones(Int8, len)
+        rem = Vector{Int64}(undef, len)
+        @inbounds for i in 1:len
+            rem[i] = lo + (i - 1)
+        end
+        for p in primes
+            pl = Int64(p)
+            pl > hi && break              # no multiple of p in this block (primes ascending)
+            # multiples of p: flip sign, peel one factor of p
+            j = cld(lo, pl) * pl
+            @inbounds while j <= hi
+                idx = Int(j - lo) + 1
+                mu[idx] = -mu[idx]
+                rem[idx] ÷= pl
+                j += pl
+            end
+            # multiples of p²: not squarefree → μ = 0
+            pp = pl * pl
+            if pp <= hi
+                j2 = cld(lo, pp) * pp
+                @inbounds while j2 <= hi
+                    mu[Int(j2 - lo) + 1] = 0
+                    j2 += pp
+                end
+            end
+        end
+        @inbounds for i in 1:len
+            (mu[i] != 0 && rem[i] > 1) && (mu[i] = -mu[i])   # leftover prime > √x
+            total += mu[i]
+        end
+        lo = hi + 1
+    end
+    return total
+end

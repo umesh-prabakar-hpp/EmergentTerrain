@@ -1,0 +1,363 @@
+# =====================================================================
+# literature_grounding.jl — Phase 32 §32.5 step 3: offline BM25 retrieval
+# over the local number-theory corpus (POST /ground/claim)
+# =====================================================================
+#
+# Runtime-included INTO PyCallSidecar by pycall_sidecar.jl — deliberately
+# NOT part of the JuliaMathSidecar package (no precompile impact; editing
+# this file needs only a py-sidecar restart, never a package rebuild).
+# Pure Julia, PyCall-free, fully OFFLINE on the request path: the corpus
+# is the abstracts.jsonl built by EmergentTerrain's
+# scripts/build-nt-corpus.sh (OpenAlex, build-time only).
+#
+# v1 SEMANTICS (deliberate split from the §32.5 doc contract): this
+# endpoint does RETRIEVAL only — verdict ∈ {EVIDENCE, SILENT}. The
+# contracrow trichotomy classification (SUPPORTED/CONTRADICTED/SILENT)
+# happens JVM-side in §32.5 step 4, where the LLM pools live: the sidecar
+# has no LLM access and must stay deterministic. SILENT preserves the
+# honest "no references found" path; EVIDENCE carries scored snippets +
+# citation-key metadata for the caller to classify and cite from
+# (cite-only-provided-keys, 32.6).
+#
+# Index: BM25 (k1=1.2, b=0.75) over title+abstract, built once at
+# py-sidecar startup (lg_init_from_env!) so the single-threaded server
+# never starves /healthz on a first-request build. ~105k docs ≈ tens of
+# seconds + a few hundred MB — acceptable on the otherwise-idle 8089.
+# =====================================================================
+
+using JSON3
+
+# ─── corpus + index state ────────────────────────────────────────────
+
+struct LgDoc
+    key::String          # OpenAlex short id, e.g. "W2003357399" — THE citation key
+    title::String
+    year::Int
+    venue::String
+    authors::String
+    doi::String
+    abstract_::String
+    field::String        # OpenAlex primary_topic.field display name, e.g. "Mathematics" ("" if pre-rebuild corpus)
+    subfield::String     # primary_topic.subfield.id, e.g. "2602" (Algebra & Number Theory) ("" if absent)
+    topic::String        # primary_topic.id, e.g. "T11166" (Analytic NT) ("" if absent)
+    msc::String          # zbMATH MSC codes, space-joined, e.g. "11N37 11M06" ("" if not zbMATH-joined)
+end
+
+# 2026-07-04 curation (run-17 rec 1): the breadth pull ingested preprint-server noise —
+# uncited Zenodo uploads ("Complete Proof Framework for the Goldbach Conjecture",
+# "23-Channel Theorem") surfaced as near-miss references next to Annals/Acta works.
+# v1 rule, applied at INDEX time (reversible, no corpus rebuild): drop works that are
+# BOTH on a repository DOI (zenodo) AND uncited. Set ET_GROUND_CURATE=0 to disable.
+# Re-run EmergentTerrain/scripts/run-ground-probes.py after changing this rule.
+function lg_curated_out(doi::AbstractString, cited_by::Int)
+    get(ENV, "ET_GROUND_CURATE", "1") == "1" || return false
+    return cited_by == 0 && occursin("10.5281/zenodo", doi)
+end
+
+# 2026-07-08 (review: 3/4 retrieved near-misses were cross-domain noise — turbulence,
+# neuroscience, ecology — matched on generic words like "flow"/"density"; the one genuine
+# find, a Chowla ↔ prime-tuples paper, was correctly kept). SUBJECT GATE, applied at QUERY
+# time (retrieval, not index) so it composes with any corpus: keep a doc only if its
+# OpenAlex subject metadata is in the allowlist. Discriminator is FIELD/SUBFIELD/TOPIC, not
+# BM25 score — the noise and the good Chowla near-miss score alike; only subject separates
+# them, and a score floor would fail closed on the legitimate find.
+#
+# FLAG-GATED DORMANT (default OFF): ET_GROUND_SUBJECTS is a comma-separated allowlist of
+# field names / subfield ids / topic ids (case-insensitive substring match against each
+# doc's field, subfield, topic). Unset/blank ⇒ gate disabled ⇒ byte-identical to pre-gate
+# behavior. GRACEFUL: a doc with NO subject metadata (pre-rebuild corpus rows carry "") is
+# KEPT even when the gate is on — so staging this before the field-carrying corpus rebuild
+# can never regress recall. Activate during the rebuild once run-ground-probes.py confirms
+# the allowlist keeps the Chowla-class near-miss and drops the cross-domain noise.
+function lg_subject_allowlist()
+    raw = strip(get(ENV, "ET_GROUND_SUBJECTS", ""))
+    isempty(raw) && return String[]
+    return [lowercase(strip(s)) for s in split(raw, ',') if !isempty(strip(s))]
+end
+
+function lg_subject_ok(doc::LgDoc, allow::Vector{String})
+    isempty(allow) && return true                              # gate disabled
+    # graceful: a row with NO subject metadata at all is kept
+    (isempty(doc.field) && isempty(doc.subfield) && isempty(doc.topic) && isempty(doc.msc)) && return true
+    # Two allowlist entry kinds, kept DISTINCT so "11" can't leak:
+    #   "msc:11"      → anchored MSC-code prefix, matched ONLY against doc.msc (11N37 ✓, T11166 ✗)
+    #   "mathematics" → substring against field/subfield/topic (the OpenAlex tags)
+    hay = lowercase(string(doc.field, " ", doc.subfield, " ", doc.topic))
+    mscs = split(lowercase(doc.msc))
+    return any(allow) do a
+        if startswith(a, "msc:")
+            pfx = SubString(a, 5)                              # "msc:11" → "11"
+            any(m -> startswith(m, pfx), mscs)
+        else
+            occursin(a, hay)
+        end
+    end
+end
+
+struct LgIndex
+    docs::Vector{LgDoc}
+    postings::Dict{String,Vector{Tuple{Int32,Int16}}}   # term -> [(doc, tf)]
+    doclen::Vector{Int32}
+    avglen::Float64
+end
+
+const LG_INDEX = Ref{Union{Nothing,LgIndex}}(nothing)
+const LG_K1 = 1.2
+const LG_B  = 0.75
+
+# Minimal English stopword set — enough to keep postings lean without
+# hurting technical-phrase recall.
+const LG_STOPWORDS = Set([
+    "the", "a", "an", "of", "and", "or", "in", "on", "to", "for", "is", "are",
+    "was", "were", "be", "been", "by", "with", "as", "at", "from", "that",
+    "this", "these", "those", "it", "its", "we", "our", "which", "their",
+    "there", "than", "then", "into", "over", "under", "between", "if", "not",
+    "no", "can", "may", "such", "also", "has", "have", "had", "but", "all",
+    "any", "some", "one", "two", "when", "where", "how", "what", "who", "will",
+    "would", "let", "each", "both", "more", "most", "other", "paper", "show",
+    "prove", "results", "result", "using", "used", "use", "new", "given", "obtained"])
+
+function lg_tokenize(text::AbstractString)
+    tokens = String[]
+    buf = IOBuffer()
+    for c in lowercase(text)
+        if isletter(c) || isdigit(c)
+            print(buf, c)
+        else
+            tok = String(take!(buf))
+            if length(tok) >= 2 && !(tok in LG_STOPWORDS)
+                push!(tokens, tok)
+            end
+        end
+    end
+    tok = String(take!(buf))
+    if length(tok) >= 2 && !(tok in LG_STOPWORDS)
+        push!(tokens, tok)
+    end
+    return tokens
+end
+
+# Flag-gated (default OFF): also index each work's full text (corpus-nt/fulltext/<key>.txt,
+# built by §32.5d/e) into BM25, capped per doc to bound the in-memory index. OFF = title+abstract
+# only (today's behavior, few-hundred-MB index). ON bloats RAM ~linearly with full-text volume —
+# turn on only with the disk-backed index (§32.5d) or ample RAM. read_reference serves full text
+# regardless of this flag (JVM-side ReferenceCoreReader); this only affects RETRIEVAL recall.
+lg_index_fulltext() = get(ENV, "ET_GROUND_INDEX_FULLTEXT", "0") == "1"
+const LG_FULLTEXT_CAP = 40_000   # chars of full text folded into the index per doc
+
+"""Load abstracts.jsonl and build the BM25 index. Returns doc count."""
+function lg_init!(corpus_path::AbstractString)
+    docs = LgDoc[]
+    postings = Dict{String,Vector{Tuple{Int32,Int16}}}()
+    doclen = Int32[]
+    ft_dir = joinpath(dirname(corpus_path), "fulltext")
+    ft_on = lg_index_fulltext() && isdir(ft_dir)
+    open(corpus_path, "r") do io
+        for line in eachline(io)
+            isempty(strip(line)) && continue
+            row = try
+                JSON3.read(line)
+            catch
+                continue
+            end
+            id = String(get(row, :id, ""))
+            key = last(split(id, '/'))     # "https://openalex.org/W123" -> "W123"
+            isempty(key) && continue
+            title = String(get(row, :title, ""))
+            abstract_ = String(get(row, :abstract, ""))
+            doi_ = String(get(row, :doi, ""))
+            cited_by = Int(get(row, :cited_by_count, 0))
+            lg_curated_out(doi_, cited_by) && continue
+            authors = try
+                join(String.(get(row, :authors, String[])), ", ")
+            catch
+                ""
+            end
+            msc_ = try
+                join(String.(get(row, :msc, String[])), " ")   # row stores msc as a JSON list
+            catch
+                ""
+            end
+            doc = LgDoc(key, title, Int(get(row, :year, 0)),
+                        String(get(row, :venue, "")), authors, doi_, abstract_,
+                        String(get(row, :field, "")),      # "" for pre-rebuild corpus rows
+                        String(get(row, :subfield, "")),
+                        String(get(row, :topic, "")),
+                        msc_)
+            push!(docs, doc)
+            docid = Int32(length(docs))
+            indexed = title * " " * abstract_
+            if ft_on
+                ftpath = joinpath(ft_dir, key * ".txt")
+                if isfile(ftpath)
+                    ft = read(ftpath, String)
+                    indexed *= " " * (length(ft) > LG_FULLTEXT_CAP ? ft[1:LG_FULLTEXT_CAP] : ft)
+                end
+            end
+            counts = Dict{String,Int}()
+            ntok = 0
+            for tok in lg_tokenize(indexed)
+                counts[tok] = get(counts, tok, 0) + 1
+                ntok += 1
+            end
+            push!(doclen, Int32(ntok))
+            for (tok, tf) in counts
+                push!(get!(postings, tok, Tuple{Int32,Int16}[]),
+                      (docid, Int16(min(tf, typemax(Int16)))))
+            end
+        end
+    end
+    avglen = isempty(doclen) ? 1.0 : sum(Float64, doclen) / length(doclen)
+    LG_INDEX[] = LgIndex(docs, postings, doclen, avglen)
+    return length(docs)
+end
+
+"""Startup hook: build the index when the corpus exists; degrade to a clear
+   'not configured' response otherwise (never fail the server boot)."""
+function lg_init_from_env!()
+    path = get(ENV, "ET_GROUND_CORPUS",
+               joinpath(homedir(), ".emergentterrain", "corpus-nt", "abstracts.jsonl"))
+    if !isfile(path)
+        @info "literature grounding: corpus not found — /ground/claim will answer 'not_configured'" path
+        return 0
+    end
+    t0 = time_ns()
+    n = try
+        lg_init!(path)
+    catch e
+        @warn "literature grounding: corpus index build FAILED" error=sprint(showerror, e)
+        return 0
+    end
+    elapsed_s = round((time_ns() - t0) / 1e9; digits=1)
+    @info "literature grounding: BM25 index ready" docs=n terms=length(LG_INDEX[].postings) elapsed_s
+    return n
+end
+
+# ─── scoring ─────────────────────────────────────────────────────────
+
+"""BM25 over the query tokens; returns (top docids, raw scores, normalized top score).
+   The normalized score divides by Σ idf(q) so it is comparable across query lengths
+   (≈ fraction of the query's information mass matched, times the tf saturation ≤ k1+1)."""
+function lg_search(query::AbstractString, topk::Int)
+    index = LG_INDEX[]
+    index === nothing && return (Int32[], Float64[], 0.0)
+    qtokens = unique(lg_tokenize(query))
+    isempty(qtokens) && return (Int32[], Float64[], 0.0)
+    ndocs = length(index.docs)
+    scores = Dict{Int32,Float64}()
+    idfsum = 0.0
+    for tok in qtokens
+        plist = get(index.postings, tok, nothing)
+        plist === nothing && continue
+        df = length(plist)
+        idf = log(1.0 + (ndocs - df + 0.5) / (df + 0.5))
+        idfsum += idf
+        for (docid, tf) in plist
+            denom = tf + LG_K1 * (1.0 - LG_B + LG_B * index.doclen[docid] / index.avglen)
+            scores[docid] = get(scores, docid, 0.0) + idf * (tf * (LG_K1 + 1.0)) / denom
+        end
+    end
+    isempty(scores) && return (Int32[], Float64[], 0.0)
+    # Subject gate: drop cross-domain candidates BEFORE ranking so topk fills with
+    # subject-relevant works and the normalized confidence reflects the best RELEVANT
+    # match, not a high-scoring noise doc. No-op when the allowlist is unset.
+    allow = lg_subject_allowlist()
+    order = sort(filter(kv -> lg_subject_ok(index.docs[kv[1]], allow), collect(scores));
+                 by=kv -> -kv[2])
+    isempty(order) && return (Int32[], Float64[], 0.0)
+    top = order[1:min(topk, length(order))]
+    nscore = idfsum > 0 ? top[1][2] / (idfsum * (LG_K1 + 1.0)) : 0.0
+    return (Int32[kv[1] for kv in top], Float64[kv[2] for kv in top], nscore)
+end
+
+"""Snippet: a ±160-char window around the first query-term hit in the abstract."""
+function lg_snippet(doc::LgDoc, query::AbstractString)
+    text = isempty(doc.abstract_) ? doc.title : doc.abstract_
+    lower = lowercase(text)
+    at = 1
+    for tok in lg_tokenize(query)
+        hit = findfirst(tok, lower)
+        if hit !== nothing
+            at = first(hit)
+            break
+        end
+    end
+    lo = max(1, at - 160)
+    hi = min(lastindex(text), at + 160)
+    lo = max(1, thisind(text, lo))
+    hi = min(lastindex(text), thisind(text, hi))
+    frag = strip(text[lo:hi])
+    return (lo > 1 ? "…" : "") * frag * (hi < lastindex(text) ? "…" : "")
+end
+
+# ─── HTTP handler ────────────────────────────────────────────────────
+
+# SILENT below this normalized-score threshold (env-tunable). Re-calibrated on the
+# CURATED index 2026-07-04 (zenodo-uncited works dropped): the 20/20 plateau
+# narrowed to 0.25–0.26 (known claims ≥0.262, open claims <0.25) — default = its
+# top. The margin is now razor-thin (~0.01) and claim-wording-sensitive; ALWAYS
+# re-run EmergentTerrain/scripts/run-ground-probes.py after any corpus rebuild
+# or curation-rule change, and adjust this default to the plateau it reports.
+lg_silent_threshold() = parse(Float64, get(ENV, "ET_GROUND_SILENT_THRESHOLD", "0.26"))
+
+function handle_ground_claim(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("ground_claim", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+    claim = String(get(body, :claim, ""))
+    topk = clamp(Int(get(body, :topK, 5)), 1, 20)
+    if isempty(strip(claim))
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("ground_claim", elapsed_ms, :error)
+        return error_response("bad_request", "Missing 'claim'", elapsed_ms)
+    end
+    index = LG_INDEX[]
+    elapsedms() = round(Int, (time_ns() - t0) / 1_000_000)
+    if index === nothing
+        record_call!("ground_claim", elapsedms(), :error)
+        return error_response("not_configured",
+            "Grounding corpus not loaded (build it with EmergentTerrain's "
+            * "scripts/build-nt-corpus.sh, or set ET_GROUND_CORPUS)", elapsedms())
+    end
+    docids, scores, nscore = lg_search(claim, topk)
+    threshold = lg_silent_threshold()
+    verdict = (isempty(docids) || nscore < threshold) ? "SILENT" : "EVIDENCE"
+    # Evidence is returned for BOTH verdicts: under SILENT the entries are the
+    # NEAR MISSES — "related work exists but does not state this claim" — which
+    # is richer input for both the narrator (situating) and the 32.5b panel
+    # novelty read (a SILENT with strong near-misses is positive novelty
+    # evidence over a real corpus, not a can't-assess).
+    evidence = Vector{Dict{String,Any}}()
+    for (i, docid) in pairs(docids)
+        doc = index.docs[docid]
+        push!(evidence, Dict{String,Any}(
+            "key" => doc.key,
+            "title" => doc.title,
+            "year" => doc.year,
+            "venue" => doc.venue,
+            "authors" => doc.authors,
+            "doi" => doc.doi,
+            "field" => doc.field,
+            "subfield" => doc.subfield,
+            "topic" => doc.topic,
+            "msc" => doc.msc,
+            "score" => round(scores[i]; digits=3),
+            "snippet" => lg_snippet(doc, claim)))
+    end
+    value = Dict{String,Any}(
+        "verdict" => verdict,
+        "confidence" => round(nscore; digits=4),
+        "threshold" => threshold,
+        "evidence" => evidence,
+        "corpus_docs" => length(index.docs),
+        "note" => "v1 retrieval verdict: EVIDENCE|SILENT (SILENT still lists "
+                  * "near-miss references). SUPPORTED/CONTRADICTED classification "
+                  * "is the JVM caller's contracrow step over these snippets; "
+                  * "cite ONLY the provided keys.")
+    record_call!("ground_claim", elapsedms(), :ok)
+    return ok_response(elapsedms(), value)
+end

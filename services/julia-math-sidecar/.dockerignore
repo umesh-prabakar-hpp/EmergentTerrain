@@ -1,0 +1,25 @@
+# Keep the Docker build context lean — anything not needed for
+# `docker build` should be excluded. The same patterns as .gitignore
+# plus a few that ARE in git but aren't needed in the image.
+
+# Git metadata
+.git
+.gitignore
+
+# Tests don't ship in the production image
+test/
+
+# Documentation — ship via the README link in the image, not the file
+README.md
+systemd/
+
+# Editor + OS noise
+.*.swp
+.*.swo
+*~
+.DS_Store
+
+# Build artifacts (in case the host ran julia locally)
+*.jl.cov
+*.jl.mem
+sysimage/

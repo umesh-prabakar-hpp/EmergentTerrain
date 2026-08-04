@@ -1,0 +1,40 @@
+# Julia build artifacts
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+deps/deps.jl
+deps/build.log
+deps/downloads/
+deps/usr/
+deps/src/
+
+# Compiled sysimage (if PackageCompiler is used)
+sysimage/
+*.so
+*.dylib
+*.dll
+
+# Manifest.toml is committed (pins exact dep versions for reproducible
+# builds). Project.toml lists the loose constraints.
+
+# Editor swap files
+.*.swp
+.*.swo
+*~
+
+# Coverage
+coverage/
+
+# Local environment
+.env
+.envrc
+
+# Sidecar log file (default location from scripts/start.sh)
+logs/
+sidecar.log
+
+# nohup output from backgrounded start.sh runs
+nohup.out
+
+# Per-run discovery/eval output dirs (timestamped, regenerated each run)
+outputs/
