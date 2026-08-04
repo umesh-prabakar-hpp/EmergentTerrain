@@ -12,13 +12,23 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 
 The Git repositories for the Rust GPU engine and Julia math sidecar are now imported into this
 repository with their histories under `engines/gpu-engine/` and `services/julia-math-sidecar/`.
-The existing Spring application remains at the repository root during the compatibility stage.
+The Spring application now lives in `apps/game-service/`; `apps/research-service/` is a separate
+research-only runtime. Shared research implementation code remains in the game-service artifact
+while it is being extracted, but the research runtime does not scan or start gameplay components.
 The game-facing research reads are available through the versioned
 [`contracts/research-api/openapi.yaml`](contracts/research-api/openapi.yaml) contract; the current
 default is the co-located implementation (`app.research-api.mode=local`).
 
 The old sibling clones are not needed to run this checkout and are deliberately not deleted by the
 migration. Retire them manually only after validating this monorepo checkout.
+
+### Research-only runtime
+
+Run `./scripts/start-research-service.sh` to run research without starting the game UI, world/GPU
+services, WebSocket stack, or LLM subscription proxies. It serves research API v1 on port `8082`
+and runs the university cycle from persisted room state. PostgreSQL is required. To have a running
+game display this service's results, start the game with `app.research-api.mode=remote` and
+`app.university.enabled=false`; see `apps/research-service/README.md` for the command.
 
 ## Features
 - User registration + login (session-based)
@@ -60,7 +70,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn spring-boot:run
+mvn -f apps/game-service/pom.xml spring-boot:run
 ```
 Open `http://localhost:8081/`
 
@@ -481,44 +491,44 @@ Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performa
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
 
 ## Benchmarks (JMH)
-Benchmarks live under `src/jmh/java/com/emergentterrain/bench`.
+Benchmarks live under `apps/game-service/src/jmh/java/com/emergentterrain/bench`.
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn -DskipTests -Pbench package
+mvn -f apps/game-service/pom.xml -DskipTests -Pbench package
 ```
 
 Standalone (forked, recommended for real numbers):
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target/jmh-result.json
+java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff apps/game-service/target/jmh-result.json
 ```
 
 Profiles:
 ```bash
 # RPC overhead (small sizes)
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=RPC -f 1
+java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=RPC -f 1
 
 # Compute-heavy (larger sizes)
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=HEAVY -f 1
+java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=HEAVY -f 1
 ```
 
 In-process (no fork, quick sanity):
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target/jmh-result.json"
+mvn -f apps/game-service/pom.xml -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target/jmh-result.json"
 ```
 
 GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` if needed.
 
 Focused patch benchmark:
 ```bash
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild.*" -f 1
+java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild.*" -f 1
 ```
 
 Focused government benchmark:
 ```bash
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSimulationBenchmark.*" -f 1
+java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSimulationBenchmark.*" -f 1
 ```
 
 ## GPU Engine Integration
@@ -562,7 +572,7 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/compare-cpu-vs-gpu-performance.sh --iterations 2 --build-artifacts
 ```
 
-It packages the Spring app to `target/emergent-terrain-0.0.1-SNAPSHOT.jar`, builds the Rust engine in `release`, runs the app with `--spring.profiles.active=perf`, and prints JSON with run-by-run timings plus GPU-minus-CPU deltas. This is the supported local performance path; do not use `mvn spring-boot:run` or `cargo run` for comparisons.
+It packages the Spring app to `apps/game-service/target/game-service-0.0.1-SNAPSHOT-boot.jar`, builds the Rust engine in `release`, runs the app with `--spring.profiles.active=perf`, and prints JSON with run-by-run timings plus GPU-minus-CPU deltas. This is the supported local performance path; do not use `mvn spring-boot:run` or `cargo run` for comparisons.
 
 Perf profile notes:
 - `application-perf.yml` stays on PostgreSQL and targets `emergentterrain_perf` by default.
@@ -600,7 +610,7 @@ bash ./scripts/setup-fedora-prereqs.sh
 Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
 
 ## Configuration
-See `src/main/resources/application.yml` for app settings:
+See `apps/game-service/src/main/resources/application.yml` for game-service settings:
 - `app.qr.hmacSecret`
 - `app.room.multipleRoomsEnabled` defaults to false for the single-room player experience
 - `app.ai.digestCooldownMinutes`, `app.ai.advisorCooldownSeconds`, and `app.ai.explanationCooldownMs` for LLM request pacing
@@ -633,7 +643,7 @@ See `src/main/resources/application.yml` for app settings:
 
 ## Constitutional Terrain
 - Current implementation notes live in `docs/constitutional-terrain-phase1.md`.
-- Machine-readable constitutional rules live in `src/main/resources/government/constitution-rules.json`.
+- Machine-readable constitutional rules live in `apps/game-service/src/main/resources/government/constitution-rules.json`.
 - That constitution file contains structured content, not just a version string: Articles I-VII plus Amendments I-XXVII each carry a title, category, trigger, enforcement rule, and affected systems used by runtime doctrine and summary generation.
 - Runtime history output is append-only and written under `simulation-history/` with subfolders for:
   - `constitution`

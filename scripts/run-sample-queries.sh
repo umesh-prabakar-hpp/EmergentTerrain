@@ -26,6 +26,8 @@ interval_ms=60000
 room_id=""
 fail_on_error=0
 output_dir=""
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
 maven_cmd="${MAVEN_CMD:-mvn}"
 
 while [[ $# -gt 0 ]]; do
@@ -89,4 +91,4 @@ if [[ -n "$output_dir" ]]; then
   args+=("-Dsample.outputDir=$output_dir")
 fi
 
-"${maven_cmd_parts[@]}" "${args[@]}" test
+"${maven_cmd_parts[@]}" -f "$repo_root/apps/game-service/pom.xml" "${args[@]}" test

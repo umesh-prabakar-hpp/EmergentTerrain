@@ -10,7 +10,7 @@
 # By default this script:
 #   - gracefully stops a previous app/proxy set before starting a fresh one
 #   - exports JAVA_HOME to the dnf-installed JDK 25 path
-#   - launches `mvn clean spring-boot:run` in the background via nohup so the
+#   - launches the game-service Maven module in the background via nohup so the
 #     JVM cannot inherit stale compiled classes from an earlier worktree state
 #   - redirects Maven/JVM stdout to logs/maven-stdout.log
 #     (the Spring app's own log lives in logs/et-app.log via logback;
@@ -26,7 +26,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+GAME_SERVICE_POM="$REPO_ROOT/apps/game-service/pom.xml"
 cd "$REPO_ROOT"
+
+[[ -f "$GAME_SERVICE_POM" ]] || { echo "Game-service POM not found: $GAME_SERVICE_POM" >&2; exit 1; }
 
 FOREGROUND=0
 for arg in "$@"; do
@@ -150,13 +153,13 @@ fi
 
 if [ "$FOREGROUND" = "1" ]; then
     echo "EmergentTerrain: starting in foreground (Ctrl-C to stop)"
-    exec mvn spring-boot:run
+    exec mvn -f "$GAME_SERVICE_POM" spring-boot:run
 fi
 
 # Background launch. nohup so the process survives shell exit; & to
 # detach. stdout merges with stderr into the log.
 echo "EmergentTerrain: clean-building and starting in background, stdout → $STDOUT_LOG"
-nohup mvn clean spring-boot:run > "$STDOUT_LOG" 2>&1 &
+nohup mvn -f "$GAME_SERVICE_POM" clean spring-boot:run > "$STDOUT_LOG" 2>&1 &
 LAUNCHER_PID=$!
 echo "EmergentTerrain: launcher PID $LAUNCHER_PID (the actual JVM spawns ~30s later)"
 echo

@@ -14,6 +14,9 @@
   `UniversityService`.
 - `app.research-api.mode=local` is the default compatibility implementation. `remote` enables the
   HTTP read client once an independent research service is deployed.
+- `apps/game-service/` and `apps/research-service/` are now Maven modules. The research module
+  runs the university cycle independently from persisted bot/government state and excludes the
+  game UI, world, GPU, and WebSocket runtime components.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining worker/persistence extraction is described in

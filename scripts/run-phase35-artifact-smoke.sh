@@ -15,4 +15,4 @@ fi
 
 export PHASE34_REAL_INDEX_DIR="$index_dir"
 cd "$repo_root"
-mvn test -Dtest=Phase35ArtifactBackedSmokeTest -DtrimStackTrace=false
+mvn -f apps/game-service/pom.xml test -Dtest=Phase35ArtifactBackedSmokeTest -DtrimStackTrace=false

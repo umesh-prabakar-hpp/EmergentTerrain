@@ -228,7 +228,7 @@ Next steps:
      export JAVA_HOME=$java_home
      export PATH="\$JAVA_HOME/bin:\$PATH"
      cd $repo_root
-     mvn spring-boot:run
+     mvn -f apps/game-service/pom.xml spring-boot:run
 
   3. Open:
      http://127.0.0.1:8080/game/test

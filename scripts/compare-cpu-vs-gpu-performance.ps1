@@ -47,7 +47,7 @@ $gpuBinary = if ($IsWindows) { "emergent_terrain_gpu_engine.exe" } else { "emerg
 $env:JAVA_HOME = $JavaHome
 $env:PATH = "$javaBinDir$pathSeparator$env:PATH"
 
-$jarPath = Join-Path $JavaRepo "target/emergent-terrain-0.0.1-SNAPSHOT.jar"
+$jarPath = Join-Path $JavaRepo "apps/game-service/target/game-service-0.0.1-SNAPSHOT-boot.jar"
 $gpuExe = Join-Path $GpuRepo "target/release/$gpuBinary"
 $outputRoot = Join-Path $JavaRepo "sample-output"
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
@@ -264,7 +264,7 @@ function Build-Artifacts {
     }
   }
   if ($needsBootJar) {
-    & $MavenCmd -DskipTests package spring-boot:repackage
+    & $MavenCmd -f (Join-Path $JavaRepo "apps/game-service/pom.xml") -DskipTests package spring-boot:repackage
     if ($LASTEXITCODE -ne 0) { throw "Java boot jar build failed." }
   }
   if (-not (Test-Path $gpuExe)) {
@@ -455,7 +455,7 @@ function Run-Scenario {
 
 if ($BuildArtifacts) {
   Push-Location $JavaRepo
-  try { & $MavenCmd -DskipTests package spring-boot:repackage } finally { Pop-Location }
+  try { & $MavenCmd -f (Join-Path $JavaRepo "apps/game-service/pom.xml") -DskipTests package spring-boot:repackage } finally { Pop-Location }
   Push-Location $GpuRepo
   try { & cargo build --release } finally { Pop-Location }
 } else {

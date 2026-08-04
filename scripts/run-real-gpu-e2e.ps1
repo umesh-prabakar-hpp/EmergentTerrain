@@ -409,7 +409,7 @@ Set-Location '$GpuRepo'
 `$env:APP_CONSENSUS_MINVOTESTORESOLVE = '1'
 `$env:APP_CONSENSUS_MINNEIGHBORS = '1'
 `$env:APP_CONSENSUS_QUORUMCAP = '1'
-& '$MavenCmd' spring-boot:run
+& '$MavenCmd' -f '$repoRoot/apps/game-service/pom.xml' spring-boot:run
 "@
     $appProcess = Start-Process -FilePath $shellCmd `
       -ArgumentList @("-NoProfile", "-Command", $javaCommand) `

@@ -342,7 +342,7 @@ if [[ $reuse_existing_app -ne 1 ]]; then
     export APP_CONSENSUS_MINNEIGHBORS=1
     export APP_CONSENSUS_QUORUMCAP=1
     cd "$repo_root"
-    "${maven_cmd_parts[@]}" spring-boot:run
+    "${maven_cmd_parts[@]}" -f "$repo_root/apps/game-service/pom.xml" spring-boot:run
   ) >"$app_log" 2>"$app_err_log" &
   app_pid=$!
   started_app=1

@@ -30,6 +30,6 @@ if [ ! -x "${JAVA_HOME:-/nonexistent}/bin/java" ]; then
   export JAVA_HOME=/usr/lib/jvm/java-25-openjdk
 fi
 
-exec mvn -q compile exec:java \
+exec mvn -f "$REPO_ROOT/apps/game-service/pom.xml" -q compile exec:java \
   -Dexec.mainClass=com.emergentterrain.research.literature.ArxivHtmlCoreBuilder \
   -Dexec.cleanupDaemonThreads=false

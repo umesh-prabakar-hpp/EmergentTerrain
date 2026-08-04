@@ -1,0 +1,22 @@
+server:
+  port: ${RESEARCH_SERVICE_PORT:8082}
+spring:
+  config:
+    # Run from the monorepo root (the supported command in this module's README), or set
+    # GAME_CONFIG_PATH for a packaged/deployed service. This retains the current research and
+    # LLM configuration without copying a large, independently drifting YAML file.
+    import: "optional:file:${GAME_CONFIG_PATH:apps/game-service/src/main/resources/application.yml}"
+  application:
+    name: emergent-terrain-research-service
+  datasource:
+    url: ${PG_URL:jdbc:postgresql://localhost:5432/emergentterrain}
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:NewStrongPasswordHere}
+    driver-class-name: org.postgresql.Driver
+  jackson:
+    default-property-inclusion: non_null
+app:
+  research-service:
+    worker:
+      enabled: ${RESEARCH_SERVICE_WORKER_ENABLED:true}
+      interval-ms: ${RESEARCH_SERVICE_WORKER_INTERVAL_MS:1000}

@@ -3,16 +3,21 @@
 Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 
 ## Repository layout
-- Java game web app (compatibility-stage root module): `/opt/apps/ide/eclipse/workspace-web/EmergentTerrain`
+- Java game web app: `apps/game-service/`
+- Research-only runtime: `apps/research-service/`
 - Rust GPU engine: `engines/gpu-engine/`
 - Julia/Python math sidecar: `services/julia-math-sidecar/`
 - Research API contract: `contracts/research-api/openapi.yaml`
 
 The GPU engine and Julia sidecar histories are imported into this monorepo. Do not restore them as
-Git submodules or nested Git repositories. The root Spring app still hosts research locally by
-default; game-facing research reads must use `ResearchQueryClient` / the v1 API contract rather
-than exposing `ResearchPaper` entities as a cross-service contract. `ResearchTickGateway` is the
-temporary game-tick seam until its external snapshot/action contract is extracted.
+Git submodules or nested Git repositories. Game-facing research reads must use
+`ResearchQueryClient` / the v1 API contract rather than exposing `ResearchPaper` entities as a
+cross-service contract. `apps/research-service/` is the autonomous research runtime; when the game
+uses `app.research-api.mode=remote`, it does not create a local `ResearchTickGateway`.
+
+Use `./scripts/start-research-service.sh` to run the research worker without starting the game.
+It depends on PostgreSQL and the shared transition-period `game-service` artifact, but its Spring
+scan excludes game controllers, WebSockets, RoomService, world generation, and GPU services.
 
 ## Required environment
 - Java 21
@@ -45,7 +50,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn spring-boot:run
+mvn -f apps/game-service/pom.xml spring-boot:run
 ```
 
 For the configured primary LLM, prefer `./scripts/start.sh`: it starts the
@@ -67,18 +72,18 @@ has `parallelism: 2`; keep it small because every request launches a Codex turn.
 For the exact local Codex/Claude login, proxy connection, enablement, and
 verification procedure, see `docs/subscription-providers.md`.
 
-If tests or runtime need a real DB, ensure PostgreSQL is running and the app datasource properties are correct in `src/main/resources/application.yml` or via env vars.
+If tests or runtime need a real DB, ensure PostgreSQL is running and the datasource properties are correct in `apps/game-service/src/main/resources/application.yml` or via env vars.
 
 ## Build
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn -DskipTests package
+mvn -f apps/game-service/pom.xml -DskipTests package
 ```
 
 ## Tests
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn test -DtrimStackTrace=false
+mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
 ```
 
 On sandboxed hosts, Mockito's inline mock maker cannot dynamically attach Byte Buddy even
@@ -122,8 +127,8 @@ That script is the supported Fedora performance path. It uses the packaged Sprin
 ## Benchmarks
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn -DskipTests -Pbench package
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target/jmh-result.json
+mvn -f apps/game-service/pom.xml -DskipTests -Pbench package
+java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff apps/game-service/target/jmh-result.json
 ```
 
 GPU benchmarks require the Rust GPU engine running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` to point at it.
@@ -181,7 +186,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - Bot civic state now also participates in the government loop via `proceduralState` and `sanctionState`; when adding more individualized enforcement, prefer updating bot civic state and pressure generation together rather than inventing disconnected side records.
 - Civic legal climate is now surfaced through `GovernmentSummary.civicLegalItems` and trend payload counts/shares, so new individualized government layers should generally wire through those before adding another bespoke panel.
 - `src/main/java/com/emergentterrain/gpu/GpuEngineCodec.java` handles tile and bool-grid encoding.
-- `src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, government feedback thresholds, and `app.government.timeline.*` retention settings.
+- `apps/game-service/src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, government feedback thresholds, and `app.government.timeline.*` retention settings.
 - Append-only simulation history is written under `simulation-history/constitution`, `simulation-history/events`, `simulation-history/elections`, `simulation-history/courts`, and `simulation-history/legislation`.
 - **Phase 36 range-preserving chunk slice** — `RangePreservingChunkExecutor` journals mutable,
   restart-safe research execution under `simulation-history/research-experiments/` (not

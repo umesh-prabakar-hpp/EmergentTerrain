@@ -107,7 +107,7 @@ require_command cargo
 
 java_cmd="$java_home/bin/java"
 jar_cmd="$java_home/bin/jar"
-jar_path="$java_repo/target/emergent-terrain-0.0.1-SNAPSHOT.jar"
+jar_path="$java_repo/apps/game-service/target/game-service-0.0.1-SNAPSHOT-boot.jar"
 gpu_exe="$gpu_repo/target/release/emergent_terrain_gpu_engine"
 output_root="$java_repo/sample-output"
 mkdir -p "$output_root"
@@ -307,7 +307,7 @@ build_artifacts_if_needed() {
       export JAVA_HOME="$java_home"
       export PATH="$java_home/bin:$PATH"
       cd "$java_repo"
-      "${maven_cmd_parts[@]}" -DskipTests package spring-boot:repackage
+      "${maven_cmd_parts[@]}" -f "$java_repo/apps/game-service/pom.xml" -DskipTests package spring-boot:repackage
     )
   fi
 
