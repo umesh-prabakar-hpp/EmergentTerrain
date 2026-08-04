@@ -1,0 +1,86 @@
+openapi: 3.1.0
+info:
+  title: EmergentTerrain Research API
+  version: 1.0.0
+  description: |
+    Versioned game-to-research read contract. The game service retains the legacy
+    /room/{roomId}/research paths while research is co-located; separate deployments
+    use these /api/v1 paths exclusively.
+paths:
+  /api/v1/research/rooms/{roomId}/papers:
+    get:
+      operationId: listPublishedPapers
+      parameters:
+        - $ref: '#/components/parameters/roomId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        '200':
+          description: Most recently published papers first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResearchPaperSummary'
+  /api/v1/research/rooms/{roomId}/stats:
+    get:
+      operationId: getResearchStats
+      parameters:
+        - $ref: '#/components/parameters/roomId'
+      responses:
+        '200':
+          description: Aggregated research state for a room.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchStats'
+components:
+  parameters:
+    roomId:
+      name: roomId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ResearchPaperSummary:
+      type: object
+      required: [paperId, roomId, reviewerBotIds, peerScore, tick, generation]
+      properties:
+        paperId: { type: string }
+        roomId: { type: string, format: uuid }
+        authorBotId: { type: string }
+        domain: { type: string }
+        topic: { type: string }
+        title: { type: string }
+        hypothesis: { type: string }
+        methodology: { type: string }
+        findings: { type: string }
+        conclusion: { type: string }
+        reviewerBotIds:
+          type: array
+          items: { type: string }
+        peerScore: { type: number, format: double }
+        status: { type: string }
+        tick: { type: integer, format: int64 }
+        generation: { type: integer, format: int32 }
+    ResearchStats:
+      type: object
+      required: [totalPublished, totalRejected, researcherCount, maxGeneration, avgReputation, avgPeerScore, byDomain]
+      properties:
+        totalPublished: { type: integer, format: int64 }
+        totalRejected: { type: integer, format: int64 }
+        researcherCount: { type: integer, format: int64 }
+        maxGeneration: { type: integer, format: int32 }
+        avgReputation: { type: number, format: double }
+        avgPeerScore: { type: number, format: double }
+        byDomain:
+          type: object
+          additionalProperties: { type: integer, format: int64 }

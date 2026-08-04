@@ -15,6 +15,7 @@ param(
 $ErrorActionPreference = "Stop"
 $pathSeparator = [System.IO.Path]::PathSeparator
 $shellCmd = if ($IsWindows) { "powershell.exe" } else { "pwsh" }
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 if ([string]::IsNullOrWhiteSpace($MavenCmd)) {
   $MavenCmd = $env:MAVEN_CMD
@@ -32,10 +33,9 @@ if ([string]::IsNullOrWhiteSpace($JavaHome)) {
   }
 }
 if ([string]::IsNullOrWhiteSpace($GpuRepo)) {
-  $GpuRepo = if ($IsWindows) { "C:\dev\ide\eclipse\workspace-web\EmergentTerrainGPUEngine" } else { "/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine" }
+  $GpuRepo = Join-Path $repoRoot "engines/gpu-engine"
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $outputDir = Join-Path $repoRoot "sample-output/gpu-e2e-$timestamp"
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null

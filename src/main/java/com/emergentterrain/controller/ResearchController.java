@@ -1,7 +1,7 @@
 package com.emergentterrain.controller;
 
-import com.emergentterrain.research.ResearchPaper;
-import com.emergentterrain.research.UniversityService;
+import com.emergentterrain.research.api.ResearchPaperSummary;
+import com.emergentterrain.research.api.ResearchQueryClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,24 +11,24 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@ConditionalOnBean(UniversityService.class)
+@ConditionalOnBean(ResearchQueryClient.class)
 public class ResearchController {
 
-    private final UniversityService universityService;
+    private final ResearchQueryClient researchClient;
 
-    public ResearchController(UniversityService universityService) {
-        this.universityService = universityService;
+    public ResearchController(ResearchQueryClient researchClient) {
+        this.researchClient = researchClient;
     }
 
-    @GetMapping("/room/{roomId}/research/papers")
-    public ResponseEntity<List<ResearchPaper>> getPapers(
+    @GetMapping({"/room/{roomId}/research/papers", "/api/v1/research/rooms/{roomId}/papers"})
+    public ResponseEntity<List<ResearchPaperSummary>> getPapers(
             @PathVariable("roomId") UUID roomId,
             @RequestParam(name = "limit", defaultValue = "50") int limit) {
-        return ResponseEntity.ok(universityService.getPublishedPapers(roomId, Math.min(limit, 500)));
+        return ResponseEntity.ok(researchClient.getPublishedPapers(roomId, Math.clamp(limit, 1, 500)));
     }
 
-    @GetMapping("/room/{roomId}/research/stats")
+    @GetMapping({"/room/{roomId}/research/stats", "/api/v1/research/rooms/{roomId}/stats"})
     public ResponseEntity<Map<String, Object>> getStats(@PathVariable("roomId") UUID roomId) {
-        return ResponseEntity.ok(universityService.getStats(roomId));
+        return ResponseEntity.ok(researchClient.getStats(roomId));
     }
 }

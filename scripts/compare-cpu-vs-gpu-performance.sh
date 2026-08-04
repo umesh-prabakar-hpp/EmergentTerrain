@@ -11,7 +11,7 @@ Options:
   --java-home PATH                  JDK home. Defaults to $JAVA_HOME or /usr/lib/jvm/java-21-openjdk
   --maven-cmd CMD                   Maven command. Defaults to $MAVEN_CMD or mvn
   --java-repo PATH                  Java repo path. Default: /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-  --gpu-repo PATH                   GPU repo path. Default: /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+  --gpu-repo PATH                   GPU repo path. Default: engines/gpu-engine in this monorepo
   --report-dir PATH                 Report output directory. Defaults to sample-output/perf-report-<timestamp>
   --build-artifacts                 Force rebuild of the Spring Boot jar and Rust release binary
   -h, --help                        Show this help
@@ -39,7 +39,7 @@ bot_simulation_iterations=10
 java_home="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk}"
 maven_cmd="${MAVEN_CMD:-mvn}"
 java_repo="${JAVA_REPO:-$java_repo_default}"
-gpu_repo="${GPU_REPO:-/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine}"
+gpu_repo="${GPU_REPO:-$java_repo_default/engines/gpu-engine}"
 build_artifacts=0
 report_dir=""
 

@@ -67,7 +67,7 @@ public class RoomService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private PolicyConsultationService policyConsultationService;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.emergentterrain.research.UniversityService universityService;
+    private com.emergentterrain.research.api.ResearchTickGateway researchTickGateway;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.llm.SimulationGate simulationGate;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -931,14 +931,14 @@ public class RoomService {
                 if (!governmentMutation.dirtyBots().isEmpty()) {
                     botRepository.saveAll(governmentMutation.dirtyBots());
                 }
-                if (universityService != null) {
+                if (researchTickGateway != null) {
                     GovernmentState govForUni = governmentMutation.governmentState();
                     long gameTick = govForUni != null ? govForUni.getTick() : 0L;
                     // Pass only ACTIVE bots; retired bots must not participate in research
                     List<RoomBot> activeBots = botsForGovernment.stream()
                             .filter(b -> b.getStatus() == com.emergentterrain.domain.RoomBot.BotStatus.ACTIVE)
                             .collect(java.util.stream.Collectors.toList());
-                    universityService.maybeTick(room.getId(), activeBots, gameTick, govForUni);
+                    researchTickGateway.onGameTick(room.getId(), activeBots, gameTick, govForUni);
                 }
             } catch (Throwable t) {
                 log.error("maintenance government tick error roomId={}", room.getId(), t);

@@ -8,7 +8,7 @@ Usage: run-real-gpu-e2e.sh [options]
 Options:
   --java-home PATH                 JDK home. Defaults to $JAVA_HOME or /usr/lib/jvm/java-21-openjdk
   --maven-cmd CMD                  Maven command. Defaults to $MAVEN_CMD or mvn
-  --gpu-repo PATH                  Rust GPU repo path. Defaults to $GPU_REPO or /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+  --gpu-repo PATH                  Rust GPU repo path. Defaults to $GPU_REPO or engines/gpu-engine in this monorepo
   --app-port PORT                  Java app port. Default: 8080
   --gpu-port PORT                  GPU engine port. Default: 50051
   --startup-timeout-seconds SEC    Startup timeout. Default: 180
@@ -35,7 +35,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 java_home="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk}"
 maven_cmd="${MAVEN_CMD:-mvn}"
-gpu_repo="${GPU_REPO:-/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine}"
+gpu_repo="${GPU_REPO:-$repo_root/engines/gpu-engine}"
 app_port=8080
 gpu_port=50051
 startup_timeout_seconds=180

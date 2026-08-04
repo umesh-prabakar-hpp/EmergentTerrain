@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 setup_script="$script_dir/setup-fedora-prereqs.sh"
-gpu_repo="${GPU_REPO:-/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine}"
+gpu_repo="${GPU_REPO:-$repo_root/engines/gpu-engine}"
 
 [[ -f "$setup_script" ]] || {
   echo "ERROR: setup script not found at $setup_script" >&2

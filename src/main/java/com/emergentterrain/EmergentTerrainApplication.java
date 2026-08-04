@@ -10,10 +10,14 @@ import java.time.format.DateTimeFormatter;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.scheduling.annotation.EnableScheduling;
+
+import com.emergentterrain.research.api.ResearchApiProperties;
 
 @SpringBootApplication
 @EnableScheduling
+@EnableConfigurationProperties(ResearchApiProperties.class)
 public class EmergentTerrainApplication {
 
     static final Path LOG_DIR = Paths.get("logs");

@@ -6,7 +6,7 @@ usage() {
 Usage: setup-fedora-prereqs.sh [options]
 
 Installs the Fedora prerequisites for the EmergentTerrain Spring app and the
-EmergentTerrainGPUEngine Rust service, initializes PostgreSQL, and creates the
+monorepo GPU engine, initializes PostgreSQL, and creates the
 default app databases used by the normal and perf profiles.
 
 Options:
@@ -14,7 +14,7 @@ Options:
                                  Default: NewStrongPasswordHere
   --app-db NAME                  Default app database. Default: emergentterrain
   --perf-db NAME                 Perf profile database. Default: emergentterrain_perf
-  --gpu-repo PATH                Rust GPU repo path. Default: sibling repo path
+  --gpu-repo PATH                Rust GPU repo path. Default: engines/gpu-engine in this monorepo
   --skip-packages                Skip dnf package installation
   --skip-postgres                Skip PostgreSQL init/start/password/database setup
   --skip-node-deps               Skip npm install in the Java repo
@@ -43,7 +43,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 postgres_password="NewStrongPasswordHere"
 app_db="emergentterrain"
 perf_db="emergentterrain_perf"
-gpu_repo="${GPU_REPO:-/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine}"
+gpu_repo="${GPU_REPO:-$repo_root/engines/gpu-engine}"
 skip_packages=0
 skip_postgres=0
 skip_node_deps=0

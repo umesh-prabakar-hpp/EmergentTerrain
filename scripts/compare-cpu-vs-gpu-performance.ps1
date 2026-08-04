@@ -10,6 +10,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $pathSeparator = [System.IO.Path]::PathSeparator
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 if ([string]::IsNullOrWhiteSpace($JavaHome)) {
   if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
@@ -30,10 +31,10 @@ if ([string]::IsNullOrWhiteSpace($MavenCmd)) {
   }
 }
 if ([string]::IsNullOrWhiteSpace($JavaRepo)) {
-  $JavaRepo = if ($IsWindows) { "C:\dev\ide\eclipse\workspace-web\EmergentTerrain" } else { "/opt/apps/ide/eclipse/workspace-web/EmergentTerrain" }
+  $JavaRepo = $repoRoot
 }
 if ([string]::IsNullOrWhiteSpace($GpuRepo)) {
-  $GpuRepo = if ($IsWindows) { "C:\dev\ide\eclipse\workspace-web\EmergentTerrainGPUEngine" } else { "/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine" }
+  $GpuRepo = Join-Path $repoRoot "engines/gpu-engine"
 }
 
 $javaBinDir = Join-Path $JavaHome "bin"

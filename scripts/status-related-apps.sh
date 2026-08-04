@@ -21,9 +21,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
-JULIA_SIDECAR_ROOT="$WORKSPACE_ROOT/julia-math-sidecar"
-GPU_ENGINE_ROOT="$WORKSPACE_ROOT/EmergentTerrainGPUEngine"
+JULIA_SIDECAR_ROOT="${JULIA_SIDECAR_ROOT:-$REPO_ROOT/services/julia-math-sidecar}"
+GPU_ENGINE_ROOT="${GPU_ENGINE_ROOT:-$REPO_ROOT/engines/gpu-engine}"
 
 APP_URL="${ET_APP_URL:-http://127.0.0.1:8081/actuator/health}"
 LEGACY_AI_GATEWAY_URL="${ET_LEGACY_AI_GATEWAY_URL:-http://127.0.0.1:8787/healthz}"

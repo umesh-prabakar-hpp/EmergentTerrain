@@ -8,6 +8,18 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Thymeleaf + Material Web (M3) components + minimal JS
 - ZXing (QR generation)
 
+## Monorepo layout
+
+The Git repositories for the Rust GPU engine and Julia math sidecar are now imported into this
+repository with their histories under `engines/gpu-engine/` and `services/julia-math-sidecar/`.
+The existing Spring application remains at the repository root during the compatibility stage.
+The game-facing research reads are available through the versioned
+[`contracts/research-api/openapi.yaml`](contracts/research-api/openapi.yaml) contract; the current
+default is the co-located implementation (`app.research-api.mode=local`).
+
+The old sibling clones are not needed to run this checkout and are deliberately not deleted by the
+migration. Retire them manually only after validating this monorepo checkout.
+
 ## Features
 - User registration + login (session-based)
 - Profile creation (age, sex, location, yes/no preferences)
@@ -527,7 +539,7 @@ java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSim
 - Defaults are off.
 
 ### Two-app integration check
-A real Java app + Rust GPU engine smoke check is expected to run from Fedora with the repos living under `/opt/apps/ide/eclipse/workspace-web/`:
+A real Java app + Rust GPU engine smoke check runs from this monorepo:
 - Start the Rust engine on `127.0.0.1:50051`
 - Start the Java app on `127.0.0.1:8081`
 - Call `GET /game/test` to obtain a token
@@ -541,7 +553,7 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/run-real-gpu-e2e.sh
 ```
 
-The script starts the real Rust engine from `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output/gpu-e2e-*`.
+The script starts the real Rust engine from `engines/gpu-engine/` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output/gpu-e2e-*`.
 
 ### Release perf comparison
 Use the release-binary comparison harness for CPU-vs-GPU timings:

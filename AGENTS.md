@@ -2,9 +2,17 @@
 
 Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 
-## Repo locations
-- Java web app: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrain`
-- Rust GPU engine: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine`
+## Repository layout
+- Java game web app (compatibility-stage root module): `/opt/apps/ide/eclipse/workspace-web/EmergentTerrain`
+- Rust GPU engine: `engines/gpu-engine/`
+- Julia/Python math sidecar: `services/julia-math-sidecar/`
+- Research API contract: `contracts/research-api/openapi.yaml`
+
+The GPU engine and Julia sidecar histories are imported into this monorepo. Do not restore them as
+Git submodules or nested Git repositories. The root Spring app still hosts research locally by
+default; game-facing research reads must use `ResearchQueryClient` / the v1 API contract rather
+than exposing `ResearchPaper` entities as a cross-service contract. `ResearchTickGateway` is the
+temporary game-tick seam until its external snapshot/action contract is extracted.
 
 ## Required environment
 - Java 21
@@ -121,17 +129,17 @@ java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -r
 GPU benchmarks require the Rust GPU engine running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` to point at it.
 
 ## GPU engine
-See `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine/README.md` for full setup.
+See `engines/gpu-engine/README.md` for full setup.
 
 Quick run:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
 cargo run
 ```
 
 Override the default bind:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
 GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ```
 
