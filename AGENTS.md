@@ -32,8 +32,8 @@ keep that replica monotonic by game tick during the remaining extraction.
 `research_bot_states` is the next ownership layer: seed its lifecycle once from a replica, but do
 not overwrite that lifecycle from later game snapshots.
 `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` enables the read-only lifecycle parity audit; it records
-pre-cycle comparisons in `research_lifecycle_shadow_records` and must not mutate either lifecycle
-authority.
+comparisons against the game API snapshot in `research_lifecycle_shadow_records` and must not
+mutate either lifecycle authority. In shadow-only remote mode it must not load `RoomBot` rows.
 `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and

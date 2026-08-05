@@ -1,7 +1,7 @@
 package com.emergentterrain.researchservice;
 
-import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +16,7 @@ import java.util.UUID;
 
 /**
  * Read-only parity check before extracting lifecycle transitions from {@code UniversityService}.
- * It compares only deterministic persisted lifecycle fields and never mutates either authority.
+ * It compares research-owned state with the game API snapshot, never mutable game entities.
  */
 @Service
 public class ResearchLifecycleShadowService {
@@ -39,7 +39,8 @@ public class ResearchLifecycleShadowService {
     }
 
     @Transactional
-    public void compareBeforeLegacyCycle(UUID roomId, long gameTick, List<RoomBot> activeBots) {
+    public void compareAgainstGameSnapshot(UUID roomId, long gameTick,
+                                           List<ResearchBotSnapshot> activeBots) {
         if (!enabled) {
             return;
         }
@@ -50,9 +51,12 @@ public class ResearchLifecycleShadowService {
 
         int matched = 0;
         int mismatched = 0;
-        for (RoomBot bot : activeBots) {
-            ResearchBotState state = byBotId.get(bot.getId());
-            if (state == null || !sameLifecycle(state.getLifecycleJson(), bot.getLifecycleJson())) {
+        for (ResearchBotSnapshot bot : activeBots) {
+            if (bot.botId() == null) {
+                continue;
+            }
+            ResearchBotState state = byBotId.get(bot.botId());
+            if (state == null || !sameLifecycle(state.getLifecycleJson(), bot.lifecycleJson())) {
                 mismatched++;
             } else {
                 matched++;

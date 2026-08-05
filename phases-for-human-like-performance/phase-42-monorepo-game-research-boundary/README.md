@@ -35,12 +35,12 @@
   snapshots may update the bot type, activity, and source tick, but never overwrite the lifecycle
   JSON after initial creation; that field is reserved for the extracted research engine.
 - With `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true`, the worker records a pre-cycle parity comparison
-  between research-owned lifecycle state and the legacy rows in
+  between research-owned lifecycle state and the game API's bot snapshot in
   `research_lifecycle_shadow_records`. This is strictly read-only and is the gate before moving
   lifecycle transitions to research ownership.
 - `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` makes that audit an execution-safe migration mode: it
   imports the game snapshot, records the parity observation, advances the checkpoint, and does
-  not call the legacy university cycle.
+  not call the legacy university cycle or load mutable game bot rows.
 
 ## Live standalone validation — 2026-08-04
 
@@ -69,6 +69,9 @@
   The audit therefore confirms API, credential, durable snapshot, schema-upgrade, checkpoint, and
   observability paths, while explicitly blocking lifecycle ownership cutover until research computes
   and validates the same transitions.
+- The next isolation increment removes the final bot-table read from shadow-only mode: parity now
+  compares research state exclusively with `ResearchBotSnapshot` payloads returned by the versioned
+  game API. Mutable `RoomBot` loading remains only in the non-shadow compatibility execution path.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

@@ -56,6 +56,7 @@ ownership when `UniversityService` is extracted.
 
 Before moving lifecycle transitions, enable the read-only parity audit with
 `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true`. It compares persisted lifecycle fields in
-`research_bot_states` against the legacy transition rows immediately before the legacy university
-cycle, records an append-only `research_lifecycle_shadow_records` observation, and never mutates
-either lifecycle authority.
+`research_bot_states` against the game API snapshot, records an append-only
+`research_lifecycle_shadow_records` observation, and never mutates either lifecycle authority.
+When `RESEARCH_LIFECYCLE_SHADOW_ONLY=true`, this path performs no `RoomBot` repository lookup;
+the versioned game context is its only bot input.

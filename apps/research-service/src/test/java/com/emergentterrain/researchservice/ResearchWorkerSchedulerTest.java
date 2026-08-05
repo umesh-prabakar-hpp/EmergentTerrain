@@ -50,7 +50,8 @@ class ResearchWorkerSchedulerTest {
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
         verify(botReplicas).apply(eq(roomId), org.mockito.ArgumentMatchers.any());
         verify(botStates).seedFromSnapshot(eq(roomId), org.mockito.ArgumentMatchers.any());
-        verify(lifecycleShadow).compareBeforeLegacyCycle(eq(roomId), eq(1L), eq(activeBots));
+        verify(lifecycleShadow).compareAgainstGameSnapshot(eq(roomId), eq(1L),
+                eq(List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->
                 checkpoint.getRoomId().equals(roomId) && checkpoint.getLastTick() == 1L));
     }
@@ -108,11 +109,9 @@ class ResearchWorkerSchedulerTest {
         Room room = mock(Room.class);
         UUID roomId = UUID.randomUUID();
         RoomBot activeBot = activeBot(room, roomId);
-        List<RoomBot> activeBots = List.of(activeBot);
         UUID botId = activeBot.getId();
 
         when(rooms.findAll()).thenReturn(List.of(room));
-        when(bots.findAllById(List.of(botId))).thenReturn(activeBots);
         when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null,
                 List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
@@ -120,9 +119,11 @@ class ResearchWorkerSchedulerTest {
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
                 checkpoints, university, true, 1000L).runResearchTicks();
 
-        verify(lifecycleShadow).compareBeforeLegacyCycle(eq(roomId), eq(1L), eq(activeBots));
+        verify(lifecycleShadow).compareAgainstGameSnapshot(eq(roomId), eq(1L),
+                eq(List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->
                 checkpoint.getRoomId().equals(roomId) && checkpoint.getLastTick() == 1L));
         org.mockito.Mockito.verifyNoInteractions(university);
+        org.mockito.Mockito.verifyNoInteractions(bots);
     }
 }

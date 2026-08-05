@@ -43,7 +43,7 @@ migration step. It first stores each game snapshot in its research-owned bot-rep
 input handoff is durable before the university engine is moved off game entities. Research then
 seeds its separate mutable bot-state table without overwriting lifecycle changes it will own.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
-before extracting the university lifecycle transitions.
+against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,
 checkpoint, and lifecycle-parity path without executing the legacy university cycle. The launcher
 uses an absolute game-config path and disables Hibernate DDL for this shared-database transition;

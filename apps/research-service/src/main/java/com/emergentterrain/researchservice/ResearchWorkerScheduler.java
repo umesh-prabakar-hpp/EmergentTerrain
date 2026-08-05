@@ -80,8 +80,7 @@ public class ResearchWorkerScheduler {
                 ResearchGameContext context = gameContext.contextFor(room);
                 botReplicas.apply(room.getId(), context);
                 botStates.seedFromSnapshot(room.getId(), context);
-                List<RoomBot> active = activeBotsFor(room, context);
-                if (active.isEmpty()) {
+                if (context.activeBots().isEmpty()) {
                     continue;
                 }
                 long governmentTick = context.gameTick();
@@ -89,9 +88,13 @@ public class ResearchWorkerScheduler {
                         .map(ResearchWorkerCheckpoint::getLastTick)
                         .orElse(governmentTick);
                 long tick = Math.max(lastTick, governmentTick) + 1;
-                lifecycleShadow.compareBeforeLegacyCycle(room.getId(), tick, active);
+                lifecycleShadow.compareAgainstGameSnapshot(room.getId(), tick, context.activeBots());
                 if (lifecycleShadowOnly) {
                     checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
+                    continue;
+                }
+                List<RoomBot> active = activeBotsFor(room, context);
+                if (active.isEmpty()) {
                     continue;
                 }
                 university.maybeTick(room.getId(), active, tick, context.governmentState());

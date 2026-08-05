@@ -1,6 +1,6 @@
 package com.emergentterrain.researchservice;
 
-import com.emergentterrain.domain.RoomBot;
+import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -24,13 +24,11 @@ class ResearchLifecycleShadowServiceTest {
                 + "\"publishedCount\":2,\"rejectedCount\":1,\"reputation\":0.4,\"skepticismLevel\":0.6,"
                 + "\"lastCompetencyTick\":90}";
         ResearchBotState state = new ResearchBotState(botId, roomId, "scientist", lifecycle, 10L, true);
-        RoomBot legacy = mock(RoomBot.class);
-        when(legacy.getId()).thenReturn(botId);
-        when(legacy.getLifecycleJson()).thenReturn(lifecycle);
         when(states.findByRoomId(roomId)).thenReturn(List.of(state));
 
         new ResearchLifecycleShadowService(states, records, new ObjectMapper(), true)
-                .compareBeforeLegacyCycle(roomId, 11L, List.of(legacy));
+                .compareAgainstGameSnapshot(roomId, 11L,
+                        List.of(new ResearchBotSnapshot(botId, "scientist", lifecycle)));
 
         verify(records).save(argThat(record -> record.getRoomId().equals(roomId)
                 && record.getGameTick() == 11L && record.getComparedBots() == 1
