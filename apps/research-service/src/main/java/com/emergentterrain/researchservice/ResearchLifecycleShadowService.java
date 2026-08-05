@@ -49,20 +49,45 @@ public class ResearchLifecycleShadowService {
             byBotId.put(state.getBotId(), state);
         }
 
+        compare(roomId, gameTick, activeBots, snapshot -> {
+            ResearchBotState state = byBotId.get(snapshot.botId());
+            return state == null ? null : state.getLifecycleJson();
+        });
+    }
+
+    /** Compares a research-owned predicted stream with the same game snapshot. */
+    @Transactional
+    public void compareProjectedAgainstGameSnapshot(UUID roomId, long gameTick,
+                                                     List<ResearchBotSnapshot> predictedBots,
+                                                     List<ResearchBotSnapshot> gameBots) {
+        Map<UUID, String> predicted = new HashMap<>();
+        for (ResearchBotSnapshot bot : predictedBots) {
+            if (bot.botId() != null) {
+                predicted.put(bot.botId(), bot.lifecycleJson());
+            }
+        }
+        compare(roomId, gameTick, gameBots, snapshot -> predicted.get(snapshot.botId()));
+    }
+
+    private void compare(UUID roomId, long gameTick, List<ResearchBotSnapshot> gameBots,
+                         java.util.function.Function<ResearchBotSnapshot, String> candidateLifecycle) {
+        if (!enabled) {
+            return;
+        }
         int matched = 0;
         int mismatched = 0;
-        for (ResearchBotSnapshot bot : activeBots) {
+        for (ResearchBotSnapshot bot : gameBots) {
             if (bot.botId() == null) {
                 continue;
             }
-            ResearchBotState state = byBotId.get(bot.botId());
-            if (state == null || !sameLifecycle(state.getLifecycleJson(), bot.lifecycleJson())) {
+            String candidate = candidateLifecycle.apply(bot);
+            if (candidate == null || !sameLifecycle(candidate, bot.lifecycleJson())) {
                 mismatched++;
             } else {
                 matched++;
             }
         }
-        records.save(new ResearchLifecycleShadowRecord(roomId, gameTick, activeBots.size(), matched, mismatched));
+        records.save(new ResearchLifecycleShadowRecord(roomId, gameTick, gameBots.size(), matched, mismatched));
         if (mismatched > 0) {
             log.info("research lifecycle shadow mismatch roomId={} tick={} matched={} mismatched={}",
                     roomId, gameTick, matched, mismatched);

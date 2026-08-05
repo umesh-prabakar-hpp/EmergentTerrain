@@ -31,6 +31,9 @@ app:
       enabled: ${RESEARCH_LIFECYCLE_SHADOW_ENABLED:false}
       # Records real parity evidence without calling the legacy university cycle.
       shadow-only: ${RESEARCH_LIFECYCLE_SHADOW_ONLY:false}
+      projector:
+        # Off until the age/reputation slice has completed a live parity audit.
+        enabled: ${RESEARCH_LIFECYCLE_SHADOW_PROJECTOR_ENABLED:false}
     worker:
       enabled: ${RESEARCH_SERVICE_WORKER_ENABLED:true}
       interval-ms: ${RESEARCH_SERVICE_WORKER_INTERVAL_MS:1000}

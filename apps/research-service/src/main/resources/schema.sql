@@ -41,6 +41,17 @@ CREATE TABLE IF NOT EXISTS research_lifecycle_shadow_records (
     observed_at TIMESTAMP WITH TIME ZONE
 );
 
+CREATE TABLE IF NOT EXISTS research_lifecycle_projections (
+    bot_id UUID PRIMARY KEY,
+    room_id UUID NOT NULL,
+    lifecycle_json TEXT,
+    last_observed_game_tick BIGINT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS research_lifecycle_projections_room_idx
+    ON research_lifecycle_projections (room_id);
+
 CREATE INDEX IF NOT EXISTS research_bot_replicas_room_idx ON research_bot_replicas (room_id);
 CREATE INDEX IF NOT EXISTS research_bot_states_room_idx ON research_bot_states (room_id);
 CREATE INDEX IF NOT EXISTS research_lifecycle_shadow_records_room_observed_idx

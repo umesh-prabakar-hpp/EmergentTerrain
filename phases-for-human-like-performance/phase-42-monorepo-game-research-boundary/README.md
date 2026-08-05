@@ -77,6 +77,12 @@
   metadata only when it belongs to the same game tick as the snapshot, preventing a remote projector
   from applying a stale transition. This remains observation-only until the projected state matches
   the complete legacy transition set.
+- A second, disabled-by-default projector now persists a separate
+  `research_lifecycle_projections` stream. It seeds from a post-tick snapshot, then projects only
+  the exact legacy ageing and reputation-decay slice when fresh execution metadata says the legacy
+  lifecycle advanced. It compares that prediction with the following game snapshot without
+  overwriting research bot state or game data. Competency, publication, merge, and dating mutations
+  remain deliberately out of scope, so this is an evidence-gathering increment, not a cutover.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

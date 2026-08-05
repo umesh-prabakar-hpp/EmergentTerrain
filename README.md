@@ -45,6 +45,9 @@ seeds its separate mutable bot-state table without overwriting lifecycle changes
 The context additionally reports, for its exact game tick, whether the legacy lifecycle advanced
 and the adult-to-elder threshold it used. This is read-only timing input for the parity projector;
 it is not an authorization to write game state.
+`RESEARCH_LIFECYCLE_SHADOW_PROJECTOR_ENABLED=false` remains the safe default. The opt-in projector
+stores an independent predicted stream and currently covers only deterministic age and reputation
+decay, so its audit results must not be used for ownership cutover.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

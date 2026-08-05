@@ -38,6 +38,7 @@ public class ResearchWorkerScheduler {
     private final ResearchBotReplicaService botReplicas;
     private final ResearchBotStateService botStates;
     private final ResearchLifecycleShadowService lifecycleShadow;
+    private final ResearchLifecycleProjectionService lifecycleProjector;
     private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
     private final boolean lifecycleShadowOnly;
@@ -48,6 +49,7 @@ public class ResearchWorkerScheduler {
                                    ResearchBotReplicaService botReplicas,
                                    ResearchBotStateService botStates,
                                    ResearchLifecycleShadowService lifecycleShadow,
+                                   ResearchLifecycleProjectionService lifecycleProjector,
                                    ResearchWorkerCheckpointRepository checkpoints,
                                    UniversityService university,
                                    @Value("${app.research-service.lifecycle-shadow.shadow-only:false}")
@@ -60,6 +62,7 @@ public class ResearchWorkerScheduler {
         this.botReplicas = botReplicas;
         this.botStates = botStates;
         this.lifecycleShadow = lifecycleShadow;
+        this.lifecycleProjector = lifecycleProjector;
         this.checkpoints = checkpoints;
         this.university = university;
         this.lifecycleShadowOnly = lifecycleShadowOnly;
@@ -88,7 +91,20 @@ public class ResearchWorkerScheduler {
                         .map(ResearchWorkerCheckpoint::getLastTick)
                         .orElse(governmentTick);
                 long tick = Math.max(lastTick, governmentTick) + 1;
-                lifecycleShadow.compareAgainstGameSnapshot(room.getId(), tick, context.activeBots());
+                ResearchLifecycleProjectionService.ProjectionSnapshot projected =
+                        lifecycleProjector.projectForParity(room.getId(), context);
+                if (projected == null) {
+                    projected = ResearchLifecycleProjectionService.ProjectionSnapshot.disabled();
+                }
+                if (projected.ready()) {
+                    lifecycleShadow.compareProjectedAgainstGameSnapshot(room.getId(), tick, projected.bots(),
+                            context.activeBots());
+                } else if (!projected.enabled()) {
+                    lifecycleShadow.compareAgainstGameSnapshot(room.getId(), tick, context.activeBots());
+                } else {
+                    log.info("research lifecycle projection inconclusive roomId={} gameTick={}: "
+                                    + "missing exact lifecycle execution metadata", room.getId(), context.gameTick());
+                }
                 if (lifecycleShadowOnly) {
                     checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
                     continue;

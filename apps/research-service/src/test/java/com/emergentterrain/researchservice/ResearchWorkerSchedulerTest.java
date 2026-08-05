@@ -28,6 +28,7 @@ class ResearchWorkerSchedulerTest {
         ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
         ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
+        ResearchLifecycleProjectionService lifecycleProjector = mock(ResearchLifecycleProjectionService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -43,7 +44,7 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow, lifecycleProjector,
                 checkpoints, university, false, 1000L)
                 .runResearchTicks();
 
@@ -64,6 +65,7 @@ class ResearchWorkerSchedulerTest {
         ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
         ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
+        ResearchLifecycleProjectionService lifecycleProjector = mock(ResearchLifecycleProjectionService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -79,7 +81,7 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow, lifecycleProjector,
                 checkpoints, university, false, 1000L)
                 .runResearchTicks();
 
@@ -104,6 +106,7 @@ class ResearchWorkerSchedulerTest {
         ResearchBotReplicaService botReplicas = mock(ResearchBotReplicaService.class);
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
         ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
+        ResearchLifecycleProjectionService lifecycleProjector = mock(ResearchLifecycleProjectionService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -116,7 +119,7 @@ class ResearchWorkerSchedulerTest {
                 List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
-        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
+        new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow, lifecycleProjector,
                 checkpoints, university, true, 1000L).runResearchTicks();
 
         verify(lifecycleShadow).compareAgainstGameSnapshot(eq(roomId), eq(1L),

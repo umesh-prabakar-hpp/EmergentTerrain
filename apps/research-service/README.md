@@ -65,3 +65,8 @@ The context includes `lifecycleExecution` only when the game has an observation 
 snapshot tick. It identifies whether legacy lifecycle transitions ran and supplies the effective
 adult-to-elder threshold. Research treats this strictly as evidence for the forthcoming predicted-
 state comparison; it never writes a lifecycle update back to the game.
+
+Set `RESEARCH_LIFECYCLE_SHADOW_PROJECTOR_ENABLED=true` only for a bounded shadow audit. It stores
+its predictions in `research_lifecycle_projections`, separate from `research_bot_states`, and
+currently projects only ageing and reputation decay. Missing or stale `lifecycleExecution` metadata
+makes that observation inconclusive rather than applying a guessed transition.
