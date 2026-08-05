@@ -40,6 +40,8 @@ projector; a missing or stale entry must never be treated as a lifecycle transit
 `RESEARCH_LIFECYCLE_SHADOW_PROJECTOR_ENABLED` is off by default. When enabled for a controlled
 audit, it writes only the independent `research_lifecycle_projections` stream and models the
 age/reputation slice; it never overwrites `research_bot_states` or game state.
+Shadow-record `game_tick` is the game-context snapshot tick, not the research checkpoint. Do not
+interpret an unchanged game tick as repeated lifecycle executions.
 `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and

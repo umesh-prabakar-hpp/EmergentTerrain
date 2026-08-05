@@ -97,10 +97,10 @@ public class ResearchWorkerScheduler {
                     projected = ResearchLifecycleProjectionService.ProjectionSnapshot.disabled();
                 }
                 if (projected.ready()) {
-                    lifecycleShadow.compareProjectedAgainstGameSnapshot(room.getId(), tick, projected.bots(),
+                    lifecycleShadow.compareProjectedAgainstGameSnapshot(room.getId(), context.gameTick(), projected.bots(),
                             context.activeBots());
                 } else if (!projected.enabled()) {
-                    lifecycleShadow.compareAgainstGameSnapshot(room.getId(), tick, context.activeBots());
+                    lifecycleShadow.compareAgainstGameSnapshot(room.getId(), context.gameTick(), context.activeBots());
                 } else {
                     log.info("research lifecycle projection inconclusive roomId={} gameTick={}: "
                                     + "missing exact lifecycle execution metadata", room.getId(), context.gameTick());

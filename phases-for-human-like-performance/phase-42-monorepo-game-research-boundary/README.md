@@ -83,6 +83,12 @@
   lifecycle advanced. It compares that prediction with the following game snapshot without
   overwriting research bot state or game data. Competency, publication, merge, and dating mutations
   remain deliberately out of scope, so this is an evidence-gathering increment, not a cutover.
+- Initial projector runtime audit (2026-08-05): the remote worker created 50 independent projection
+  baselines while both services were healthy. The room's returned game tick did not advance during
+  the observation window, so no successor transition was projected and no parity conclusion was
+  drawn. The audit also exposed and corrected a record-labeling bug: shadow records now store the
+  actual game-context tick, never the worker's private checkpoint counter. A future projector audit
+  must exercise at least one advancing game snapshot before it can claim age/reputation parity.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the
