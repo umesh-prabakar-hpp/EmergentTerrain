@@ -77,6 +77,9 @@
   metadata only when it belongs to the same game tick as the snapshot, preventing a remote projector
   from applying a stale transition. This remains observation-only until the projected state matches
   the complete legacy transition set.
+- Projector hardening requires an exact-tick event, a threshold whenever that event says it
+  advanced, and at most one projection per game tick. Missing/stale/incomplete metadata is recorded
+  as inconclusive rather than causing a guessed or duplicate transition.
 - A second, disabled-by-default projector now persists a separate
   `research_lifecycle_projections` stream. It seeds from a post-tick snapshot, then projects only
   the exact legacy ageing and reputation-decay slice when fresh execution metadata says the legacy

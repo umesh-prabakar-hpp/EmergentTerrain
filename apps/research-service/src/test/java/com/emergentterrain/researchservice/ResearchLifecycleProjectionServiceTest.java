@@ -62,4 +62,46 @@ class ResearchLifecycleProjectionServiceTest {
         assertFalse(result.ready());
         verifyNoInteractions(projections);
     }
+
+    @Test
+    void preservesThePredictionWhenTheLegacyLifecycleWasSkipped() throws Exception {
+        ResearchLifecycleProjectionRepository projections = mock(ResearchLifecycleProjectionRepository.class);
+        ObjectMapper mapper = new ObjectMapper();
+        ResearchLifecycleProjectionService service = new ResearchLifecycleProjectionService(projections, mapper, true);
+        UUID roomId = UUID.randomUUID();
+        UUID botId = UUID.randomUUID();
+        String source = "{\"ageTicks\":100,\"lifecycle\":\"ADULT\",\"reputation\":0.6}";
+        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L);
+        ResearchBotSnapshot bot = new ResearchBotSnapshot(botId, "scientist", source);
+        when(projections.findByRoomId(roomId)).thenReturn(List.of(projection));
+
+        var result = service.projectForParity(roomId, new ResearchGameContext(11L, null, List.of(bot),
+                new ResearchLifecycleExecution(11L, false, null)));
+
+        assertTrue(result.ready());
+        assertEquals(100L, mapper.readTree(result.bots().getFirst().lifecycleJson()).path("ageTicks").asLong());
+        assertEquals(0.6, mapper.readTree(result.bots().getFirst().lifecycleJson()).path("reputation").asDouble());
+        assertEquals(11L, projection.getLastObservedGameTick());
+    }
+
+    @Test
+    void projectsAnAdvancingTickOnlyOnceEvenWhenTheSnapshotIsPolledAgain() throws Exception {
+        ResearchLifecycleProjectionRepository projections = mock(ResearchLifecycleProjectionRepository.class);
+        ObjectMapper mapper = new ObjectMapper();
+        ResearchLifecycleProjectionService service = new ResearchLifecycleProjectionService(projections, mapper, true);
+        UUID roomId = UUID.randomUUID();
+        UUID botId = UUID.randomUUID();
+        String source = "{\"ageTicks\":99,\"lifecycle\":\"JUVENILE\",\"reputation\":0.6}";
+        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L);
+        ResearchBotSnapshot bot = new ResearchBotSnapshot(botId, "scientist", source);
+        when(projections.findByRoomId(roomId)).thenReturn(List.of(projection));
+        ResearchGameContext context = new ResearchGameContext(11L, null, List.of(bot),
+                new ResearchLifecycleExecution(11L, true, 800L));
+
+        service.projectForParity(roomId, context);
+        var repeated = service.projectForParity(roomId, context);
+
+        assertEquals(100L, mapper.readTree(repeated.bots().getFirst().lifecycleJson()).path("ageTicks").asLong());
+        assertEquals(11L, projection.getLastObservedGameTick());
+    }
 }

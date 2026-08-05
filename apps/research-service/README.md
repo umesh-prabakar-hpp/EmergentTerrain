@@ -69,4 +69,5 @@ state comparison; it never writes a lifecycle update back to the game.
 Set `RESEARCH_LIFECYCLE_SHADOW_PROJECTOR_ENABLED=true` only for a bounded shadow audit. It stores
 its predictions in `research_lifecycle_projections`, separate from `research_bot_states`, and
 currently projects only ageing and reputation decay. Missing or stale `lifecycleExecution` metadata
-makes that observation inconclusive rather than applying a guessed transition.
+makes that observation inconclusive rather than applying a guessed transition. The same game tick
+is projected at most once; an `advanced` event missing its effective threshold is also inconclusive.

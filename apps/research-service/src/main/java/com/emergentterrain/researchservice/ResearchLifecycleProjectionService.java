@@ -45,7 +45,8 @@ public class ResearchLifecycleProjectionService {
             return ProjectionSnapshot.disabled();
         }
         ResearchLifecycleExecution execution = context.lifecycleExecution();
-        if (execution == null || execution.gameTick() != context.gameTick()) {
+        if (execution == null || execution.gameTick() != context.gameTick()
+                || (execution.advanced() && execution.adultToElder() == null)) {
             return ProjectionSnapshot.inconclusive();
         }
         Map<UUID, ResearchLifecycleProjection> current = new HashMap<>();
