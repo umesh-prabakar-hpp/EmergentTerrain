@@ -60,3 +60,8 @@ Before moving lifecycle transitions, enable the read-only parity audit with
 `research_lifecycle_shadow_records` observation, and never mutates either lifecycle authority.
 When `RESEARCH_LIFECYCLE_SHADOW_ONLY=true`, this path performs no `RoomBot` repository lookup;
 the versioned game context is its only bot input.
+
+The context includes `lifecycleExecution` only when the game has an observation for the exact
+snapshot tick. It identifies whether legacy lifecycle transitions ran and supplies the effective
+adult-to-elder threshold. Research treats this strictly as evidence for the forthcoming predicted-
+state comparison; it never writes a lifecycle update back to the game.

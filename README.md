@@ -42,6 +42,9 @@ well as government state; research reloads mutable bot entities only during the 
 migration step. It first stores each game snapshot in its research-owned bot-replica table, so the
 input handoff is durable before the university engine is moved off game entities. Research then
 seeds its separate mutable bot-state table without overwriting lifecycle changes it will own.
+The context additionally reports, for its exact game tick, whether the legacy lifecycle advanced
+and the adult-to-elder threshold it used. This is read-only timing input for the parity projector;
+it is not an authorization to write game state.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

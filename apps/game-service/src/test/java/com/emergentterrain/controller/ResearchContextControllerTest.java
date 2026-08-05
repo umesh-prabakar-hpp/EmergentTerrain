@@ -6,6 +6,7 @@ import com.emergentterrain.domain.RoomState;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.repo.RoomStateRepository;
+import com.emergentterrain.research.ResearchLifecycleExecutionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,9 @@ class ResearchContextControllerTest {
         when(bot.getLifecycleJson()).thenReturn("{\"researchStatus\":\"QUALIFIED\"}");
         when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(java.util.List.of(bot));
 
-        var response = new ResearchContextController(rooms, bots, states, new ObjectMapper())
+        ResearchLifecycleExecutionRegistry lifecycleExecutions = new ResearchLifecycleExecutionRegistry();
+        lifecycleExecutions.advanced(roomId, 27L, 1200L);
+        var response = new ResearchContextController(rooms, bots, states, new ObjectMapper(), lifecycleExecutions)
                 .researchContext(roomId);
 
         assertTrue(response.getStatusCode().is2xxSuccessful());
@@ -48,5 +51,8 @@ class ResearchContextControllerTest {
         assertEquals("v1", response.getBody().governmentState().path("constitutionVersion").asText());
         assertEquals(java.util.List.of(botId), response.getBody().activeBots().stream()
                 .map(snapshot -> snapshot.botId()).toList());
+        assertNotNull(response.getBody().lifecycleExecution());
+        assertTrue(response.getBody().lifecycleExecution().advanced());
+        assertEquals(1200L, response.getBody().lifecycleExecution().adultToElder());
     }
 }

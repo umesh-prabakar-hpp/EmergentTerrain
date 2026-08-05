@@ -72,6 +72,11 @@
 - The next isolation increment removes the final bot-table read from shadow-only mode: parity now
   compares research state exclusively with `ResearchBotSnapshot` payloads returned by the versioned
   game API. Mutable `RoomBot` loading remains only in the non-shadow compatibility execution path.
+- The game context now also reports exact-tick legacy lifecycle execution metadata: whether the
+  lifecycle gate advanced and the effective adult-to-elder threshold. Its in-memory registry returns
+  metadata only when it belongs to the same game tick as the snapshot, preventing a remote projector
+  from applying a stale transition. This remains observation-only until the projected state matches
+  the complete legacy transition set.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

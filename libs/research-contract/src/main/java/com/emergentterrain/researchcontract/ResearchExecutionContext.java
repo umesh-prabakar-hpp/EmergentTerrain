@@ -12,9 +12,16 @@ public record ResearchExecutionContext(
         long gameTick,
         Instant capturedAt,
         JsonNode governmentState,
-        List<ResearchBotSnapshot> activeBots) {
+        List<ResearchBotSnapshot> activeBots,
+        ResearchLifecycleExecution lifecycleExecution) {
 
     public ResearchExecutionContext {
         activeBots = activeBots == null ? List.of() : List.copyOf(activeBots);
+    }
+
+    /** Source-compatible convenience constructor for callers that do not yet publish execution metadata. */
+    public ResearchExecutionContext(UUID roomId, long gameTick, Instant capturedAt, JsonNode governmentState,
+                                    List<ResearchBotSnapshot> activeBots) {
+        this(roomId, gameTick, capturedAt, governmentState, activeBots, null);
     }
 }

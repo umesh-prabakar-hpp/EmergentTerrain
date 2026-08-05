@@ -34,6 +34,9 @@ not overwrite that lifecycle from later game snapshots.
 `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` enables the read-only lifecycle parity audit; it records
 comparisons against the game API snapshot in `research_lifecycle_shadow_records` and must not
 mutate either lifecycle authority. In shadow-only remote mode it must not load `RoomBot` rows.
+The snapshot also carries exact-tick lifecycle execution metadata: whether the legacy lifecycle
+advanced and its effective adult-to-elder threshold. It is an observation-only input for the future
+projector; a missing or stale entry must never be treated as a lifecycle transition.
 `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and

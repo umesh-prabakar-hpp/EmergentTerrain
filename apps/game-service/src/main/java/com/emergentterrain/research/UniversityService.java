@@ -578,9 +578,16 @@ public class UniversityService {
      */
     private LiteratureSearchService literatureSearch;
 
+    private ResearchLifecycleExecutionRegistry lifecycleExecutionRegistry;
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setLiteratureSearch(LiteratureSearchService literatureSearch) {
         this.literatureSearch = literatureSearch;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLifecycleExecutionRegistry(ResearchLifecycleExecutionRegistry lifecycleExecutionRegistry) {
+        this.lifecycleExecutionRegistry = lifecycleExecutionRegistry;
     }
 
     // Optional callbacks set by LlmService — avoids circular Spring bean dependency
@@ -3117,14 +3124,20 @@ public class UniversityService {
                           GovernmentState govState) {
         long now = System.currentTimeMillis();
         Long last = lastTickAt.get(roomId);
-        if (last != null && now - last < researchIntervalMs) return;
+        if (last != null && now - last < researchIntervalMs) {
+            recordLifecycleSkipped(roomId, gameTick);
+            return;
+        }
         lastTickAt.put(roomId, now);
 
         // Only work with ACTIVE bots
         List<RoomBot> bots = activeBots.stream()
                 .filter(b -> b.getStatus() == RoomBot.BotStatus.ACTIVE)
                 .collect(Collectors.toList());
-        if (bots.isEmpty()) return;
+        if (bots.isEmpty()) {
+            recordLifecycleSkipped(roomId, gameTick);
+            return;
+        }
 
         // Load lifecycle states, initialising any bot that doesn't have one yet
         Map<UUID, BotLifecycleState> states = botLifecycleService.loadStates(bots, gameTick);
@@ -3200,6 +3213,17 @@ public class UniversityService {
         botLifecycleService.persistStates(bots, states);
         if (!dirty.isEmpty()) {
             botRepository.saveAll(dirty);
+        }
+        ResearchLifecycleExecutionRegistry registry = lifecycleExecutionRegistry;
+        if (registry != null) {
+            registry.advanced(roomId, gameTick, params.adultToElder());
+        }
+    }
+
+    private void recordLifecycleSkipped(UUID roomId, long gameTick) {
+        ResearchLifecycleExecutionRegistry registry = lifecycleExecutionRegistry;
+        if (registry != null) {
+            registry.skipped(roomId, gameTick);
         }
     }
 

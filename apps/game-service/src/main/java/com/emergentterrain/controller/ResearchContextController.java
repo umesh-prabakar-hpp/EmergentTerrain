@@ -5,6 +5,7 @@ import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.repo.RoomStateRepository;
+import com.emergentterrain.research.ResearchLifecycleExecutionRegistry;
 import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import com.emergentterrain.researchcontract.ResearchExecutionContext;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,13 +27,16 @@ public class ResearchContextController {
     private final RoomBotRepository bots;
     private final RoomStateRepository states;
     private final ObjectMapper objectMapper;
+    private final ResearchLifecycleExecutionRegistry lifecycleExecutions;
 
     public ResearchContextController(RoomRepository rooms, RoomBotRepository bots, RoomStateRepository states,
-                                     ObjectMapper objectMapper) {
+                                     ObjectMapper objectMapper,
+                                     ResearchLifecycleExecutionRegistry lifecycleExecutions) {
         this.rooms = rooms;
         this.bots = bots;
         this.states = states;
         this.objectMapper = objectMapper;
+        this.lifecycleExecutions = lifecycleExecutions;
     }
 
     @GetMapping("/api/v1/game/rooms/{roomId}/research-context")
@@ -48,8 +52,9 @@ public class ResearchContextController {
                 .stream()
                 .map(bot -> new ResearchBotSnapshot(bot.getId(), bot.getType(), bot.getLifecycleJson()))
                 .toList();
-        return ResponseEntity.ok(new ResearchExecutionContext(roomId, government.path("tick").asLong(0L),
-                Instant.now(), government, activeBots));
+        long gameTick = government.path("tick").asLong(0L);
+        return ResponseEntity.ok(new ResearchExecutionContext(roomId, gameTick, Instant.now(), government,
+                activeBots, lifecycleExecutions.forGameTick(roomId, gameTick).orElse(null)));
     }
 
     private JsonNode parseGovernment(String json) {
