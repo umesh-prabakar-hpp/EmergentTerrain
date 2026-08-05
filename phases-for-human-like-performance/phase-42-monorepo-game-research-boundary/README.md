@@ -60,6 +60,15 @@
   read-only context request and rejects when absent or wrong. The research module's `schema.sql`
   owns its replica, state, checkpoint, and parity-record tables, allowing a shadow-only audit
   without Hibernate schema races.
+- Final remote audit: both services were simultaneously healthy; an unauthenticated context request
+  was redirected to login and the authenticated research request succeeded. The dedicated research
+  scheduler persisted a checkpoint at game tick `124701` and five 50-bot parity observations.
+  The first two were exact matches; the following three were `0` matched / `50` mismatched as the
+  legacy game continued advancing lifecycle state after research's one-time seed. This is the
+  expected evidence that lifecycle transition extraction is still incomplete, not a cutover pass.
+  The audit therefore confirms API, credential, durable snapshot, schema-upgrade, checkpoint, and
+  observability paths, while explicitly blocking lifecycle ownership cutover until research computes
+  and validates the same transitions.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

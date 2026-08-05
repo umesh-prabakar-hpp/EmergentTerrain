@@ -8,6 +8,10 @@ CREATE TABLE IF NOT EXISTS research_bot_replicas (
     updated_at TIMESTAMP WITH TIME ZONE
 );
 
+-- Upgrade Phase 42's initial narrow columns without touching game-owned tables.
+ALTER TABLE research_bot_replicas
+    ALTER COLUMN lifecycle_json TYPE TEXT;
+
 CREATE TABLE IF NOT EXISTS research_bot_states (
     bot_id UUID PRIMARY KEY,
     room_id UUID NOT NULL,
@@ -17,6 +21,9 @@ CREATE TABLE IF NOT EXISTS research_bot_states (
     active BOOLEAN NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE
 );
+
+ALTER TABLE research_bot_states
+    ALTER COLUMN lifecycle_json TYPE TEXT;
 
 CREATE TABLE IF NOT EXISTS research_service_checkpoints (
     room_id UUID PRIMARY KEY,

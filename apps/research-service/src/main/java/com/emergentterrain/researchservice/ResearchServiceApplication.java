@@ -18,6 +18,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 @SpringBootApplication(scanBasePackages = "com.emergentterrain.researchservice")
 @ComponentScan(
         basePackages = {
+                "com.emergentterrain.researchservice",
                 "com.emergentterrain.research",
                 "com.emergentterrain.llm",
                 "com.emergentterrain.secrets",

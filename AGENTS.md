@@ -23,8 +23,10 @@ scan excludes game controllers, WebSockets, RoomService, world generation, and G
 Its default `RESEARCH_GAME_CONTEXT_MODE=database` reads the migration database; set
 `RESEARCH_GAME_CONTEXT_MODE=remote` with `RESEARCH_GAME_API_BASE_URL` to use the game-owned,
 read-only `GET /api/v1/game/rooms/{roomId}/research-context` snapshot instead. That endpoint is
-context-only; it includes the game-selected active bots and their lifecycle payloads, and research
-must not mutate game state through it. Research imports every snapshot into
+context-only; remote mode requires the same nonempty `RESEARCH_CONTEXT_API_KEY` in both processes
+(sent as `X-Research-Service-Key`), and the game rejects absent or invalid credentials. It includes
+the game-selected active bots and their lifecycle payloads, and research must not mutate game state
+through it. Research imports every snapshot into
 `research_bot_replicas` before the legacy university engine reloads its mutable transition rows;
 keep that replica monotonic by game tick during the remaining extraction.
 `research_bot_states` is the next ownership layer: seed its lifecycle once from a replica, but do
@@ -36,7 +38,9 @@ authority.
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and
 `spring.jpa.hibernate.ddl-auto=none`; it must never contend with the game runtime for shared
-database schema updates.
+database schema updates. Its ownership worker has a dedicated scheduler, so long-running discovery
+schedules cannot starve migration-audit ticks. `schema.sql` may make idempotent changes only to the
+research-owned tables, including widening lifecycle payload columns for older Phase 42 installs.
 
 ## Required environment
 - Java 21

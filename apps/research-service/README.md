@@ -33,12 +33,15 @@ from the shared database:
 ```bash
 RESEARCH_GAME_CONTEXT_MODE=remote \
   RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081 \
+  RESEARCH_CONTEXT_API_KEY=shared-service-credential \
   ./scripts/start-research-service.sh
 ```
 
 The default `database` mode remains the standalone compatibility path when no game service is
 running. Remote mode reads only `GET /api/v1/game/rooms/{roomId}/research-context`; it does not
-start, control, or write to the game service.
+start, control, or write to the game service. Configure the same nonempty
+`RESEARCH_CONTEXT_API_KEY` in the game process: the client sends it as `X-Research-Service-Key`,
+and game rejects absent or invalid credentials.
 
 Every execution snapshot is first imported into the research-owned `research_bot_replicas` table.
 That table records the bot selection and lifecycle payload at its game tick, and marks a bot

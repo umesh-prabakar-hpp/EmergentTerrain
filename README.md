@@ -34,7 +34,9 @@ game display this service's results, start the game with `app.research-api.mode=
 research worker stores durable per-room checkpoints, so restarting it does not reset its own tick
 progress. Set `RESEARCH_GAME_CONTEXT_MODE=remote` and
 `RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081` when research should obtain its government
-context through the game-owned v1 API instead of the transition database path.
+context through the game-owned v1 API instead of the transition database path. Remote mode also
+requires the same nonempty `RESEARCH_CONTEXT_API_KEY` in both processes; the game accepts it only
+for the read-only context request.
 That snapshot now includes the game-selected active bots and their research lifecycle payloads as
 well as government state; research reloads mutable bot entities only during the remaining database
 migration step. It first stores each game snapshot in its research-owned bot-replica table, so the
@@ -45,7 +47,9 @@ before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,
 checkpoint, and lifecycle-parity path without executing the legacy university cycle. The launcher
 uses an absolute game-config path and disables Hibernate DDL for this shared-database transition;
-apply schema changes through the game/deployment migration path, not by starting a second runtime.
+the research-owned schema script performs the compatible idempotent upgrades required by its own
+replica, state, checkpoint, and audit tables. The migration worker has a dedicated scheduler so
+long-running discovery work cannot starve its audit ticks.
 
 ## Features
 - User registration + login (session-based)
