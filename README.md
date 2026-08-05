@@ -59,6 +59,10 @@ own `research_work_outbox`, and relays it to the research service's authenticate
 stores accepted work in its own `research_work_items` queue. This is the durable handoff seam;
 the legacy university executor still uses transition-period game types and is not yet driven by
 queued generic work.
+Research now executes that queued `RESEARCH_CYCLE` request as a game-agnostic immutable-context
+baseline and records a durable generic result. With matching `RESEARCH_RESULT_API_KEY` values, it
+retries delivery to the game's display-only result projection; this endpoint cannot apply gameplay
+effects.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

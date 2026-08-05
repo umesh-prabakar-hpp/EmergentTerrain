@@ -23,6 +23,11 @@ app:
   research-service:
     # Required by POST /api/v1/research/work. The game-owned outbox relay sends this value.
     work-api-key: ${RESEARCH_WORK_API_KEY:}
+    work-interval-ms: ${RESEARCH_WORK_INTERVAL_MS:1000}
+    result-delivery:
+      base-url: ${RESEARCH_RESULT_GAME_API_BASE_URL:http://127.0.0.1:8081}
+      api-key: ${RESEARCH_RESULT_API_KEY:}
+      interval-ms: ${RESEARCH_RESULT_DELIVERY_INTERVAL_MS:1000}
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}

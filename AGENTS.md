@@ -65,6 +65,9 @@ accept duplicate request IDs idempotently. This is a durable handoff, not an aut
 research to read/write game tables or invoke privileged game actions. The legacy university
 executor has not yet been extracted, so do not represent queued generic work as executable research
 until a game-agnostic processor replaces its remaining `RoomBot`/government dependencies.
+The generic processor may emit only a `ResearchResult` and the game result projection is
+display-only; do not add a gameplay mutation or effect recommendation without an explicit
+game-owned validation policy and contract test.
 
 ## Required environment
 - Java 21

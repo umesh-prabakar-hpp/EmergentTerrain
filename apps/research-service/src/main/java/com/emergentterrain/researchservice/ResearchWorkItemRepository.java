@@ -6,9 +6,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 interface ResearchWorkItemRepository extends JpaRepository<ResearchWorkItem, UUID> {
+
+    List<ResearchWorkItem> findTop20ByStateOrderByAcceptedAtAsc(String state);
+
+    List<ResearchWorkItem> findTop20ByStateAndResultPublishedAtIsNullOrderByCompletedAtAsc(String state);
 
     @Modifying
     @Query(value = """

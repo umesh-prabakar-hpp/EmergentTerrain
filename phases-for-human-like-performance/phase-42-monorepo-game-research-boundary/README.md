@@ -49,6 +49,11 @@
   and subject identifiers, source revision, work type, and context snapshot—not game classes.
   This establishes durable at-least-once delivery while the legacy executor is still being
   extracted; it intentionally does not yet execute queued generic work.
+- Queued `RESEARCH_CYCLE` work now has a research-owned scheduler and a first game-agnostic
+  executable slice: it produces a reproducible immutable-context baseline, records attempt/result
+  state, and emits a durable generic `ResearchResult`. Result delivery retries to a game-owned,
+  display-only projection authenticated separately by `RESEARCH_RESULT_API_KEY`; the projection
+  cannot apply gameplay effects. This is execution-lifecycle proof, not paper-engine equivalence.
 
 ## Live standalone validation — 2026-08-04
 

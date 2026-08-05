@@ -71,8 +71,21 @@ CREATE TABLE IF NOT EXISTS research_work_items (
     source_revision BIGINT NOT NULL,
     request_json TEXT NOT NULL,
     state VARCHAR(32) NOT NULL,
-    accepted_at TIMESTAMP WITH TIME ZONE NOT NULL
+    accepted_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    claimed_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    result_published_at TIMESTAMP WITH TIME ZONE,
+    result_json TEXT,
+    failure_detail TEXT
 );
+
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_published_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_json TEXT;
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS failure_detail TEXT;
 
 CREATE INDEX IF NOT EXISTS research_work_items_state_accepted_idx
     ON research_work_items (state, accepted_at);

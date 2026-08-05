@@ -52,6 +52,12 @@ revision, a work type, and an immutable context snapshot. Accepted requests are 
 idempotently in `research_work_items`; submitting the same request ID again returns the existing
 receipt.
 
+The research-owned scheduler claims queued `RESEARCH_CYCLE` work, records attempts and a durable
+generic `ResearchResult`, and retries delivery of that result to the game projection endpoint when
+`RESEARCH_RESULT_API_KEY` is configured. Its first extracted executable slice is an immutable
+subject/context baseline; it intentionally contains no game types and does not yet replace the
+legacy paper-generation engine.
+
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
 game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before
 relay, so temporary research-service downtime does not discard work. This intake is the first

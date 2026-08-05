@@ -35,6 +35,17 @@ public class ResearchWorkItem {
     @Column(nullable = false)
     private Instant acceptedAt;
 
+    private int attempts;
+    private Instant claimedAt;
+    private Instant completedAt;
+    private Instant resultPublishedAt;
+
+    @Column(columnDefinition = "text")
+    private String resultJson;
+
+    @Column(columnDefinition = "text")
+    private String failureDetail;
+
     protected ResearchWorkItem() {
     }
 
@@ -56,6 +67,37 @@ public class ResearchWorkItem {
     public String getRequestJson() { return requestJson; }
     public String getState() { return state; }
     public Instant getAcceptedAt() { return acceptedAt; }
+    public int getAttempts() { return attempts; }
+    public Instant getCompletedAt() { return completedAt; }
+    public Instant getResultPublishedAt() { return resultPublishedAt; }
+    public String getResultJson() { return resultJson; }
+
+    public void markRunning() {
+        state = "RUNNING";
+        attempts++;
+        claimedAt = Instant.now();
+    }
+
+    public void markCompleted(String resultJson) {
+        state = "COMPLETED";
+        this.resultJson = resultJson;
+        completedAt = Instant.now();
+        failureDetail = null;
+    }
+
+    public void markDeferred(String detail) {
+        state = "QUEUED";
+        failureDetail = detail;
+    }
+
+    public void markFailed(String detail) {
+        state = "FAILED";
+        failureDetail = detail;
+    }
+
+    public void markResultPublished() {
+        resultPublishedAt = Instant.now();
+    }
 
     @PrePersist
     void ensureAcceptedAt() {
