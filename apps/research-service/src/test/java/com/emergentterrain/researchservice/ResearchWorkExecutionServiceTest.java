@@ -1,6 +1,7 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.emergentterrain.researchcontract.ResearchSubject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -17,17 +18,18 @@ class ResearchWorkExecutionServiceTest {
     void completesSupportedGenericWorkAndPersistsItsResult() throws Exception {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 3,
-                Instant.now(), List.of(), null);
+                Instant.now(), List.of(new ResearchSubject(UUID.randomUUID(), "AGENT", null)), null);
         ResearchWorkItem item = new ResearchWorkItem(request.requestId(), request.workspaceId(), request.workType(),
                 request.sourceRevision(), mapper.writeValueAsString(request), Instant.now());
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
         ResearchWorkExecutionService service = new ResearchWorkExecutionService(repository,
-                List.of(new GenericResearchCycleExecutor(mapper)), mapper);
+                List.of(new GenericResearchCycleExecutor(mapper,
+                        new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class)))), mapper);
 
         service.execute(item);
 
         assertThat(item.getState()).isEqualTo("COMPLETED");
-        assertThat(item.getResultJson()).contains("BASELINE_RECORDED");
+        assertThat(item.getResultJson()).contains("DRAFT_CANDIDATE_PLANNED");
         verify(repository).save(item);
     }
 

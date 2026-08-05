@@ -218,6 +218,16 @@ Browser → game service → research API → research service
 
 ## Migration plan
 
+| Item | Status | Evidence / next gate |
+|---|---|---|
+| 1–3. Monorepo import and repository tooling | **COMPLETE** | Imported services and monorepo-relative tooling are the active layout. |
+| 4–6. Generic contract and durable work delivery | **COMPLETE** | `ResearchWorkRequest`, transactional game outbox, authenticated research intake, idempotent receipts, and retrying delivery are implemented. |
+| Generic work execution and display-only result event | **COMPLETE (baseline slice)** | The research-owned scheduler executes immutable-context baselines and publishes `ResearchResult` to an idempotent game projection. |
+| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS** | Extract this deterministic planning slice with parity fixtures before routing a real paper request. |
+| 7b. Computation, narration, review, and publication | **PENDING** | Move one stage at a time only after its preceding generic draft output matches the legacy engine. |
+| 8. Authorized gameplay consequences | **PENDING** | Current result projection is intentionally display-only; no effect recommendation is accepted. |
+| 9. Remove game dependency and cut over | **PENDING** | Requires paper-output parity, independent recovery tests, and removal of game-model/database reads. |
+
 1. **Establish a baseline.** Record current build, test, GPU smoke, and sidecar/proxy startup
    results before moving files.
 2. **Create the monorepo without changing behavior.** Import `EmergentTerrainGPUEngine` under

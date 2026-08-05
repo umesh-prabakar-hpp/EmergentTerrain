@@ -89,3 +89,14 @@ ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS failure_detail TEXT;
 
 CREATE INDEX IF NOT EXISTS research_work_items_state_accepted_idx
     ON research_work_items (state, accepted_at);
+
+CREATE TABLE IF NOT EXISTS research_draft_plans (
+    draft_id UUID PRIMARY KEY,
+    request_id UUID NOT NULL UNIQUE,
+    workspace_id UUID NOT NULL,
+    subject_id UUID NOT NULL,
+    domain VARCHAR(128) NOT NULL,
+    topic VARCHAR(512) NOT NULL,
+    eligibility VARCHAR(32) NOT NULL,
+    planned_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
