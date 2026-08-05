@@ -34,16 +34,17 @@ class ResearchWorkerSchedulerTest {
         UUID roomId = UUID.randomUUID();
         RoomBot activeBot = activeBot(room, roomId);
         List<RoomBot> activeBots = List.of(activeBot);
+        UUID botId = activeBot.getId();
 
         when(room.getId()).thenReturn(roomId);
         when(rooms.findAll()).thenReturn(List.of(room));
-        when(bots.findAllById(List.of(activeBot.getId()))).thenReturn(activeBots);
+        when(bots.findAllById(List.of(botId))).thenReturn(activeBots);
         when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null,
-                List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
+                List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
-                checkpoints, university, false)
+                checkpoints, university, false, 1000L)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
@@ -68,16 +69,17 @@ class ResearchWorkerSchedulerTest {
         UUID roomId = UUID.randomUUID();
         RoomBot activeBot = activeBot(room, roomId);
         List<RoomBot> activeBots = List.of(activeBot);
+        UUID botId = activeBot.getId();
 
         when(room.getId()).thenReturn(roomId);
         when(rooms.findAll()).thenReturn(List.of(room));
-        when(bots.findAllById(List.of(activeBot.getId()))).thenReturn(activeBots);
+        when(bots.findAllById(List.of(botId))).thenReturn(activeBots);
         when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null,
-                List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
+                List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
-                checkpoints, university, false)
+                checkpoints, university, false, 1000L)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());
@@ -107,15 +109,16 @@ class ResearchWorkerSchedulerTest {
         UUID roomId = UUID.randomUUID();
         RoomBot activeBot = activeBot(room, roomId);
         List<RoomBot> activeBots = List.of(activeBot);
+        UUID botId = activeBot.getId();
 
         when(rooms.findAll()).thenReturn(List.of(room));
-        when(bots.findAllById(List.of(activeBot.getId()))).thenReturn(activeBots);
+        when(bots.findAllById(List.of(botId))).thenReturn(activeBots);
         when(gameContext.contextFor(room)).thenReturn(new ResearchGameContext(0L, null,
-                List.of(new ResearchBotSnapshot(activeBot.getId(), "scientist", "{}"))));
+                List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow,
-                checkpoints, university, true).runResearchTicks();
+                checkpoints, university, true, 1000L).runResearchTicks();
 
         verify(lifecycleShadow).compareBeforeLegacyCycle(eq(roomId), eq(1L), eq(activeBots));
         verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->

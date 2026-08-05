@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +41,7 @@ public class ResearchWorkerScheduler {
     private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
     private final boolean lifecycleShadowOnly;
+    private final long workerIntervalMs;
 
     public ResearchWorkerScheduler(RoomRepository rooms, RoomBotRepository bots,
                                    ResearchGameContextProvider gameContext,
@@ -49,7 +51,9 @@ public class ResearchWorkerScheduler {
                                    ResearchWorkerCheckpointRepository checkpoints,
                                    UniversityService university,
                                    @Value("${app.research-service.lifecycle-shadow.shadow-only:false}")
-                                   boolean lifecycleShadowOnly) {
+                                   boolean lifecycleShadowOnly,
+                                   @Value("${app.research-service.worker.interval-ms:1000}")
+                                   long workerIntervalMs) {
         this.rooms = rooms;
         this.bots = bots;
         this.gameContext = gameContext;
@@ -59,9 +63,17 @@ public class ResearchWorkerScheduler {
         this.checkpoints = checkpoints;
         this.university = university;
         this.lifecycleShadowOnly = lifecycleShadowOnly;
+        this.workerIntervalMs = workerIntervalMs;
     }
 
-    @Scheduled(fixedDelayString = "${app.research-service.worker.interval-ms:1000}")
+    @PostConstruct
+    void announce() {
+        log.info("Research-only worker enabled shadowOnly={} intervalMs={}", lifecycleShadowOnly,
+                workerIntervalMs);
+    }
+
+    @Scheduled(scheduler = "researchWorkerTaskScheduler",
+            fixedDelayString = "${app.research-service.worker.interval-ms:1000}")
     public void runResearchTicks() {
         for (Room room : rooms.findAll()) {
             try {
