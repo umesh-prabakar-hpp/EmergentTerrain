@@ -38,6 +38,28 @@
   between research-owned lifecycle state and the legacy rows in
   `research_lifecycle_shadow_records`. This is strictly read-only and is the gate before moving
   lifecycle transitions to research ownership.
+- `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` makes that audit an execution-safe migration mode: it
+  imports the game snapshot, records the parity observation, advances the checkpoint, and does
+  not call the legacy university cycle.
+
+## Live standalone validation — 2026-08-04
+
+- PostgreSQL and the standalone research service were verified `UP` on port `8082` using Java 21.
+  The service starts without the game UI, WebSocket stack, GPU engine, or subscription proxies.
+- The research service is now packaged as an executable Spring Boot jar. Its supported launcher
+  passes an absolute `GAME_CONFIG_PATH`, an explicit research port, and
+  `spring.jpa.hibernate.ddl-auto=none`. This avoids losing the shared research/LLM configuration
+  when Maven changes directory and prevents a research process from competing with the game for
+  transition-database schema DDL locks.
+- Autonomous startup also required scanning the research repository package; it is now included.
+- The game and research health endpoints were simultaneously `UP`. The Julia/Python and GPU
+  sidecars were intentionally down, so number-theory work logged safe skips rather than starting
+  those services.
+- The remote game-context request remains protected by the running game's login boundary in this
+  host configuration. It now uses `RESEARCH_CONTEXT_API_KEY`, which the game accepts only for the
+  read-only context request and rejects when absent or wrong. The research module's `schema.sql`
+  owns its replica, state, checkpoint, and parity-record tables, allowing a shadow-only audit
+  without Hibernate schema races.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the

@@ -16,17 +16,24 @@ public class RemoteResearchGameContextProvider implements ResearchGameContextPro
 
     private final RestClient client;
     private final ObjectMapper objectMapper;
+    private final String apiKey;
 
     public RemoteResearchGameContextProvider(RestClient.Builder builder, ObjectMapper objectMapper,
-                                             @Value("${app.research-service.game-context.base-url}") String baseUrl) {
+                                             @Value("${app.research-service.game-context.base-url}") String baseUrl,
+                                             @Value("${app.research-service.game-context.api-key:}") String apiKey) {
         this.client = builder.baseUrl(baseUrl).build();
         this.objectMapper = objectMapper;
+        this.apiKey = apiKey;
     }
 
     @Override
     public ResearchGameContext contextFor(Room room) {
+        if (apiKey.isBlank()) {
+            throw new IllegalStateException("RESEARCH_CONTEXT_API_KEY is required for remote game context");
+        }
         ResearchExecutionContext response = client.get()
                 .uri("/api/v1/game/rooms/{roomId}/research-context", room.getId())
+                .header("X-Research-Service-Key", apiKey)
                 .retrieve()
                 .body(ResearchExecutionContext.class);
         if (response == null || response.governmentState() == null || response.governmentState().isEmpty()) {

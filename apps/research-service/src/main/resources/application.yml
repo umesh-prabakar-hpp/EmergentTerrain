@@ -15,15 +15,22 @@ spring:
     driver-class-name: org.postgresql.Driver
   jackson:
     default-property-inclusion: non_null
+  sql:
+    init:
+      # Research owns only the tables declared in this module's schema.sql during the transition.
+      mode: always
 app:
   research-service:
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}
       base-url: ${RESEARCH_GAME_API_BASE_URL:http://127.0.0.1:8081}
+      api-key: ${RESEARCH_CONTEXT_API_KEY:}
     lifecycle-shadow:
       # Read-only migration parity audit; enable before moving lifecycle transitions.
       enabled: ${RESEARCH_LIFECYCLE_SHADOW_ENABLED:false}
+      # Records real parity evidence without calling the legacy university cycle.
+      shadow-only: ${RESEARCH_LIFECYCLE_SHADOW_ONLY:false}
     worker:
       enabled: ${RESEARCH_SERVICE_WORKER_ENABLED:true}
       interval-ms: ${RESEARCH_SERVICE_WORKER_INTERVAL_MS:1000}

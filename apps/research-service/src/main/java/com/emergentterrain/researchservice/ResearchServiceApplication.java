@@ -34,6 +34,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 })
 @EnableJpaRepositories(basePackages = {
         "com.emergentterrain.repo",
+        "com.emergentterrain.research",
         "com.emergentterrain.researchservice"
 })
 @EnableScheduling

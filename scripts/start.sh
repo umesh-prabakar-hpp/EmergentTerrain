@@ -27,6 +27,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GAME_SERVICE_POM="$REPO_ROOT/apps/game-service/pom.xml"
+REACTOR_POM="$REPO_ROOT/pom.xml"
 cd "$REPO_ROOT"
 
 [[ -f "$GAME_SERVICE_POM" ]] || { echo "Game-service POM not found: $GAME_SERVICE_POM" >&2; exit 1; }
@@ -153,13 +154,15 @@ fi
 
 if [ "$FOREGROUND" = "1" ]; then
     echo "EmergentTerrain: starting in foreground (Ctrl-C to stop)"
+    mvn -f "$REACTOR_POM" -pl apps/game-service -am install -DskipTests
     exec mvn -f "$GAME_SERVICE_POM" spring-boot:run
 fi
 
 # Background launch. nohup so the process survives shell exit; & to
 # detach. stdout merges with stderr into the log.
 echo "EmergentTerrain: clean-building and starting in background, stdout → $STDOUT_LOG"
-nohup mvn -f "$GAME_SERVICE_POM" clean spring-boot:run > "$STDOUT_LOG" 2>&1 &
+nohup bash -c 'mvn -f "$1" -pl apps/game-service -am install -DskipTests && mvn -f "$2" clean spring-boot:run' \
+    _ "$REACTOR_POM" "$GAME_SERVICE_POM" > "$STDOUT_LOG" 2>&1 &
 LAUNCHER_PID=$!
 echo "EmergentTerrain: launcher PID $LAUNCHER_PID (the actual JVM spawns ~30s later)"
 echo

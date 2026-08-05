@@ -36,7 +36,7 @@ public class ResearchContextController {
     }
 
     @GetMapping("/api/v1/game/rooms/{roomId}/research-context")
-    public ResponseEntity<ResearchExecutionContext> researchContext(@PathVariable UUID roomId) {
+    public ResponseEntity<ResearchExecutionContext> researchContext(@PathVariable("roomId") UUID roomId) {
         Room room = rooms.findById(roomId).orElse(null);
         if (room == null) {
             return ResponseEntity.notFound().build();

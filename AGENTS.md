@@ -32,6 +32,11 @@ not overwrite that lifecycle from later game snapshots.
 `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` enables the read-only lifecycle parity audit; it records
 pre-cycle comparisons in `research_lifecycle_shadow_records` and must not mutate either lifecycle
 authority.
+`RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
+importing snapshots and checkpointing, which is the supported live migration-audit mode. The
+research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and
+`spring.jpa.hibernate.ddl-auto=none`; it must never contend with the game runtime for shared
+database schema updates.
 
 ## Required environment
 - Java 21

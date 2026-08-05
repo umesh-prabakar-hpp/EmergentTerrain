@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -19,8 +20,14 @@ import java.util.List;
 @Profile("!perf")
 public class SecurityConfig {
 
+    private final ResearchContextApiKeyFilter researchContextApiKeyFilter;
+
     @Value("${app.e2e.enabled:false}")
     private boolean e2eEnabled;
+
+    public SecurityConfig(ResearchContextApiKeyFilter researchContextApiKeyFilter) {
+        this.researchContextApiKeyFilter = researchContextApiKeyFilter;
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -40,7 +47,6 @@ public class SecurityConfig {
             "/game/snapshot/latest",
             "/game/snapshot/load",
             "/game/quest/save",
-            "/api/v1/game/rooms/*/research-context",
             "/room/**",
             "/diag/**",
             "/ws/**"
@@ -50,6 +56,7 @@ public class SecurityConfig {
             openEndpoints.add("/game/test-token");
         }
         http
+            .addFilterBefore(researchContextApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(openEndpoints.toArray(new String[0])).permitAll()
                 .anyRequest().authenticated()

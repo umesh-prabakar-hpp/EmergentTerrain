@@ -7,6 +7,7 @@ import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.research.UniversityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ public class ResearchWorkerScheduler {
     private final ResearchLifecycleShadowService lifecycleShadow;
     private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
+    private final boolean lifecycleShadowOnly;
 
     public ResearchWorkerScheduler(RoomRepository rooms, RoomBotRepository bots,
                                    ResearchGameContextProvider gameContext,
@@ -45,7 +47,9 @@ public class ResearchWorkerScheduler {
                                    ResearchBotStateService botStates,
                                    ResearchLifecycleShadowService lifecycleShadow,
                                    ResearchWorkerCheckpointRepository checkpoints,
-                                   UniversityService university) {
+                                   UniversityService university,
+                                   @Value("${app.research-service.lifecycle-shadow.shadow-only:false}")
+                                   boolean lifecycleShadowOnly) {
         this.rooms = rooms;
         this.bots = bots;
         this.gameContext = gameContext;
@@ -54,6 +58,7 @@ public class ResearchWorkerScheduler {
         this.lifecycleShadow = lifecycleShadow;
         this.checkpoints = checkpoints;
         this.university = university;
+        this.lifecycleShadowOnly = lifecycleShadowOnly;
     }
 
     @Scheduled(fixedDelayString = "${app.research-service.worker.interval-ms:1000}")
@@ -73,6 +78,10 @@ public class ResearchWorkerScheduler {
                         .orElse(governmentTick);
                 long tick = Math.max(lastTick, governmentTick) + 1;
                 lifecycleShadow.compareBeforeLegacyCycle(room.getId(), tick, active);
+                if (lifecycleShadowOnly) {
+                    checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
+                    continue;
+                }
                 university.maybeTick(room.getId(), active, tick, context.governmentState());
                 checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
             } catch (Exception e) {
