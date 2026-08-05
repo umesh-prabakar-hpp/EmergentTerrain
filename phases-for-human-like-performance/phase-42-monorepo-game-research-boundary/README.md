@@ -92,6 +92,13 @@
   drawn. The audit also exposed and corrected a record-labeling bug: shadow records now store the
   actual game-context tick, never the worker's private checkpoint counter. A future projector audit
   must exercise at least one advancing game snapshot before it can claim age/reputation parity.
+- Forced successor audit (2026-08-05): with bounded maintenance enabled, a 1-second legacy
+  lifecycle interval, and a zero draft backlog (to avoid paper/LLM work), both services remained
+  healthy and the game snapshot advanced. At the final observed tick, the separate projection stream
+  compared 51 active bots: 23 matched and 28 mismatched. This proves the age/reputation projection
+  is operating against real successor snapshots, while correctly demonstrating that the unprojected
+  competency, merge, dating, publication, and other lifecycle mutations still prevent cutover. Both
+  temporary processes were stopped immediately after collecting the evidence.
 
 The old sibling checkouts are intentionally left untouched so they can be retired only after this
 monorepo checkout has been validated. The remaining persistence extraction is described in the
