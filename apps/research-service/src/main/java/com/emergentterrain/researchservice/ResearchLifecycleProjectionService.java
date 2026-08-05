@@ -2,6 +2,7 @@ package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import com.emergentterrain.researchcontract.ResearchLifecycleExecution;
+import com.emergentterrain.researchcontract.ResearchLifecycleExecutionWindow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -44,40 +45,85 @@ public class ResearchLifecycleProjectionService {
         if (!enabled) {
             return ProjectionSnapshot.disabled();
         }
-        ResearchLifecycleExecution execution = context.lifecycleExecution();
-        if (execution == null || execution.gameTick() != context.gameTick()
-                || (execution.advanced() && execution.adultToElder() == null)) {
+        ResearchLifecycleExecutionWindow window = replayWindow(context);
+        if (window == null || !isValidWindow(window, context.gameTick())) {
             return ProjectionSnapshot.inconclusive();
         }
         Map<UUID, ResearchLifecycleProjection> current = new HashMap<>();
         for (ResearchLifecycleProjection projection : projections.findByRoomId(roomId)) {
             current.put(projection.getBotId(), projection);
         }
+        if (current.values().stream().anyMatch(projection -> !canReplay(projection, window))) {
+            return ProjectionSnapshot.inconclusive();
+        }
 
         List<ResearchBotSnapshot> predicted = context.activeBots().stream()
                 .filter(snapshot -> snapshot.botId() != null)
-                .map(snapshot -> predict(roomId, context.gameTick(), execution, current.get(snapshot.botId()), snapshot))
+                .map(snapshot -> predict(roomId, context.gameTick(), window, current.get(snapshot.botId()), snapshot))
                 .toList();
         return ProjectionSnapshot.ready(predicted);
     }
 
-    private ResearchBotSnapshot predict(UUID roomId, long gameTick, ResearchLifecycleExecution execution,
+    private ResearchBotSnapshot predict(UUID roomId, long gameTick, ResearchLifecycleExecutionWindow window,
                                         ResearchLifecycleProjection projection, ResearchBotSnapshot gameSnapshot) {
         if (projection == null) {
             projections.save(new ResearchLifecycleProjection(gameSnapshot.botId(), roomId,
-                    gameSnapshot.lifecycleJson(), gameTick));
+                    gameSnapshot.lifecycleJson(), gameTick, window.latestSequence(), window.epoch()));
             // A new stream begins from this post-tick snapshot; applying again would be an off-by-one error.
             return gameSnapshot;
         }
         String lifecycleJson = projection.getLifecycleJson();
-        if (gameTick > projection.getLastObservedGameTick()) {
-            if (execution.advanced() && execution.adultToElder() != null) {
-                lifecycleJson = projectAgeAndReputation(lifecycleJson, execution.adultToElder());
+        if (window.latestSequence() > projection.getLastExecutionSequence()) {
+            for (ResearchLifecycleExecution execution : window.events()) {
+                if (execution.sequence() > projection.getLastExecutionSequence() && execution.advanced()) {
+                    lifecycleJson = projectAgeAndReputation(lifecycleJson, execution.adultToElder());
+                }
             }
-            projection.observe(lifecycleJson, gameTick);
+            projection.observe(lifecycleJson, gameTick, window.latestSequence(), window.epoch());
             projections.save(projection);
         }
         return new ResearchBotSnapshot(gameSnapshot.botId(), gameSnapshot.type(), lifecycleJson);
+    }
+
+    private ResearchLifecycleExecutionWindow replayWindow(ResearchGameContext context) {
+        ResearchLifecycleExecutionWindow window = context.lifecycleExecutionWindow();
+        if (window != null) {
+            return window;
+        }
+        ResearchLifecycleExecution execution = context.lifecycleExecution();
+        if (execution == null) {
+            return null;
+        }
+        long sequence = execution.sequence();
+        return new ResearchLifecycleExecutionWindow("legacy-single-event", sequence, sequence, List.of(execution));
+    }
+
+    private static boolean isValidWindow(ResearchLifecycleExecutionWindow window, long gameTick) {
+        if (window.epoch() == null || window.epoch().isBlank() || window.events().isEmpty()
+                || window.firstSequence() > window.latestSequence()) {
+            return false;
+        }
+        long expected = window.firstSequence();
+        for (ResearchLifecycleExecution event : window.events()) {
+            if (event.sequence() != expected++ || event.gameTick() > gameTick
+                    || (event.advanced() && event.adultToElder() == null)) {
+                return false;
+            }
+        }
+        return window.events().getLast().sequence() == window.latestSequence()
+                && window.events().getLast().gameTick() == gameTick;
+    }
+
+    private static boolean canReplay(ResearchLifecycleProjection projection,
+                                     ResearchLifecycleExecutionWindow window) {
+        if (projection.getExecutionEpoch() == null) {
+            return projection.getLastExecutionSequence() == 0L && window.firstSequence() == 1L;
+        }
+        if (!projection.getExecutionEpoch().equals(window.epoch())) {
+            return false;
+        }
+        return projection.getLastExecutionSequence() >= window.firstSequence() - 1L
+                && projection.getLastExecutionSequence() <= window.latestSequence();
     }
 
     private String projectAgeAndReputation(String lifecycleJson, long adultToElder) {

@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS research_lifecycle_projections (
 CREATE INDEX IF NOT EXISTS research_lifecycle_projections_room_idx
     ON research_lifecycle_projections (room_id);
 
+ALTER TABLE research_lifecycle_projections
+    ADD COLUMN IF NOT EXISTS last_execution_sequence BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE research_lifecycle_projections
+    ADD COLUMN IF NOT EXISTS execution_epoch VARCHAR(36);
+
 CREATE INDEX IF NOT EXISTS research_bot_replicas_room_idx ON research_bot_replicas (room_id);
 CREATE INDEX IF NOT EXISTS research_bot_states_room_idx ON research_bot_states (room_id);
 CREATE INDEX IF NOT EXISTS research_lifecycle_shadow_records_room_observed_idx

@@ -44,6 +44,10 @@ Shadow-record `game_tick` is the game-context snapshot tick, not the research ch
 interpret an unchanged game tick as repeated lifecycle executions.
 An `advanced` execution record without its adult-to-elder threshold is inconclusive, and the same
 snapshot tick is projected at most once.
+The game context now carries a bounded, contiguous lifecycle-event window with a process epoch and
+sequence range. Research replays every unseen event; if its saved sequence falls outside the window
+or the epoch changes, it must remain inconclusive and require a fresh baseline rather than skip or
+invent transitions.
 `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and

@@ -2,6 +2,7 @@ package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import com.emergentterrain.researchcontract.ResearchLifecycleExecution;
+import com.emergentterrain.researchcontract.ResearchLifecycleExecutionWindow;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -30,16 +31,17 @@ class ResearchLifecycleProjectionServiceTest {
 
         when(projections.findByRoomId(roomId)).thenReturn(List.of());
         var seeded = service.projectForParity(roomId, new ResearchGameContext(10L, null, List.of(bot),
-                new ResearchLifecycleExecution(10L, true, 800L)));
+                new ResearchLifecycleExecution(1L, 10L, true, 800L)));
 
         assertTrue(seeded.ready());
         assertEquals(source, seeded.bots().getFirst().lifecycleJson());
         verify(projections).save(org.mockito.ArgumentMatchers.any(ResearchLifecycleProjection.class));
 
-        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L);
+        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L,
+                1L, "legacy-single-event");
         when(projections.findByRoomId(roomId)).thenReturn(List.of(projection));
         var predicted = service.projectForParity(roomId, new ResearchGameContext(11L, null, List.of(bot),
-                new ResearchLifecycleExecution(11L, true, 800L)));
+                new ResearchLifecycleExecution(2L, 11L, true, 800L)));
 
         var state = mapper.readTree(predicted.bots().getFirst().lifecycleJson());
         assertTrue(predicted.ready());
@@ -55,7 +57,7 @@ class ResearchLifecycleProjectionServiceTest {
         ResearchLifecycleProjectionService service = new ResearchLifecycleProjectionService(projections,
                 new ObjectMapper(), true);
         ResearchGameContext context = new ResearchGameContext(11L, null, List.of(),
-                new ResearchLifecycleExecution(10L, true, 800L));
+                new ResearchLifecycleExecution(1L, 10L, true, 800L));
 
         var result = service.projectForParity(UUID.randomUUID(), context);
 
@@ -71,12 +73,13 @@ class ResearchLifecycleProjectionServiceTest {
         UUID roomId = UUID.randomUUID();
         UUID botId = UUID.randomUUID();
         String source = "{\"ageTicks\":100,\"lifecycle\":\"ADULT\",\"reputation\":0.6}";
-        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L);
+        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L,
+                1L, "legacy-single-event");
         ResearchBotSnapshot bot = new ResearchBotSnapshot(botId, "scientist", source);
         when(projections.findByRoomId(roomId)).thenReturn(List.of(projection));
 
         var result = service.projectForParity(roomId, new ResearchGameContext(11L, null, List.of(bot),
-                new ResearchLifecycleExecution(11L, false, null)));
+                new ResearchLifecycleExecution(2L, 11L, false, null)));
 
         assertTrue(result.ready());
         assertEquals(100L, mapper.readTree(result.bots().getFirst().lifecycleJson()).path("ageTicks").asLong());
@@ -92,16 +95,41 @@ class ResearchLifecycleProjectionServiceTest {
         UUID roomId = UUID.randomUUID();
         UUID botId = UUID.randomUUID();
         String source = "{\"ageTicks\":99,\"lifecycle\":\"JUVENILE\",\"reputation\":0.6}";
-        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L);
+        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L,
+                1L, "legacy-single-event");
         ResearchBotSnapshot bot = new ResearchBotSnapshot(botId, "scientist", source);
         when(projections.findByRoomId(roomId)).thenReturn(List.of(projection));
         ResearchGameContext context = new ResearchGameContext(11L, null, List.of(bot),
-                new ResearchLifecycleExecution(11L, true, 800L));
+                new ResearchLifecycleExecution(2L, 11L, true, 800L));
 
         service.projectForParity(roomId, context);
         var repeated = service.projectForParity(roomId, context);
 
         assertEquals(100L, mapper.readTree(repeated.bots().getFirst().lifecycleJson()).path("ageTicks").asLong());
         assertEquals(11L, projection.getLastObservedGameTick());
+    }
+
+    @Test
+    void replaysEveryUnseenLifecycleEventFromTheContiguousWindow() throws Exception {
+        ResearchLifecycleProjectionRepository projections = mock(ResearchLifecycleProjectionRepository.class);
+        ObjectMapper mapper = new ObjectMapper();
+        ResearchLifecycleProjectionService service = new ResearchLifecycleProjectionService(projections, mapper, true);
+        UUID roomId = UUID.randomUUID();
+        UUID botId = UUID.randomUUID();
+        String source = "{\"ageTicks\":99,\"lifecycle\":\"JUVENILE\",\"reputation\":0.6}";
+        ResearchLifecycleProjection projection = new ResearchLifecycleProjection(botId, roomId, source, 10L,
+                1L, "game-epoch");
+        ResearchBotSnapshot bot = new ResearchBotSnapshot(botId, "scientist", source);
+        when(projections.findByRoomId(roomId)).thenReturn(List.of(projection));
+        ResearchLifecycleExecutionWindow window = new ResearchLifecycleExecutionWindow("game-epoch", 2L, 4L,
+                List.of(new ResearchLifecycleExecution(2L, 11L, true, 800L),
+                        new ResearchLifecycleExecution(3L, 12L, false, null),
+                        new ResearchLifecycleExecution(4L, 13L, true, 800L)));
+
+        var result = service.projectForParity(roomId, new ResearchGameContext(13L, null, List.of(bot), null, window));
+
+        assertTrue(result.ready());
+        assertEquals(101L, mapper.readTree(result.bots().getFirst().lifecycleJson()).path("ageTicks").asLong());
+        assertEquals(4L, projection.getLastExecutionSequence());
     }
 }

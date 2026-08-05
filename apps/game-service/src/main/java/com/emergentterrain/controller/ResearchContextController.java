@@ -8,6 +8,7 @@ import com.emergentterrain.repo.RoomStateRepository;
 import com.emergentterrain.research.ResearchLifecycleExecutionRegistry;
 import com.emergentterrain.researchcontract.ResearchBotSnapshot;
 import com.emergentterrain.researchcontract.ResearchExecutionContext;
+import com.emergentterrain.researchcontract.ResearchLifecycleExecutionWindow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
@@ -53,8 +54,10 @@ public class ResearchContextController {
                 .map(bot -> new ResearchBotSnapshot(bot.getId(), bot.getType(), bot.getLifecycleJson()))
                 .toList();
         long gameTick = government.path("tick").asLong(0L);
+        ResearchLifecycleExecutionWindow lifecycleWindow = lifecycleExecutions
+                .windowForGameTick(roomId, gameTick).orElse(null);
         return ResponseEntity.ok(new ResearchExecutionContext(roomId, gameTick, Instant.now(), government,
-                activeBots, lifecycleExecutions.forGameTick(roomId, gameTick).orElse(null)));
+                activeBots, lifecycleWindow == null ? null : lifecycleWindow.events().getLast(), lifecycleWindow));
     }
 
     private JsonNode parseGovernment(String json) {

@@ -71,3 +71,6 @@ its predictions in `research_lifecycle_projections`, separate from `research_bot
 currently projects only ageing and reputation decay. Missing or stale `lifecycleExecution` metadata
 makes that observation inconclusive rather than applying a guessed transition. The same game tick
 is projected at most once; an `advanced` event missing its effective threshold is also inconclusive.
+The game context now includes a bounded, contiguous execution window with a process epoch and
+sequence range. The projector replays all unseen events in order; a window gap or changed epoch
+is inconclusive and requires a fresh projection baseline.

@@ -49,6 +49,8 @@ it is not an authorization to write game state.
 stores an independent predicted stream and currently covers only deterministic age and reputation
 decay, so its audit results must not be used for ownership cutover. It rejects an advancing event
 without its effective threshold and never applies the same snapshot tick twice.
+The game supplies a bounded lifecycle-event replay window with an epoch and monotonic sequence;
+research replays every unseen event and marks an event-window gap or game restart inconclusive.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

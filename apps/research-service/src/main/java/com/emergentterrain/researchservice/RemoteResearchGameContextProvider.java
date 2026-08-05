@@ -39,12 +39,13 @@ public class RemoteResearchGameContextProvider implements ResearchGameContextPro
         if (response == null || response.governmentState() == null || response.governmentState().isEmpty()) {
             return new ResearchGameContext(response == null ? 0L : response.gameTick(), null,
                     response == null ? java.util.List.of() : response.activeBots(),
-                    response == null ? null : response.lifecycleExecution());
+                    response == null ? null : response.lifecycleExecution(),
+                    response == null ? null : response.lifecycleExecutionWindow());
         }
         try {
             return new ResearchGameContext(response.gameTick(),
                     objectMapper.treeToValue(response.governmentState(), GovernmentState.class),
-                    response.activeBots(), response.lifecycleExecution());
+                    response.activeBots(), response.lifecycleExecution(), response.lifecycleExecutionWindow());
         } catch (Exception e) {
             throw new IllegalStateException("Game research-context response contains invalid government state", e);
         }
