@@ -21,6 +21,8 @@ spring:
       mode: always
 app:
   research-service:
+    # Required by POST /api/v1/research/work. The game-owned outbox relay sends this value.
+    work-api-key: ${RESEARCH_WORK_API_KEY:}
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}

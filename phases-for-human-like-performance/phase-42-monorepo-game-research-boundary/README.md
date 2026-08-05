@@ -41,6 +41,14 @@
 - `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` makes that audit an execution-safe migration mode: it
   imports the game snapshot, records the parity observation, advances the checkpoint, and does
   not call the legacy university cycle or load mutable game bot rows.
+- The first final-boundary delivery slice is implemented behind the opt-in
+  `app.research-api.mode=outbox`: a game-owned mapper converts a research cycle into an immutable
+  generic `ResearchWorkRequest`, commits it to `research_work_outbox`, and relays it to the
+  research-owned authenticated `POST /api/v1/research/work` endpoint. Research stores the request
+  idempotently in `research_work_items`. The Spring-free work contract contains opaque workspace
+  and subject identifiers, source revision, work type, and context snapshot—not game classes.
+  This establishes durable at-least-once delivery while the legacy executor is still being
+  extracted; it intentionally does not yet execute queued generic work.
 
 ## Live standalone validation — 2026-08-04
 
@@ -142,6 +150,43 @@ EmergentTerrain/
 The existing Codex and Claude proxies are already tracked inside the current repository.  They
 move only as ordinary tracked files; they are not separate repositories to import.
 
+## Final service boundary: game-agnostic research
+
+The final research service contains no game-domain types, terminology, repositories, or runtime
+dependencies. `Room`, `RoomBot`, `GovernmentState`, `gameTick`, gameplay controllers, and
+game-owned tables are transitional concerns and must not survive the extraction.
+
+The game service owns an anti-corruption adapter that translates game events and state into the
+generic, versioned research contract. Research receives immutable work, not a live game-state
+read or permission to mutate game state.
+
+```text
+game event/state
+  -> GameResearchRequestMapper
+  -> ResearchWorkRequested(workspaceId, subject, trigger, contextSnapshot, sourceRevision)
+  -> durable work transport
+  -> research service
+
+ResearchResult / OutcomeRecommendation
+  -> game result mapper and effect validator
+  -> game display projection or permitted gameplay effect
+```
+
+The contract vocabulary is deliberately research-specific:
+
+- `ResearchRequest`, `ResearchJob`, `ResearchSubject`, `ResearchContextSnapshot`, and
+  `ResearchResult` replace game-specific request and state classes.
+- `workspaceId`, `subjectId`, and an opaque monotonic `sourceRevision` replace room, bot, and game
+  tick identifiers in the research domain.
+- A request contains only the frozen evidence and constraints needed for the investigation. The
+  research service never polls the game for mutable state while executing that request.
+- Research may return an `OutcomeRecommendation`, but the game validates it against an explicit
+  allowed-effect policy and remains the only service that applies gameplay changes.
+
+This permits research to run while the game is stopped: it can complete previously delivered work,
+serve its paper/result API, and recover its own queued work. New game-originated work naturally
+waits until the game next emits it.
+
 ## Service ownership and interaction
 
 ```text
@@ -152,12 +197,17 @@ Browser → game service → research API → research service
 
 - The **game service** owns rooms, world and bot state, government simulation, game UI, and
   gameplay decisions.
-- The **research service** owns research jobs, paper lifecycle, LLM calls, literature retrieval,
-  evidence, traces, and research artifacts.
-- The game service starts research actions and queries their status and publications through the
-  `research-api` contract.
-- When research has a gameplay consequence, the research service sends a versioned callback/event
-  to the game service.  It must not write game-owned tables directly.
+- The **research service** owns research jobs, its durable queue/checkpoints, paper lifecycle, LLM
+  calls, literature retrieval, evidence, traces, and research artifacts. It has no dependency on
+  game entities or schemas.
+- The game service maps gameplay events into versioned `ResearchWorkRequested` commands, writes
+  them through a transactional outbox, and publishes them to durable transport. The research
+  service consumes each work item idempotently.
+- The game queries research job status and publications through the `research-api` contract. It may
+  maintain a compact local display projection from versioned research-result events.
+- When research has a gameplay consequence, it publishes a versioned result/recommendation event.
+  The game service maps and authorizes that recommendation; research must not write game-owned
+  tables, invoke privileged game actions, or directly apply gameplay effects.
 - Each service owns its database schema or database.  Cross-service reads and writes occur through
   APIs/events, never through shared ORM entities or direct SQL.
 
@@ -172,20 +222,26 @@ Browser → game service → research API → research service
 3. **Repair repository-relative tooling.** Update scripts, CI, README, and AGENTS.md paths that
    currently assume sibling repositories.  Retain the existing ports unless a separately reviewed
    compatibility change says otherwise.
-4. **Define the boundary.** Add a versioned research API for action submission, job state,
-   cancellation where supported, paper/status retrieval, and game-facing research outcomes.
+4. **Define the boundary.** Define the game-agnostic `ResearchWorkRequested` and
+   `ResearchResult`/`OutcomeRecommendation` contracts, including request IDs, idempotency,
+   source revisions, immutable context snapshots, job state, cancellation where supported, and
+   paper/status retrieval. Keep game-to-contract mapping exclusively in the game service.
 5. **Introduce an in-process adapter.** Replace game calls to research implementation classes with
    a `ResearchClient` interface, initially backed by the existing in-process implementation.  This
    preserves behavior while tests establish the contract.
-6. **Extract the research service.** Move research controllers, workers, persistence, and LLM /
-   literature configuration into `apps/research-service/`; implement the API client in the game
-   service; migrate research-owned data.
-7. **Convert cross-effects to events/callbacks.** Move any research-to-game mutation behind the
-   versioned callback/event contract and remove remaining shared entities, repositories, and direct
-   database access.
-8. **Validate and cut over.** Run both services, GPU and sidecar smoke checks, API contract tests,
-   recovery/restart tests, and a normal paper-review workflow before removing the in-process
-   adapter.
+6. **Introduce durable delivery.** Add a game-owned transactional outbox and relay to durable
+   transport. Make the research service persist idempotent work receipts and its own queue before
+   execution, so either service may be stopped and restarted independently.
+7. **Extract the research service.** Move research controllers, workers, persistence, and LLM /
+   literature configuration into `apps/research-service/`; migrate research-owned data and replace
+   game model inputs with generic research subjects and context snapshots.
+8. **Convert cross-effects to events/callbacks.** Move any research-to-game mutation behind the
+   versioned result/recommendation contract, add game-side effect validation, and remove remaining
+   shared entities, repositories, direct database access, remote context polling, and lifecycle
+   transition scaffolding.
+9. **Validate and cut over.** Run independent game and research restart/recovery tests, durable
+   delivery and idempotency tests, API contract tests, GPU and sidecar smoke checks, and a normal
+   paper-review workflow before removing the in-process adapter.
 
 ## Constraints
 
@@ -204,8 +260,10 @@ Browser → game service → research API → research service
   with their intended histories preserved.
 - The game service can enqueue a research action and obtain its status and final result solely via
   the versioned research API.
+- The research service builds, tests, starts, and processes already-delivered work with no game
+  service, game model class, game schema, or game-state API available.
 - A research result can affect gameplay through a tested callback/event, with no research-service
-  write to game-owned storage.
+  write to game-owned storage and with game-side validation of any proposed effect.
 - Game-only development and research-only development build and test independently.
 - Existing full-system checks continue to prove the Spring game service can use the live GPU engine
   and configured sidecars.

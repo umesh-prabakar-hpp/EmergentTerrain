@@ -43,6 +43,22 @@ start, control, or write to the game service. Configure the same nonempty
 `RESEARCH_CONTEXT_API_KEY` in the game process: the client sends it as `X-Research-Service-Key`,
 and game rejects absent or invalid credentials.
 
+## Generic work intake (Phase 42 boundary)
+
+The research-owned `POST /api/v1/research/work` endpoint accepts a versioned, generic
+`ResearchWorkRequest` when `X-Research-Work-Key` equals the nonempty `RESEARCH_WORK_API_KEY`.
+It has no game request types: callers provide opaque workspace/subject identifiers, a source
+revision, a work type, and an immutable context snapshot. Accepted requests are stored
+idempotently in `research_work_items`; submitting the same request ID again returns the existing
+receipt.
+
+To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
+game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before
+relay, so temporary research-service downtime does not discard work. This intake is the first
+decoupling seam. The legacy university executor still consumes transition-period game-derived
+state, so queued generic work is not yet an execution trigger; do not enable `outbox` as a
+production replacement for the current local/remote research-cycle modes yet.
+
 Every execution snapshot is first imported into the research-owned `research_bot_replicas` table.
 That table records the bot selection and lifecycle payload at its game tick, and marks a bot
 inactive only when a same-or-newer game snapshot omits it. The university engine still reloads

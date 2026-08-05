@@ -62,3 +62,17 @@ CREATE INDEX IF NOT EXISTS research_bot_replicas_room_idx ON research_bot_replic
 CREATE INDEX IF NOT EXISTS research_bot_states_room_idx ON research_bot_states (room_id);
 CREATE INDEX IF NOT EXISTS research_lifecycle_shadow_records_room_observed_idx
     ON research_lifecycle_shadow_records (room_id, observed_at DESC);
+
+-- Generic durable work intake. These identifiers and payloads deliberately have no game schema.
+CREATE TABLE IF NOT EXISTS research_work_items (
+    request_id UUID PRIMARY KEY,
+    workspace_id UUID NOT NULL,
+    work_type VARCHAR(64) NOT NULL,
+    source_revision BIGINT NOT NULL,
+    request_json TEXT NOT NULL,
+    state VARCHAR(32) NOT NULL,
+    accepted_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS research_work_items_state_accepted_idx
+    ON research_work_items (state, accepted_at);

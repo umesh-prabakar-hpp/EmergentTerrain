@@ -56,6 +56,16 @@ database schema updates. Its ownership worker has a dedicated scheduler, so long
 schedules cannot starve migration-audit ticks. `schema.sql` may make idempotent changes only to the
 research-owned tables, including widening lifecycle payload columns for older Phase 42 installs.
 
+The Phase 42 generic work boundary uses Spring-free `ResearchWorkRequest`, `ResearchSubject`, and
+`ResearchWorkReceipt` DTOs from `libs/research-contract`; they must not acquire game types or
+terminology. In `app.research-api.mode=outbox`, the game owns `research_work_outbox` and maps game
+state to that generic contract before relay. The research service authenticates
+`POST /api/v1/research/work` with `RESEARCH_WORK_API_KEY` and owns `research_work_items`; it must
+accept duplicate request IDs idempotently. This is a durable handoff, not an authorization for
+research to read/write game tables or invoke privileged game actions. The legacy university
+executor has not yet been extracted, so do not represent queued generic work as executable research
+until a game-agnostic processor replaces its remaining `RoomBot`/government dependencies.
+
 ## Required environment
 - Java 21
 - Maven

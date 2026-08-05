@@ -51,6 +51,14 @@ decay, so its audit results must not be used for ownership cutover. It rejects a
 without its effective threshold and never applies the same snapshot tick twice.
 The game supplies a bounded lifecycle-event replay window with an epoch and monotonic sequence;
 research replays every unseen event and marks an event-window gap or game restart inconclusive.
+The first game-agnostic command boundary is available as the opt-in
+`app.research-api.mode=outbox`. With the same nonempty `RESEARCH_WORK_API_KEY` in both processes,
+the game maps a research cycle into an immutable generic `ResearchWorkRequest`, commits it to its
+own `research_work_outbox`, and relays it to the research service's authenticated
+`POST /api/v1/research/work` endpoint. Research acknowledges duplicate request IDs safely and
+stores accepted work in its own `research_work_items` queue. This is the durable handoff seam;
+the legacy university executor still uses transition-period game types and is not yet driven by
+queued generic work.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,
