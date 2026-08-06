@@ -3,11 +3,14 @@ package com.emergentterrain.researchcontract;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 /** Frozen, source-agnostic candidate selected before computation or narration begins. */
 public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId,
                                 String domain, String topic, String eligibility, String selectorVersion,
-                                String inputFingerprint, Instant plannedAt) {
+                                String inputFingerprint, String executionKind, JsonNode executionPayload,
+                                Instant plannedAt) {
     public ResearchDraftPlan {
         Objects.requireNonNull(draftId, "draftId");
         Objects.requireNonNull(requestId, "requestId");
@@ -15,9 +18,10 @@ public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, 
         Objects.requireNonNull(subjectId, "subjectId");
         if (domain == null || domain.isBlank() || topic == null || topic.isBlank()
                 || eligibility == null || eligibility.isBlank() || selectorVersion == null || selectorVersion.isBlank()
-                || inputFingerprint == null || inputFingerprint.isBlank()) {
-            throw new IllegalArgumentException("domain, topic, eligibility, selectorVersion, and inputFingerprint are required");
+                || inputFingerprint == null || inputFingerprint.isBlank() || executionKind == null || executionKind.isBlank()) {
+            throw new IllegalArgumentException("domain, topic, eligibility, selectorVersion, inputFingerprint, and executionKind are required");
         }
+        executionPayload = executionPayload == null ? JsonNodeFactory.instance.objectNode() : executionPayload;
         plannedAt = plannedAt == null ? Instant.now() : plannedAt;
     }
 }

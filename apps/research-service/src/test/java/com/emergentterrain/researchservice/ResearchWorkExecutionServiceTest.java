@@ -28,7 +28,8 @@ class ResearchWorkExecutionServiceTest {
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
         ResearchWorkExecutionService service = new ResearchWorkExecutionService(repository,
                 List.of(new GenericResearchCycleExecutor(mapper,
-                        new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper))), mapper);
+                        new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                        new FrozenResearchBranchPreparer(mapper))), mapper);
 
         service.execute(item);
 

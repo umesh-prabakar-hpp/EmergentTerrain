@@ -100,8 +100,12 @@ CREATE TABLE IF NOT EXISTS research_draft_plans (
     eligibility VARCHAR(32) NOT NULL,
     selector_version VARCHAR(128) NOT NULL,
     input_fingerprint VARCHAR(64) NOT NULL,
+    execution_kind VARCHAR(64) NOT NULL,
+    execution_payload_json TEXT NOT NULL,
     planned_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS selector_version VARCHAR(128) NOT NULL DEFAULT 'legacy-unversioned';
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS input_fingerprint VARCHAR(64) NOT NULL DEFAULT 'unavailable';
+ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS execution_kind VARCHAR(64) NOT NULL DEFAULT 'STANDARD_CATALOG';
+ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS execution_payload_json TEXT NOT NULL DEFAULT '{}';

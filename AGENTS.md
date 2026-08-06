@@ -66,8 +66,11 @@ research to read/write game tables or invoke privileged game actions. The legacy
 executor has not yet been extracted. The game-agnostic standard-catalog planner may consume only
 the frozen `draftSelection` input, persist its selector version and input fingerprint, and emit a
 display-safe planning result; it must not invoke the legacy university executor or read game tables.
-Dynamic, conjecture, follow-up, and history-dependent selection branches remain legacy-only until
-each has a frozen generic representation and parity fixture. The generic processor may emit only a `ResearchResult` and the game result projection is
+Parameterized and follow-up branch inputs are mapped to the Spring-free `ResearchStudySpecification`
+and `ResearchParameterOverride` payloads and canonically prepared without computation; they emit
+`DRAFT_BRANCH_PREPARED`, never a research claim. Conjecture and history-dependent selection branches
+remain legacy-only until each has a frozen generic representation and parity fixture. The generic
+processor may emit only a `ResearchResult` and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.
 

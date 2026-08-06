@@ -40,11 +40,13 @@ public class FrozenResearchDraftPlanner {
         UUID draftId = UUID.nameUUIDFromBytes(("draft-plan:" + request.requestId()).getBytes(StandardCharsets.UTF_8));
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
-                input.selectorVersion(), fingerprint(frozenInput), Instant.now());
+                input.selectorVersion(), fingerprint(frozenInput), input.executionIntent().kind(),
+                input.executionIntent().payload(), Instant.now());
         if (!plans.existsById(draftId)) {
             plans.save(new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(),
                     plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(),
-                    plan.inputFingerprint(), plan.plannedAt()));
+                    plan.inputFingerprint(), plan.executionKind(), objectMapper.valueToTree(plan.executionPayload()).toString(),
+                    plan.plannedAt()));
         }
         return plan;
     }

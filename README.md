@@ -62,8 +62,10 @@ queued generic work.
 Research now executes queued standard-catalog `RESEARCH_CYCLE` work from a frozen, versioned
 draft-selection input. The game maps source lifecycle/genome state to generic candidates, while
 research deterministically selects and records the subject, domain, topic, selector version, and
-input fingerprint without reading game tables. Dynamic, conjecture, follow-up, and
-history-dependent branches remain outside this first parity slice. With matching
+input fingerprint without reading game tables. Parameterized and follow-up branches are mapped to
+versioned, game-free study/parameter payloads and canonically prepared without computation, rather
+than being misrouted as standard work. Conjecture and history-dependent branches remain outside
+this first parity slice. With matching
 `RESEARCH_RESULT_API_KEY` values, it retries delivery of the display-only result projection; this
 endpoint cannot apply gameplay effects.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations

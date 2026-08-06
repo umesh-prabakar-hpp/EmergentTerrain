@@ -145,7 +145,7 @@ components:
           additionalProperties: true
     ResearchDraftSelectionInput:
       type: object
-      required: [selectorVersion, selectionSeed, topicSelectionMode, candidates]
+      required: [selectorVersion, selectionSeed, topicSelectionMode, candidates, executionIntent]
       properties:
         selectorVersion: { type: string, minLength: 1 }
         selectionSeed: { type: integer, format: int64 }
@@ -154,6 +154,47 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResearchDraftCandidate'
+        executionIntent:
+          $ref: '#/components/schemas/ResearchDraftExecutionIntent'
+    ResearchDraftExecutionIntent:
+      type: object
+      required: [kind, payload]
+      properties:
+        kind:
+          type: string
+          enum: [STANDARD_CATALOG, DEFERRED_PARAMETERIZED_STUDY, DEFERRED_FOLLOW_UP_STUDY]
+        payload:
+          oneOf:
+            - type: object
+              description: Empty object for STANDARD_CATALOG.
+            - $ref: '#/components/schemas/ResearchStudySpecification'
+            - $ref: '#/components/schemas/ResearchParameterOverride'
+    ResearchStudySpecification:
+      type: object
+      description: Frozen planning input only; it does not authorize computation or publication.
+      required: [specificationVersion, studyId, description, rangeStart, rangeEnd, predicateExpression, measurement, baseline, expectedRelation]
+      properties:
+        specificationVersion: { type: string, minLength: 1 }
+        studyId: { type: string, minLength: 1 }
+        description: { type: string, minLength: 1 }
+        rangeStart: { type: integer, format: int32 }
+        rangeEnd: { type: integer, format: int32 }
+        predicateExpression: { type: string, minLength: 1 }
+        measurement: { type: string, minLength: 1 }
+        baseline: { type: number, format: double }
+        hypothesis: { type: string }
+        expectedRelation: { type: string, enum: [ABOVE_BASELINE, BELOW_BASELINE, APPROXIMATELY_EQUAL] }
+        comparisonTolerance: { type: number, format: double, exclusiveMinimum: 0 }
+    ResearchParameterOverride:
+      type: object
+      description: Frozen planning input only; it does not authorize computation or publication.
+      required: [overrideVersion, parameterOne, parameterTwo]
+      properties:
+        overrideVersion: { type: string, minLength: 1 }
+        parameterOne: { type: integer, format: int32 }
+        parameterTwo: { type: number, format: double }
+        predictedScore: { type: number, format: double }
+        priorMethodology: { type: string }
     ResearchDraftCandidate:
       type: object
       required: [subjectId, tier, selectionScore, domain, topicOptions]

@@ -3,9 +3,13 @@ package com.emergentterrain.research.api;
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.DynamicProblem;
+import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchParameterOverride;
+import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -67,6 +71,48 @@ class GameResearchWorkMapperTest {
 
         assertThat(actual.eligibility()).isEqualTo("FALLBACK_CANDIDATE");
         assertThat(actual.topic()).isEqualTo(MathPhysicsEngine.topicName("PHYSICS", expectedIndex));
+    }
+
+    @Test
+    void freezesAParameterizedBranchAsAGameFreeStudySpecification() throws Exception {
+        BotLifecycleState state = qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1});
+        state.setPendingDirective(new DynamicProblem("directive-1", "frozen parameterized study", 10, 40,
+                "isPrime", "fraction_satisfying", 0.5, "The fraction exceeds the baseline"));
+        ResearchWorkRequest request = new GameResearchWorkMapper(mapper, false).fromTick(UUID.randomUUID(),
+                List.of(bot(UUID.randomUUID(), state)), 31L, null);
+
+        ResearchDraftSelectionInput input = mapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                ResearchDraftSelectionInput.class);
+
+        assertThat(input.executionIntent().kind()).isEqualTo("DEFERRED_PARAMETERIZED_STUDY");
+        ResearchStudySpecification study = mapper.treeToValue(input.executionIntent().payload(),
+                ResearchStudySpecification.class);
+        assertThat(study.specificationVersion()).isEqualTo(ResearchStudySpecification.LEGACY_PARAMETERIZED_STUDY_V1);
+        assertThat(study.studyId()).isEqualTo("directive-1");
+        assertThat(study.rangeStart()).isEqualTo(10);
+        assertThat(study.rangeEnd()).isEqualTo(40);
+        assertThat(study.predicateExpression()).isEqualTo("isPrime");
+        assertThat(study.expectedRelation()).isEqualTo("ABOVE_BASELINE");
+    }
+
+    @Test
+    void freezesAFollowUpBranchAsAGameFreeParameterOverride() throws Exception {
+        BotLifecycleState state = qualifiedAdult("PHYSICS", new double[] {1, 1, 1, 1, 1});
+        state.setPendingFollowUp(new FollowUpParams(37, 2.5, 0.75, "prior bounded scan"));
+        ResearchWorkRequest request = new GameResearchWorkMapper(mapper, false).fromTick(UUID.randomUUID(),
+                List.of(bot(UUID.randomUUID(), state)), 32L, null);
+
+        ResearchDraftSelectionInput input = mapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                ResearchDraftSelectionInput.class);
+
+        assertThat(input.executionIntent().kind()).isEqualTo("DEFERRED_FOLLOW_UP_STUDY");
+        ResearchParameterOverride override = mapper.treeToValue(input.executionIntent().payload(),
+                ResearchParameterOverride.class);
+        assertThat(override.overrideVersion()).isEqualTo(ResearchParameterOverride.LEGACY_FOLLOW_UP_V1);
+        assertThat(override.parameterOne()).isEqualTo(37);
+        assertThat(override.parameterTwo()).isEqualTo(2.5);
+        assertThat(override.predictedScore()).isEqualTo(0.75);
+        assertThat(override.priorMethodology()).isEqualTo("prior bounded scan");
     }
 
     private static BotLifecycleState qualifiedAdult(String domain, double[] weights) {

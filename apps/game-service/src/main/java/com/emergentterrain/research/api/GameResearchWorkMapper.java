@@ -5,8 +5,12 @@ import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
+import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchSubject;
+import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -82,7 +86,15 @@ public class GameResearchWorkMapper {
                 .toList();
         String topicMode = topicsV2Enabled ? "UNIFORM" : "WEIGHTED";
         long seed = sourceRevision * 1337L + workspaceId.getLeastSignificantBits();
-        return new ResearchDraftSelectionInput("legacy-standard-catalog-v1", seed, topicMode, candidates);
+        ResearchDraftSelectionInput standardInput = new ResearchDraftSelectionInput(
+                "legacy-standard-catalog-v1", seed, topicMode, candidates);
+        if (candidates.isEmpty()) return standardInput;
+        ResearchDraftSelection selection = com.emergentterrain.researchcontract.StandardResearchDraftSelector
+                .select(standardInput);
+        SelectionSource selected = pool.stream().filter(source -> source.subjectId().equals(selection.subjectId()))
+                .findFirst().orElseThrow();
+        return new ResearchDraftSelectionInput(standardInput.selectorVersion(), standardInput.selectionSeed(),
+                standardInput.topicSelectionMode(), standardInput.candidates(), executionIntent(selected.lifecycle()));
     }
 
     private ResearchDraftCandidate candidate(SelectionSource source, String tier) {
@@ -105,6 +117,25 @@ public class GameResearchWorkMapper {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private ResearchDraftExecutionIntent executionIntent(BotLifecycleState lifecycle) {
+        if (lifecycle.getPendingDirective() != null) {
+            var directive = lifecycle.getPendingDirective();
+            return new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY,
+                    objectMapper.valueToTree(new ResearchStudySpecification(
+                            ResearchStudySpecification.LEGACY_PARAMETERIZED_STUDY_V1, directive.id(),
+                            directive.description(), directive.rangeStart(), directive.rangeEnd(), directive.predicate(),
+                            directive.metric(), directive.baseline(), directive.hypothesis(),
+                            directive.expectedRelation().name(), directive.comparisonTolerance())));
+        }
+        if (lifecycle.getPendingFollowUp() != null) {
+            var followUp = lifecycle.getPendingFollowUp();
+            return new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY,
+                    objectMapper.valueToTree(new ResearchParameterOverride(ResearchParameterOverride.LEGACY_FOLLOW_UP_V1,
+                            followUp.param1(), followUp.param2(), followUp.predictedScore(), followUp.priorMethodology())));
+        }
+        return ResearchDraftExecutionIntent.standardCatalog();
     }
 
     private record SelectionSource(UUID subjectId, BotLifecycleState lifecycle) { }

@@ -20,13 +20,16 @@ public class ResearchDraftPlanRecord {
     @Column(nullable = false, length = 32) private String eligibility;
     @Column(nullable = false, length = 128) private String selectorVersion;
     @Column(nullable = false, length = 64) private String inputFingerprint;
+    @Column(nullable = false, length = 64) private String executionKind;
+    @Column(nullable = false, columnDefinition = "text") private String executionPayloadJson;
     @Column(nullable = false) private Instant plannedAt;
     protected ResearchDraftPlanRecord() { }
     public ResearchDraftPlanRecord(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId, String domain,
                                    String topic, String eligibility, String selectorVersion, String inputFingerprint,
-                                   Instant plannedAt) {
+                                   String executionKind, String executionPayloadJson, Instant plannedAt) {
         this.draftId=draftId; this.requestId=requestId; this.workspaceId=workspaceId; this.subjectId=subjectId;
         this.domain=domain; this.topic=topic; this.eligibility=eligibility;
-        this.selectorVersion=selectorVersion; this.inputFingerprint=inputFingerprint; this.plannedAt=plannedAt;
+        this.selectorVersion=selectorVersion; this.inputFingerprint=inputFingerprint;
+        this.executionKind=executionKind; this.executionPayloadJson=executionPayloadJson; this.plannedAt=plannedAt;
     }
 }

@@ -56,8 +56,10 @@ The research-owned scheduler claims queued `RESEARCH_CYCLE` work, records attemp
 generic `ResearchResult`, and retries delivery of that result to the game projection endpoint when
 `RESEARCH_RESULT_API_KEY` is configured. Its first extracted executable slice consumes a frozen,
 versioned standard-draft selection input and persists the selected subject/domain/topic together
-with a selector version and input fingerprint. It intentionally contains no game types and does
-not yet replace the legacy paper-generation engine; dynamic, conjecture, follow-up, and
+with a selector version and input fingerprint. Parameterized and follow-up branch inputs are mapped
+to versioned, game-free study/parameter payloads and return `DRAFT_BRANCH_PREPARED` after canonical
+planning validation only—no computation, narration, review, or publication runs. It intentionally
+contains no game types and does not yet replace the legacy paper-generation engine; conjecture and
 history-dependent branches remain out of scope.
 
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the

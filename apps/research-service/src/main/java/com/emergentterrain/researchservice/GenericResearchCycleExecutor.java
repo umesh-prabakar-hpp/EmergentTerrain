@@ -16,10 +16,13 @@ import java.util.UUID;
 public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     private final ObjectMapper objectMapper;
     private final FrozenResearchDraftPlanner draftPlanner;
+    private final FrozenResearchBranchPreparer branchPreparer;
 
-    public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner) {
+    public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
+                                        FrozenResearchBranchPreparer branchPreparer) {
         this.objectMapper = objectMapper;
         this.draftPlanner = draftPlanner;
+        this.branchPreparer = branchPreparer;
     }
 
     @Override public boolean supports(String workType) { return "RESEARCH_CYCLE".equals(workType); }
@@ -27,6 +30,7 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     @Override
     public ResearchResult execute(ResearchWorkRequest request) {
         ResearchDraftPlan draft = draftPlanner.plan(request);
+        FrozenResearchBranchPreparer.PreparedBranch branch = branchPreparer.prepare(draft);
         ObjectNode findings = objectMapper.createObjectNode();
         findings.put("sourceRevision", request.sourceRevision());
         findings.put("subjectCount", request.subjects().size());
@@ -38,11 +42,20 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         findings.put("draftEligibility", draft.eligibility());
         findings.put("draftSelectorVersion", draft.selectorVersion());
         findings.put("draftInputFingerprint", draft.inputFingerprint());
+        findings.put("draftExecutionKind", draft.executionKind());
+        findings.set("draftExecutionPayload", draft.executionPayload());
+        findings.put("draftExecutionStatus", branch.status());
+        if (branch.canonicalPayload() != null) findings.set("draftExecutionCanonicalPayload", branch.canonicalPayload());
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())
                 .getBytes(StandardCharsets.UTF_8));
-        String summary = "Planned a reproducible candidate draft for " + request.subjects().size()
-                + " subjects at source revision " + request.sourceRevision() + ".";
-        return new ResearchResult(resultId, request.requestId(), request.workspaceId(), "DRAFT_CANDIDATE_PLANNED",
+        boolean standardCatalog = "STANDARD_CATALOG".equals(draft.executionKind());
+        String summary = standardCatalog
+                ? "Planned a reproducible candidate draft for " + request.subjects().size()
+                    + " subjects at source revision " + request.sourceRevision() + "."
+                : "Prepared a frozen non-standard draft branch without computation at source revision "
+                    + request.sourceRevision() + ".";
+        return new ResearchResult(resultId, request.requestId(), request.workspaceId(),
+                standardCatalog ? "DRAFT_CANDIDATE_PLANNED" : "DRAFT_BRANCH_PREPARED",
                 summary, findings, Instant.now());
     }
 }
