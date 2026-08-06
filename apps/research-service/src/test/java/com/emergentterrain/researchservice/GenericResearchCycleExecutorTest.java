@@ -3,6 +3,7 @@ package com.emergentterrain.researchservice;
 import com.emergentterrain.researchcontract.ResearchResult;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchSubject;
@@ -86,6 +87,32 @@ class GenericResearchCycleExecutorTest {
         assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
         assertThat(result.findings().path("draftExecutionCanonicalPayload").path("studyId").asText())
                 .isEqualTo("study-7");
+        assertThat(result.summary()).contains("without computation");
+    }
+
+    @Test
+    void preparesAFrozenConjectureWithoutStartingVerificationOrPublication() {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID subjectId = UUID.randomUUID();
+        ObjectNode context = mapper.createObjectNode();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, UUID.randomUUID().toString(), "math", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.QUEUE_CANDIDATE);
+        context.set("draftSelection", mapper.valueToTree(new ResearchDraftSelectionInput(
+                standard.selectorVersion(), standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(),
+                new ResearchDraftExecutionIntent("DEFERRED_CONJECTURE_STUDY", mapper.valueToTree(conjecture)))));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 10,
+                Instant.parse("2026-08-06T12:02:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        ResearchResult result = new GenericResearchCycleExecutor(mapper,
+                new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                new FrozenResearchBranchPreparer(mapper)).execute(request);
+
+        assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
+        assertThat(result.findings().path("draftExecutionCanonicalPayload").path("leftExpression").asText())
+                .isEqualTo("left_metric");
         assertThat(result.summary()).contains("without computation");
     }
 }

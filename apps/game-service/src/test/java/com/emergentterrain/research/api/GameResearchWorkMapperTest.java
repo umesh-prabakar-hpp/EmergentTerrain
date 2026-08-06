@@ -6,10 +6,15 @@ import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
+import com.emergentterrain.research.ResearchPaper;
+import com.emergentterrain.research.conjecture.Conjecture;
+import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
+import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -113,6 +118,53 @@ class GameResearchWorkMapperTest {
         assertThat(override.parameterTwo()).isEqualTo(2.5);
         assertThat(override.predictedScore()).isEqualTo(0.75);
         assertThat(override.priorMethodology()).isEqualTo("prior bounded scan");
+    }
+
+    @Test
+    void mapsAPersistedConjectureToAGameFreeFrozenSpecification() throws Exception {
+        UUID conjectureId = UUID.randomUUID();
+        Conjecture conjecture = mock(Conjecture.class);
+        when(conjecture.id()).thenReturn(conjectureId);
+        when(conjecture.domain()).thenReturn("math");
+        when(conjecture.kind()).thenReturn("BOUND");
+        when(conjecture.lhs()).thenReturn("left_metric");
+        when(conjecture.rhs()).thenReturn("right_metric");
+        when(conjecture.rhs2()).thenReturn("secondary_metric");
+        when(conjecture.k()).thenReturn(1.25);
+        when(conjecture.k2()).thenReturn(0.5);
+        when(conjecture.c()).thenReturn(-0.25);
+        when(conjecture.confirmedRuns()).thenReturn(7);
+        when(conjecture.p99Slack()).thenReturn(0.08);
+        when(conjecture.captureWindowStart()).thenReturn(1000L);
+
+        ResearchDraftExecutionIntent intent = new GameResearchWorkMapper(mapper, false)
+                .frozenConjectureIntent(conjecture, ResearchConjectureSpecification.PROMOTED_ANOMALY);
+
+        assertThat(intent.kind()).isEqualTo("DEFERRED_CONJECTURE_STUDY");
+        ResearchConjectureSpecification specification = mapper.treeToValue(intent.payload(),
+                ResearchConjectureSpecification.class);
+        assertThat(specification.sourceId()).isEqualTo(conjectureId.toString());
+        assertThat(specification.leftExpression()).isEqualTo("left_metric");
+        assertThat(specification.secondaryCoefficient()).isEqualTo(0.5);
+        assertThat(specification.selectionReason()).isEqualTo("PROMOTED_ANOMALY");
+    }
+
+    @Test
+    void mapsTopicHistoryToGenericFrozenEntriesWithoutEnablingReselection() {
+        ResearchPaper paper = mock(ResearchPaper.class);
+        when(paper.domain()).thenReturn("MATHEMATICS");
+        when(paper.topic()).thenReturn("prime density");
+        when(paper.status()).thenReturn("REJECTED");
+        when(paper.peerScore()).thenReturn(0.25);
+        ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 1L,
+                "WEIGHTED", List.of());
+
+        ResearchDraftSelectionInput frozen = new GameResearchWorkMapper(mapper, false)
+                .withTopicHistory(input, List.of(paper));
+
+        assertThat(frozen.topicHistory().snapshotVersion()).isEqualTo("legacy-topic-history-v1");
+        assertThat(frozen.topicHistory().entries()).containsExactly(
+                new ResearchTopicHistoryEntry("MATHEMATICS", "prime density", "REJECTED", 0.25));
     }
 
     private static BotLifecycleState qualifiedAdult(String domain, double[] weights) {

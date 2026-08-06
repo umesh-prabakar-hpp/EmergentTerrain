@@ -2,6 +2,7 @@ package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftPlan;
+import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,6 +27,9 @@ public class FrozenResearchBranchPreparer {
             case ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY -> new PreparedBranch(
                     "PREPARED", write(read(draft.executionPayload(), ResearchParameterOverride.class,
                             "parameter override")));
+            case ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY -> new PreparedBranch(
+                    "PREPARED", write(read(draft.executionPayload(), ResearchConjectureSpecification.class,
+                            "conjecture specification")));
             default -> throw new IllegalArgumentException("Unsupported frozen execution kind: " + draft.executionKind());
         };
     }

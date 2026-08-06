@@ -61,7 +61,11 @@
   follow-up branch inputs are now mapped to versioned `ResearchStudySpecification` and
   `ResearchParameterOverride` payloads; research canonically prepares them and emits
   `DRAFT_BRANCH_PREPARED`, never a standard-catalog or computed result. Conjecture and
-  history-dependent branches remain excluded. Result delivery retries to a
+  history-dependent branches remain excluded from live routing. A game-owned conjecture can now be
+  mapped to a frozen `ResearchConjectureSpecification` and prepared in research, but queue ordering
+  and consumption semantics have not yet been captured, so the game does not enqueue it. Topic
+  history can now be frozen as `ResearchTopicHistorySnapshot`, but generic clone/backoff replay has
+  not yet earned parity. Result delivery retries to a
   game-owned, display-only projection authenticated separately by `RESEARCH_RESULT_API_KEY`; the
   projection cannot apply gameplay effects. This is execution-lifecycle proof, not paper-engine
   equivalence.
@@ -236,7 +240,7 @@ Browser → game service → research API → research service
 | 1–3. Monorepo import and repository tooling | **COMPLETE** | Imported services and monorepo-relative tooling are the active layout. |
 | 4–6. Generic contract and durable work delivery | **COMPLETE (opt-in delivery)** | `ResearchWorkRequest`, transactional game outbox, authenticated research intake, idempotent receipts, retrying delivery, published v1 work/result schemas, and endpoint contract tests are implemented. The game stays in `local` mode unless an operator selects `outbox`. |
 | Generic work execution and display-only result event | **COMPLETE (baseline slice)** | The research-owned scheduler executes immutable-context baselines and publishes `ResearchResult` to an idempotent game projection. |
-| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS (standard-catalog and branch-preparation parity)** | The game freezes generic primary/fallback candidates and weighted or uniform topic options; research persists a versioned selector result and input fingerprint. Golden fixtures plus game-mapper parity cover this standard path. Parameterized studies and follow-up parameter overrides are versioned, canonically prepared inputs with mapper/executor parity, but they make no computational claim. Add frozen representations and fixtures for conjecture and history-dependent branches before routing a paper request. |
+| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS (standard-catalog and branch-preparation parity)** | The game freezes generic primary/fallback candidates and weighted or uniform topic options; research persists a versioned selector result and input fingerprint. Golden fixtures plus game-mapper parity cover this standard path. Parameterized studies, follow-up parameter overrides, and conjecture specifications are versioned, canonically prepared inputs with mapper/executor parity, but they make no computational claim. Topic history now has a frozen generic representation. Capture and replay exact topic-resampling and conjecture queue ordering/consumption parity before routing either branch live. |
 | 7b. Computation, narration, review, and publication | **PENDING** | Move one stage at a time only after its preceding generic draft output matches the legacy engine. |
 | 8. Authorized gameplay consequences | **PENDING** | Current result projection is intentionally display-only; no effect recommendation is accepted. |
 | 9. Remove game dependency and cut over | **PENDING** | Requires paper-output parity, independent recovery tests, and removal of game-model/database reads. |

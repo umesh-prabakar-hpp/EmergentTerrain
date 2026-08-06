@@ -156,19 +156,22 @@ components:
             $ref: '#/components/schemas/ResearchDraftCandidate'
         executionIntent:
           $ref: '#/components/schemas/ResearchDraftExecutionIntent'
+        topicHistory:
+          $ref: '#/components/schemas/ResearchTopicHistorySnapshot'
     ResearchDraftExecutionIntent:
       type: object
       required: [kind, payload]
       properties:
         kind:
           type: string
-          enum: [STANDARD_CATALOG, DEFERRED_PARAMETERIZED_STUDY, DEFERRED_FOLLOW_UP_STUDY]
+          enum: [STANDARD_CATALOG, DEFERRED_PARAMETERIZED_STUDY, DEFERRED_FOLLOW_UP_STUDY, DEFERRED_CONJECTURE_STUDY]
         payload:
           oneOf:
             - type: object
               description: Empty object for STANDARD_CATALOG.
             - $ref: '#/components/schemas/ResearchStudySpecification'
             - $ref: '#/components/schemas/ResearchParameterOverride'
+            - $ref: '#/components/schemas/ResearchConjectureSpecification'
     ResearchStudySpecification:
       type: object
       description: Frozen planning input only; it does not authorize computation or publication.
@@ -195,6 +198,43 @@ components:
         parameterTwo: { type: number, format: double }
         predictedScore: { type: number, format: double }
         priorMethodology: { type: string }
+    ResearchConjectureSpecification:
+      type: object
+      description: Frozen planning input only; it does not authorize verification or publication.
+      required: [specificationVersion, sourceId, domain, resultKind, leftExpression, rightExpression, primaryCoefficient, secondaryCoefficient, intercept, confirmationCount, maximumSlack, selectionReason]
+      properties:
+        specificationVersion: { type: string, minLength: 1 }
+        sourceId: { type: string, minLength: 1 }
+        domain: { type: string, minLength: 1 }
+        resultKind: { type: string, minLength: 1 }
+        leftExpression: { type: string, minLength: 1 }
+        rightExpression: { type: string, minLength: 1 }
+        secondRightExpression: { type: string }
+        primaryCoefficient: { type: number, format: double }
+        secondaryCoefficient: { type: number, format: double }
+        intercept: { type: number, format: double }
+        confirmationCount: { type: integer, format: int32, minimum: 0 }
+        maximumSlack: { type: number, format: double }
+        captureWindowStart: { type: integer, format: int64, minimum: 0 }
+        selectionReason: { type: string, enum: [QUEUE_CANDIDATE, PROMOTED_ANOMALY] }
+    ResearchTopicHistorySnapshot:
+      type: object
+      description: Frozen input for a future deterministic topic-reselection replay.
+      required: [snapshotVersion, entries]
+      properties:
+        snapshotVersion: { type: string, minLength: 1 }
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchTopicHistoryEntry'
+    ResearchTopicHistoryEntry:
+      type: object
+      required: [domain, topic, outcome, peerScore]
+      properties:
+        domain: { type: string, minLength: 1 }
+        topic: { type: string, minLength: 1 }
+        outcome: { type: string, minLength: 1 }
+        peerScore: { type: number, format: double }
     ResearchDraftCandidate:
       type: object
       required: [subjectId, tier, selectionScore, domain, topicOptions]

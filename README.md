@@ -65,7 +65,9 @@ research deterministically selects and records the subject, domain, topic, selec
 input fingerprint without reading game tables. Parameterized and follow-up branches are mapped to
 versioned, game-free study/parameter payloads and canonically prepared without computation, rather
 than being misrouted as standard work. Conjecture and history-dependent branches remain outside
-this first parity slice. With matching
+this first parity slice: a conjecture has a frozen preparation schema, but live queue selection is
+not routed until its ordering and consumption semantics have parity coverage. Topic history is also
+frozen as a generic snapshot, but clone/backoff reselection is not yet replayed. With matching
 `RESEARCH_RESULT_API_KEY` values, it retries delivery of the display-only result projection; this
 endpoint cannot apply gameplay effects.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations

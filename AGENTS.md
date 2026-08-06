@@ -68,9 +68,12 @@ the frozen `draftSelection` input, persist its selector version and input finger
 display-safe planning result; it must not invoke the legacy university executor or read game tables.
 Parameterized and follow-up branch inputs are mapped to the Spring-free `ResearchStudySpecification`
 and `ResearchParameterOverride` payloads and canonically prepared without computation; they emit
-`DRAFT_BRANCH_PREPARED`, never a research claim. Conjecture and history-dependent selection branches
-remain legacy-only until each has a frozen generic representation and parity fixture. The generic
-processor may emit only a `ResearchResult` and the game result projection is
+`DRAFT_BRANCH_PREPARED`, never a research claim. `ResearchConjectureSpecification` is also a
+frozen generic preparation payload, but the game must not enqueue it until queue ordering and
+consumption parity are captured. History-dependent selection remains legacy-only until its frozen
+representation is replayed with an exact resampling-parity fixture; `ResearchTopicHistorySnapshot`
+now freezes the input but is not yet replayed. The generic processor may emit only a `ResearchResult`
+and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.
 

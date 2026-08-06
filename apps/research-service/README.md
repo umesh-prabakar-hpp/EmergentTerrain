@@ -60,7 +60,9 @@ with a selector version and input fingerprint. Parameterized and follow-up branc
 to versioned, game-free study/parameter payloads and return `DRAFT_BRANCH_PREPARED` after canonical
 planning validation only—no computation, narration, review, or publication runs. It intentionally
 contains no game types and does not yet replace the legacy paper-generation engine; conjecture and
-history-dependent branches remain out of scope.
+history-dependent branches remain out of scope for live routing. A frozen conjecture specification
+can be prepared, but must not be enqueued until game-side queue ordering and consumption parity are
+captured; a frozen topic-history snapshot likewise waits for exact generic resampling parity.
 
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
 game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before

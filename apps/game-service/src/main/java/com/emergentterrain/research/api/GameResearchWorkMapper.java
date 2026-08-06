@@ -4,6 +4,9 @@ import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.MathPhysicsEngine;
+import com.emergentterrain.research.conjecture.Conjecture;
+import com.emergentterrain.research.ResearchPaper;
+import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
@@ -12,6 +15,8 @@ import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
+import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
+import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -136,6 +141,37 @@ public class GameResearchWorkMapper {
                             followUp.param1(), followUp.param2(), followUp.predictedScore(), followUp.priorMethodology())));
         }
         return ResearchDraftExecutionIntent.standardCatalog();
+    }
+
+    /**
+     * Maps a game-owned conjecture into the generic contract. A later selection-owner increment
+     * will call this only after reproducing queue ordering and consumption semantics.
+     */
+    ResearchDraftExecutionIntent frozenConjectureIntent(Conjecture conjecture, String selectionReason) {
+        if (conjecture == null || conjecture.id() == null) {
+            throw new IllegalArgumentException("A frozen conjecture requires a persistent source id");
+        }
+        return new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                objectMapper.valueToTree(new ResearchConjectureSpecification(
+                        ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, conjecture.id().toString(),
+                        conjecture.domain(), conjecture.kind(), conjecture.lhs(), conjecture.rhs(), conjecture.rhs2(),
+                        conjecture.k(), conjecture.k2(), conjecture.c(), conjecture.confirmedRuns(), conjecture.p99Slack(),
+                        conjecture.captureWindowStart(), selectionReason)));
+    }
+
+    /** Maps game-owned paper history into immutable generic input; selection replay is not enabled yet. */
+    ResearchDraftSelectionInput withTopicHistory(ResearchDraftSelectionInput input,
+                                                  List<ResearchPaper> recentPapers) {
+        List<ResearchTopicHistoryEntry> entries = recentPapers == null ? List.of() : recentPapers.stream()
+                .filter(paper -> paper != null && paper.domain() != null && !paper.domain().isBlank()
+                        && paper.topic() != null && !paper.topic().isBlank() && paper.status() != null
+                        && !paper.status().isBlank() && Double.isFinite(paper.peerScore()))
+                .map(paper -> new ResearchTopicHistoryEntry(paper.domain(), paper.topic(), paper.status(),
+                        paper.peerScore()))
+                .toList();
+        return new ResearchDraftSelectionInput(input.selectorVersion(), input.selectionSeed(),
+                input.topicSelectionMode(), input.candidates(), input.executionIntent(),
+                new ResearchTopicHistorySnapshot(ResearchTopicHistorySnapshot.LEGACY_TOPIC_HISTORY_V1, entries));
     }
 
     private record SelectionSource(UUID subjectId, BotLifecycleState lifecycle) { }
