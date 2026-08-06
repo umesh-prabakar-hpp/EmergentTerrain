@@ -48,12 +48,17 @@
   idempotently in `research_work_items`. The Spring-free work contract contains opaque workspace
   and subject identifiers, source revision, work type, and context snapshot—not game classes.
   This establishes durable at-least-once delivery while the legacy executor is still being
-  extracted; it intentionally does not yet execute queued generic work.
+  extracted. Queued work is deliberately limited to the baseline planning slice below and must
+  not invoke the legacy university executor.
 - Queued `RESEARCH_CYCLE` work now has a research-owned scheduler and a first game-agnostic
-  executable slice: it produces a reproducible immutable-context baseline, records attempt/result
-  state, and emits a durable generic `ResearchResult`. Result delivery retries to a game-owned,
-  display-only projection authenticated separately by `RESEARCH_RESULT_API_KEY`; the projection
-  cannot apply gameplay effects. This is execution-lifecycle proof, not paper-engine equivalence.
+  executable slice: it records attempt/result state, persists a deterministic frozen
+  `ResearchDraftPlan`, and emits a durable generic `ResearchResult` with outcome
+  `DRAFT_CANDIDATE_PLANNED`. The current planner selects one opaque subject deterministically,
+  reads optional domain/topic attributes from its frozen payload, and records a candidate; it is
+  not yet legacy-equivalent eligibility or topic-selection logic. Result delivery retries to a
+  game-owned, display-only projection authenticated separately by `RESEARCH_RESULT_API_KEY`; the
+  projection cannot apply gameplay effects. This is execution-lifecycle proof, not paper-engine
+  equivalence.
 
 ## Live standalone validation — 2026-08-04
 
@@ -172,9 +177,9 @@ game event/state
   -> durable work transport
   -> research service
 
-ResearchResult / OutcomeRecommendation
-  -> game result mapper and effect validator
-  -> game display projection or permitted gameplay effect
+ResearchResult
+  -> game result mapper
+  -> display-only game projection
 ```
 
 The contract vocabulary is deliberately research-specific:
@@ -185,8 +190,9 @@ The contract vocabulary is deliberately research-specific:
   tick identifiers in the research domain.
 - A request contains only the frozen evidence and constraints needed for the investigation. The
   research service never polls the game for mutable state while executing that request.
-- Research may return an `OutcomeRecommendation`, but the game validates it against an explicit
-  allowed-effect policy and remains the only service that applies gameplay changes.
+- The generic processor emits only `ResearchResult`. A gameplay-effect recommendation is out of
+  scope until a separately versioned extension has an explicit game-owned validation policy and
+  contract test; the game remains the only service that could apply a validated effect.
 
 This permits research to run while the game is stopped: it can complete previously delivered work,
 serve its paper/result API, and recover its own queued work. New game-originated work naturally
@@ -210,9 +216,10 @@ Browser → game service → research API → research service
   service consumes each work item idempotently.
 - The game queries research job status and publications through the `research-api` contract. It may
   maintain a compact local display projection from versioned research-result events.
-- When research has a gameplay consequence, it publishes a versioned result/recommendation event.
-  The game service maps and authorizes that recommendation; research must not write game-owned
-  tables, invoke privileged game actions, or directly apply gameplay effects.
+- Research currently publishes only display-safe versioned results. A future gameplay-effect
+  extension requires an explicit game-owned validation policy and contract test before research
+  may emit a recommendation; research must never write game-owned tables, invoke privileged game
+  actions, or directly apply gameplay effects.
 - Each service owns its database schema or database.  Cross-service reads and writes occur through
   APIs/events, never through shared ORM entities or direct SQL.
 
@@ -221,9 +228,9 @@ Browser → game service → research API → research service
 | Item | Status | Evidence / next gate |
 |---|---|---|
 | 1–3. Monorepo import and repository tooling | **COMPLETE** | Imported services and monorepo-relative tooling are the active layout. |
-| 4–6. Generic contract and durable work delivery | **COMPLETE** | `ResearchWorkRequest`, transactional game outbox, authenticated research intake, idempotent receipts, and retrying delivery are implemented. |
+| 4–6. Generic contract and durable work delivery | **IN PROGRESS** | `ResearchWorkRequest`, transactional game outbox, authenticated research intake, idempotent receipts, and retrying delivery are implemented behind the opt-in `outbox` mode. Add the v1 work/result OpenAPI schemas and contract tests before declaring this boundary complete. |
 | Generic work execution and display-only result event | **COMPLETE (baseline slice)** | The research-owned scheduler executes immutable-context baselines and publishes `ResearchResult` to an idempotent game projection. |
-| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS** | Extract this deterministic planning slice with parity fixtures before routing a real paper request. |
+| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS (scaffold delivered)** | A deterministic frozen candidate plan is persisted before execution, but its current subject ordering, optional attributes, and unconditional `CANDIDATE` eligibility are not legacy-equivalent. Add parity fixtures and real generic planning policy before routing a paper request. |
 | 7b. Computation, narration, review, and publication | **PENDING** | Move one stage at a time only after its preceding generic draft output matches the legacy engine. |
 | 8. Authorized gameplay consequences | **PENDING** | Current result projection is intentionally display-only; no effect recommendation is accepted. |
 | 9. Remove game dependency and cut over | **PENDING** | Requires paper-output parity, independent recovery tests, and removal of game-model/database reads. |
@@ -237,10 +244,11 @@ Browser → game service → research API → research service
 3. **Repair repository-relative tooling.** Update scripts, CI, README, and AGENTS.md paths that
    currently assume sibling repositories.  Retain the existing ports unless a separately reviewed
    compatibility change says otherwise.
-4. **Define the boundary.** Define the game-agnostic `ResearchWorkRequested` and
-   `ResearchResult`/`OutcomeRecommendation` contracts, including request IDs, idempotency,
-   source revisions, immutable context snapshots, job state, cancellation where supported, and
-   paper/status retrieval. Keep game-to-contract mapping exclusively in the game service.
+4. **Define the boundary.** Define and publish the game-agnostic `ResearchWorkRequest` and
+   `ResearchResult` contracts, including request IDs, idempotency, source revisions, immutable
+   context snapshots, job state, cancellation where supported, and paper/status retrieval. Add
+   API contract tests for every published work/result endpoint. Keep game-to-contract mapping
+   exclusively in the game service.
 5. **Introduce an in-process adapter.** Replace game calls to research implementation classes with
    a `ResearchClient` interface, initially backed by the existing in-process implementation.  This
    preserves behavior while tests establish the contract.
@@ -250,8 +258,9 @@ Browser → game service → research API → research service
 7. **Extract the research service.** Move research controllers, workers, persistence, and LLM /
    literature configuration into `apps/research-service/`; migrate research-owned data and replace
    game model inputs with generic research subjects and context snapshots.
-8. **Convert cross-effects to events/callbacks.** Move any research-to-game mutation behind the
-   versioned result/recommendation contract, add game-side effect validation, and remove remaining
+8. **Convert cross-effects to events/callbacks.** Keep generic research results display-only. Do
+   not add a research-to-game effect recommendation or mutation unless a separately versioned
+   contract has an explicit game-owned validation policy and contract test; then remove remaining
    shared entities, repositories, direct database access, remote context polling, and lifecycle
    transition scaffolding.
 9. **Validate and cut over.** Run independent game and research restart/recovery tests, durable
