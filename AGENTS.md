@@ -56,16 +56,18 @@ database schema updates. Its ownership worker has a dedicated scheduler, so long
 schedules cannot starve migration-audit ticks. `schema.sql` may make idempotent changes only to the
 research-owned tables, including widening lifecycle payload columns for older Phase 42 installs.
 
-The Phase 42 generic work boundary uses Spring-free `ResearchWorkRequest`, `ResearchSubject`, and
-`ResearchWorkReceipt` DTOs from `libs/research-contract`; they must not acquire game types or
-terminology. In `app.research-api.mode=outbox`, the game owns `research_work_outbox` and maps game
-state to that generic contract before relay. The research service authenticates
+The Phase 42 generic work boundary uses Spring-free `ResearchWorkRequest`, `ResearchSubject`,
+`ResearchWorkReceipt`, and standard-draft selection DTOs from `libs/research-contract`; they must
+not acquire game types or terminology. In `app.research-api.mode=outbox`, the game owns
+`research_work_outbox` and maps game state to that generic contract before relay. The research service authenticates
 `POST /api/v1/research/work` with `RESEARCH_WORK_API_KEY` and owns `research_work_items`; it must
 accept duplicate request IDs idempotently. This is a durable handoff, not an authorization for
 research to read/write game tables or invoke privileged game actions. The legacy university
-executor has not yet been extracted, so do not represent queued generic work as executable research
-until a game-agnostic processor replaces its remaining `RoomBot`/government dependencies.
-The generic processor may emit only a `ResearchResult` and the game result projection is
+executor has not yet been extracted. The game-agnostic standard-catalog planner may consume only
+the frozen `draftSelection` input, persist its selector version and input fingerprint, and emit a
+display-safe planning result; it must not invoke the legacy university executor or read game tables.
+Dynamic, conjecture, follow-up, and history-dependent selection branches remain legacy-only until
+each has a frozen generic representation and parity fixture. The generic processor may emit only a `ResearchResult` and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.
 

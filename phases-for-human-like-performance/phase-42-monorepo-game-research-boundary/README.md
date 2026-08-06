@@ -7,7 +7,8 @@
 - The GPU engine and Julia math sidecar are imported beneath this repository with their source
   histories preserved in the main Git graph.
 - Top-level GPU, setup, performance, and related-service scripts now default to the monorepo paths.
-- `contracts/research-api/openapi.yaml` defines the stable v1 game-to-research read surface.
+- `contracts/research-api/openapi.yaml` defines the stable v1 read, durable-work, and display-only
+  result surfaces, including their separate API-key headers.
 - `libs/research-contract/` contains the corresponding Spring-free Java paper-summary DTO, used by
   both services instead of duplicate application-local response classes.
 - The legacy browser paths and the new v1 paths both use `ResearchQueryClient`; they no longer
@@ -53,9 +54,11 @@
 - Queued `RESEARCH_CYCLE` work now has a research-owned scheduler and a first game-agnostic
   executable slice: it records attempt/result state, persists a deterministic frozen
   `ResearchDraftPlan`, and emits a durable generic `ResearchResult` with outcome
-  `DRAFT_CANDIDATE_PLANNED`. The current planner selects one opaque subject deterministically,
-  reads optional domain/topic attributes from its frozen payload, and records a candidate; it is
-  not yet legacy-equivalent eligibility or topic-selection logic. Result delivery retries to a
+  `DRAFT_CANDIDATE_PLANNED`. The game freezes generic primary/fallback candidates, selection
+  score, domain, topic options, selector version, and seed; the research-owned pure selector
+  persists its chosen subject/domain/topic plus an input fingerprint. Standard-catalog weighted
+  and topics-v2 uniform selection have mapper and fixture parity tests. Dynamic, conjecture,
+  follow-up, and history-dependent branches remain excluded. Result delivery retries to a
   game-owned, display-only projection authenticated separately by `RESEARCH_RESULT_API_KEY`; the
   projection cannot apply gameplay effects. This is execution-lifecycle proof, not paper-engine
   equivalence.
@@ -228,9 +231,9 @@ Browser → game service → research API → research service
 | Item | Status | Evidence / next gate |
 |---|---|---|
 | 1–3. Monorepo import and repository tooling | **COMPLETE** | Imported services and monorepo-relative tooling are the active layout. |
-| 4–6. Generic contract and durable work delivery | **IN PROGRESS** | `ResearchWorkRequest`, transactional game outbox, authenticated research intake, idempotent receipts, and retrying delivery are implemented behind the opt-in `outbox` mode. Add the v1 work/result OpenAPI schemas and contract tests before declaring this boundary complete. |
+| 4–6. Generic contract and durable work delivery | **COMPLETE (opt-in delivery)** | `ResearchWorkRequest`, transactional game outbox, authenticated research intake, idempotent receipts, retrying delivery, published v1 work/result schemas, and endpoint contract tests are implemented. The game stays in `local` mode unless an operator selects `outbox`. |
 | Generic work execution and display-only result event | **COMPLETE (baseline slice)** | The research-owned scheduler executes immutable-context baselines and publishes `ResearchResult` to an idempotent game projection. |
-| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS (scaffold delivered)** | A deterministic frozen candidate plan is persisted before execution, but its current subject ordering, optional attributes, and unconditional `CANDIDATE` eligibility are not legacy-equivalent. Add parity fixtures and real generic planning policy before routing a paper request. |
+| 7a. Frozen subject eligibility, topic selection, and generic draft record | **IN PROGRESS (standard-catalog parity delivered)** | The game freezes generic primary/fallback candidates and weighted or uniform topic options; research persists a versioned selector result and input fingerprint. Golden fixtures plus game-mapper parity cover this standard path. Add frozen representations and parity fixtures for dynamic, conjecture, follow-up, and history-dependent branches before routing a paper request. |
 | 7b. Computation, narration, review, and publication | **PENDING** | Move one stage at a time only after its preceding generic draft output matches the legacy engine. |
 | 8. Authorized gameplay consequences | **PENDING** | Current result projection is intentionally display-only; no effect recommendation is accepted. |
 | 9. Remove game dependency and cut over | **PENDING** | Requires paper-output parity, independent recovery tests, and removal of game-model/database reads. |

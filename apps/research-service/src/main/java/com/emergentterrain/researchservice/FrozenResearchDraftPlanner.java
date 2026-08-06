@@ -1,39 +1,60 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchDraftPlan;
-import com.emergentterrain.researchcontract.ResearchSubject;
+import com.emergentterrain.researchcontract.ResearchDraftSelection;
+import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.UUID;
 
-/** Deterministic generic draft-candidate planner; legacy-equivalence routing remains disabled. */
+/** Deterministic standard-draft planner that consumes only a frozen generic selection input. */
 @Service
 public class FrozenResearchDraftPlanner {
     private final ResearchDraftPlanRepository plans;
-    public FrozenResearchDraftPlanner(ResearchDraftPlanRepository plans) { this.plans = plans; }
+    private final ObjectMapper objectMapper;
+    public FrozenResearchDraftPlanner(ResearchDraftPlanRepository plans, ObjectMapper objectMapper) {
+        this.plans = plans;
+        this.objectMapper = objectMapper;
+    }
 
     @Transactional
     public ResearchDraftPlan plan(ResearchWorkRequest request) {
-        ResearchSubject subject = request.subjects().stream().min(Comparator.comparing(ResearchSubject::subjectId))
-                .orElseThrow(() -> new IllegalArgumentException("A draft plan requires at least one subject"));
-        String domain = text(subject, "domain", text(subject, "classification", "GENERAL"));
-        String topic = text(subject, "topic", "frozen-baseline-" + request.sourceRevision());
+        JsonNode frozenInput = request.contextSnapshot().path("draftSelection");
+        if (frozenInput.isMissingNode() || frozenInput.isNull()) {
+            throw new IllegalArgumentException("A standard draft plan requires contextSnapshot.draftSelection");
+        }
+        ResearchDraftSelectionInput input;
+        try {
+            input = objectMapper.treeToValue(frozenInput, ResearchDraftSelectionInput.class);
+        } catch (Exception invalidInput) {
+            throw new IllegalArgumentException("Invalid frozen draft-selection input", invalidInput);
+        }
+        ResearchDraftSelection selection = StandardResearchDraftSelector.select(input);
         UUID draftId = UUID.nameUUIDFromBytes(("draft-plan:" + request.requestId()).getBytes(StandardCharsets.UTF_8));
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
-                subject.subjectId(), domain, topic, "CANDIDATE", Instant.now());
+                selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
+                input.selectorVersion(), fingerprint(frozenInput), Instant.now());
         if (!plans.existsById(draftId)) {
             plans.save(new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(),
-                    plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.plannedAt()));
+                    plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(),
+                    plan.inputFingerprint(), plan.plannedAt()));
         }
         return plan;
     }
 
-    private static String text(ResearchSubject subject, String field, String fallback) {
-        String value = subject.attributes().path(field).asText("").trim();
-        return value.isEmpty() ? fallback : value;
+    private static String fingerprint(JsonNode input) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(input.toString().getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (Exception unavailable) {
+            throw new IllegalStateException("SHA-256 is unavailable", unavailable);
+        }
     }
 }

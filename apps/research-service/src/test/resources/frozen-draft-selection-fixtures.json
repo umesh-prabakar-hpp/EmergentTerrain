@@ -1,0 +1,27 @@
+[
+  {
+    "name": "primary-candidate-weighted-topic",
+    "input": {
+      "selectorVersion": "legacy-standard-catalog-v1",
+      "selectionSeed": 11,
+      "topicSelectionMode": "WEIGHTED",
+      "candidates": [
+        {"subjectId": "00000000-0000-0000-0000-000000000001", "tier": "PRIMARY", "selectionScore": 0.8, "domain": "MATHEMATICS", "topicOptions": [{"topic": "zero", "weight": 0.0}, {"topic": "selected", "weight": 1.0}]},
+        {"subjectId": "00000000-0000-0000-0000-000000000002", "tier": "FALLBACK", "selectionScore": 1.0, "domain": "PHYSICS", "topicOptions": [{"topic": "ignored", "weight": 1.0}]}
+      ]
+    },
+    "expected": {"subjectId": "00000000-0000-0000-0000-000000000001", "eligibility": "CANDIDATE", "domain": "MATHEMATICS", "topic": "selected"}
+  },
+  {
+    "name": "fallback-candidate-uniform-topic",
+    "input": {
+      "selectorVersion": "legacy-standard-catalog-v1",
+      "selectionSeed": 19,
+      "topicSelectionMode": "UNIFORM",
+      "candidates": [
+        {"subjectId": "00000000-0000-0000-0000-000000000003", "tier": "FALLBACK", "selectionScore": 0.2, "domain": "BIOLOGY", "topicOptions": [{"topic": "only-topic", "weight": 1.0}]}
+      ]
+    },
+    "expected": {"subjectId": "00000000-0000-0000-0000-000000000003", "eligibility": "FALLBACK_CANDIDATE", "domain": "BIOLOGY", "topic": "only-topic"}
+  }
+]

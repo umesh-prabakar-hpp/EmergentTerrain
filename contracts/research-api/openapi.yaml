@@ -43,6 +43,8 @@ paths:
   /api/v1/game/rooms/{roomId}/research-context:
     get:
       operationId: getResearchGameContext
+      security:
+        - researchContextKey: []
       description: |
         Game-owned, read-only context for an autonomous research worker. The response is a
         snapshot; it never grants the research service authority to mutate game state.
@@ -57,7 +59,62 @@ paths:
                 $ref: '#/components/schemas/ResearchGameContext'
         '404':
           description: Room does not exist.
+  /api/v1/research/work:
+    post:
+      operationId: submitResearchWork
+      description: |
+        Accepts a game-agnostic immutable work request into the research-owned durable queue.
+        Replaying the same requestId is idempotent and returns the original receipt state.
+      security:
+        - researchWorkKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchWorkRequest'
+      responses:
+        '202':
+          description: Work was durably accepted or an idempotent replay was acknowledged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchWorkReceipt'
+        '401':
+          description: Missing or invalid research-work credential.
+  /api/v1/game/research-results:
+    post:
+      operationId: projectResearchResult
+      description: |
+        Accepts a research result for the game's idempotent display-only projection. This endpoint
+        cannot apply gameplay effects or recommendations.
+      security:
+        - researchResultKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchResult'
+      responses:
+        '202':
+          description: Result was accepted for idempotent display projection.
+        '401':
+          description: Missing or invalid research-result credential.
 components:
+  securitySchemes:
+    researchContextKey:
+      type: apiKey
+      in: header
+      name: X-Research-Service-Key
+    researchWorkKey:
+      type: apiKey
+      in: header
+      name: X-Research-Work-Key
+    researchResultKey:
+      type: apiKey
+      in: header
+      name: X-Research-Result-Key
   parameters:
     roomId:
       name: roomId
@@ -67,6 +124,84 @@ components:
         type: string
         format: uuid
   schemas:
+    ResearchWorkRequest:
+      type: object
+      required: [requestId, workspaceId, workType, sourceRevision, requestedAt, subjects, contextSnapshot]
+      properties:
+        requestId: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        workType: { type: string, minLength: 1 }
+        sourceRevision: { type: integer, format: int64, minimum: 0 }
+        requestedAt: { type: string, format: date-time }
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchSubject'
+        contextSnapshot:
+          type: object
+          properties:
+            draftSelection:
+              $ref: '#/components/schemas/ResearchDraftSelectionInput'
+          additionalProperties: true
+    ResearchDraftSelectionInput:
+      type: object
+      required: [selectorVersion, selectionSeed, topicSelectionMode, candidates]
+      properties:
+        selectorVersion: { type: string, minLength: 1 }
+        selectionSeed: { type: integer, format: int64 }
+        topicSelectionMode: { type: string, enum: [WEIGHTED, UNIFORM] }
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchDraftCandidate'
+    ResearchDraftCandidate:
+      type: object
+      required: [subjectId, tier, selectionScore, domain, topicOptions]
+      properties:
+        subjectId: { type: string, format: uuid }
+        tier: { type: string, enum: [PRIMARY, FALLBACK] }
+        selectionScore: { type: number, format: double }
+        domain: { type: string, minLength: 1 }
+        topicOptions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ResearchTopicOption'
+    ResearchTopicOption:
+      type: object
+      required: [topic, weight]
+      properties:
+        topic: { type: string, minLength: 1 }
+        weight: { type: number, format: double, minimum: 0 }
+    ResearchSubject:
+      type: object
+      required: [subjectId, kind, attributes]
+      properties:
+        subjectId: { type: string, format: uuid }
+        kind: { type: string, minLength: 1 }
+        attributes:
+          type: object
+          additionalProperties: true
+    ResearchWorkReceipt:
+      type: object
+      required: [requestId, state, acceptedAt]
+      properties:
+        requestId: { type: string, format: uuid }
+        state: { type: string, minLength: 1 }
+        acceptedAt: { type: string, format: date-time }
+    ResearchResult:
+      type: object
+      required: [resultId, requestId, workspaceId, outcome, summary, findings, completedAt]
+      properties:
+        resultId: { type: string, format: uuid }
+        requestId: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        outcome: { type: string, minLength: 1 }
+        summary: { type: string, minLength: 1 }
+        findings:
+          type: object
+          additionalProperties: true
+        completedAt: { type: string, format: date-time }
     ResearchPaperSummary:
       type: object
       required: [paperId, roomId, reviewerBotIds, peerScore, tick, generation]

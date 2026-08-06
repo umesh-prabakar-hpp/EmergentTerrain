@@ -98,5 +98,10 @@ CREATE TABLE IF NOT EXISTS research_draft_plans (
     domain VARCHAR(128) NOT NULL,
     topic VARCHAR(512) NOT NULL,
     eligibility VARCHAR(32) NOT NULL,
+    selector_version VARCHAR(128) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
     planned_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS selector_version VARCHAR(128) NOT NULL DEFAULT 'legacy-unversioned';
+ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS input_fingerprint VARCHAR(64) NOT NULL DEFAULT 'unavailable';

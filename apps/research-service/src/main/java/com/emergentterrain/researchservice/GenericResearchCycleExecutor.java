@@ -36,6 +36,8 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         findings.put("draftDomain", draft.domain());
         findings.put("draftTopic", draft.topic());
         findings.put("draftEligibility", draft.eligibility());
+        findings.put("draftSelectorVersion", draft.selectorVersion());
+        findings.put("draftInputFingerprint", draft.inputFingerprint());
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())
                 .getBytes(StandardCharsets.UTF_8));
         String summary = "Planned a reproducible candidate draft for " + request.subjects().size()

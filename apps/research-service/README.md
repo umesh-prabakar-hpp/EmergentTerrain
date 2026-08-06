@@ -54,15 +54,17 @@ receipt.
 
 The research-owned scheduler claims queued `RESEARCH_CYCLE` work, records attempts and a durable
 generic `ResearchResult`, and retries delivery of that result to the game projection endpoint when
-`RESEARCH_RESULT_API_KEY` is configured. Its first extracted executable slice is an immutable
-subject/context baseline; it intentionally contains no game types and does not yet replace the
-legacy paper-generation engine.
+`RESEARCH_RESULT_API_KEY` is configured. Its first extracted executable slice consumes a frozen,
+versioned standard-draft selection input and persists the selected subject/domain/topic together
+with a selector version and input fingerprint. It intentionally contains no game types and does
+not yet replace the legacy paper-generation engine; dynamic, conjecture, follow-up, and
+history-dependent branches remain out of scope.
 
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
 game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before
 relay, so temporary research-service downtime does not discard work. This intake is the first
 decoupling seam. The legacy university executor still consumes transition-period game-derived
-state, so queued generic work is not yet an execution trigger; do not enable `outbox` as a
+state, so queued generic work is not yet a paper-engine replacement; do not enable `outbox` as a
 production replacement for the current local/remote research-cycle modes yet.
 
 Every execution snapshot is first imported into the research-owned `research_bot_replicas` table.

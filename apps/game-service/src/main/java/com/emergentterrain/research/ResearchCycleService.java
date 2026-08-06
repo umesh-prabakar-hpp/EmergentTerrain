@@ -2,6 +2,10 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.research.question.PaperOpenQuestion;
 import com.emergentterrain.research.question.QuestionServedProtocolCloneGuard;
+import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchTopicOption;
+import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -40,7 +44,6 @@ public class ResearchCycleService {
     private static final Logger log = LoggerFactory.getLogger(ResearchCycleService.class);
 
     private static final int REVIEWERS_PER_PAPER = 2;
-    private static final int TOURNAMENT_K        = 3;
 
     /**
      * Phase 30 (measurement-frame-default.md, tag claim-type-shift) — when on, an object with a
@@ -479,7 +482,12 @@ public class ResearchCycleService {
             }
             return;
         }
-        Researcher author = tournamentSelect(restrictAuthorPool(pool), rng);
+        List<Researcher> authorPool = restrictAuthorPool(pool);
+        ResearchDraftSelectionInput standardInput = standardSelectionInput(authorPool);
+        ResearchDraftCandidate selectedCandidate = StandardResearchDraftSelector.selectCandidate(standardInput, rng);
+        Researcher author = authorPool.stream()
+                .filter(candidate -> stableSubjectId(candidate).equals(selectedCandidate.subjectId()))
+                .findFirst().orElseThrow(() -> new IllegalStateException("Selected author was not in the author pool"));
 
         DynamicProblem directive = author.getState().getPendingDirective();
         if (directive != null) {
@@ -528,8 +536,8 @@ public class ResearchCycleService {
         // keep the weighted-genome selection over the original 5 — bit-identical to
         // pre-F3 behaviour. selectTopicIndex collapses the genome's 0..4 raw choice
         // to a domain-clamped index in either case.
-        int topicIndex = MathPhysicsEngine.selectTopicIndex(
-                domain, author.selectTopic(rng), topicsV2Enabled, rng);
+        ResearchTopicOption selectedTopic = StandardResearchDraftSelector.selectTopic(standardInput, selectedCandidate, rng);
+        int topicIndex = MathPhysicsEngine.topicIndex(domain, selectedTopic.topic());
 
         // Phase 16 P7 — topic-clone backoff. When the chosen (domain, topic)
         // has accumulated REJECTED published papers in the room's recent
@@ -1600,13 +1608,29 @@ public class ResearchCycleService {
 
     // ---- Researcher selection helpers ----
 
-    private Researcher tournamentSelect(List<Researcher> pool, Random rng) {
-        Researcher best = null;
-        for (int i = 0; i < TOURNAMENT_K; i++) {
-            Researcher candidate = pool.get(rng.nextInt(pool.size()));
-            if (best == null || candidate.fitness() > best.fitness()) best = candidate;
+    private ResearchDraftSelectionInput standardSelectionInput(List<Researcher> pool) {
+        List<ResearchDraftCandidate> candidates = pool.stream().map(researcher -> {
+            String domain = researcher.getDomain();
+            int count = topicsV2Enabled ? MathPhysicsEngine.topicCount(domain)
+                    : Math.min(5, researcher.getTopicWeights().length);
+            List<ResearchTopicOption> topics = new ArrayList<>();
+            for (int index = 0; index < count; index++) {
+                double weight = topicsV2Enabled ? 1.0 : researcher.getTopicWeights()[index];
+                topics.add(new ResearchTopicOption(MathPhysicsEngine.topicName(domain, index), weight));
+            }
+            return new ResearchDraftCandidate(stableSubjectId(researcher), "PRIMARY", researcher.fitness(),
+                    domain, topics);
+        }).toList();
+        return new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 0L,
+                topicsV2Enabled ? "UNIFORM" : "WEIGHTED", candidates);
+    }
+
+    private static UUID stableSubjectId(Researcher researcher) {
+        try {
+            return UUID.fromString(researcher.getBotId());
+        } catch (IllegalArgumentException nonUuidFixtureId) {
+            return UUID.nameUUIDFromBytes(researcher.getBotId().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
-        return best;
     }
 
     private Researcher pickReviewer(UUID roomId, List<Researcher> pool, Researcher author,
