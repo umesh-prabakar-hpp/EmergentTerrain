@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -85,10 +86,11 @@ class ConjectureInvestigationCycleTest {
     void runCycleShortCircuitsWhenConjectureProviderFires() {
         ResearchCycleService svc = new ResearchCycleService();
         Conjecture c = buildConjecture("happy_density", "prime_density", 0.0, 0.156, 5, -0.001);
-        svc.setConjectureTopicProvider(providerThatAlwaysReturns(c));
+        AtomicInteger investigated = new AtomicInteger();
+        svc.setConjectureTopicProvider(providerThatAlwaysReturns(c, investigated));
 
         Researcher author = researcher();
-        CapturingContext ctx = new CapturingContext();
+        CapturingContext ctx = new CapturingContext(investigated::get);
         // Single-element pool — tournamentSelect will pick this bot.
         List<Researcher> pool = List.of(author);
         PopulationEcologyService.PopulationParams pp =
@@ -110,15 +112,19 @@ class ConjectureInvestigationCycleTest {
         assertEquals(3, rng.nextIntCalls, "author election happens before ordinary queue selection");
         assertEquals(1, rng.nextDoubleCalls,
                 "ordinary queue selection consumes its paper-share roll but not a catalog topic roll");
+        assertEquals(1, investigated.get(), "the selected ordinary conjecture is marked exactly once");
+        assertEquals(1, ctx.investigatedCountAtPaperId,
+                "legacy queue consumption happens before ordinary conjecture draft allocation");
     }
 
     @Test
     void runCyclePromotedConjectureAvoidsQueueProbabilityAndCatalogTopicRolls() {
         ResearchCycleService svc = new ResearchCycleService();
         Conjecture c = buildConjecture("happy_density", "prime_density", 0.0, 0.156, 5, -0.001);
-        svc.setConjectureTopicProvider(providerThatReturnsPromoted(c));
+        AtomicInteger investigated = new AtomicInteger();
+        svc.setConjectureTopicProvider(providerThatReturnsPromoted(c, investigated));
         Researcher author = researcher();
-        CapturingContext ctx = new CapturingContext();
+        CapturingContext ctx = new CapturingContext(investigated::get);
         PopulationEcologyService.PopulationParams pp =
                 new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0);
         CountingRandom rng = new CountingRandom();
@@ -132,6 +138,9 @@ class ConjectureInvestigationCycleTest {
         assertEquals(3, rng.nextIntCalls, "author election remains the only integer-random stage");
         assertEquals(0, rng.nextDoubleCalls,
                 "promoted anomalies outrank ordinary probability and catalog-topic selection");
+        assertEquals(1, investigated.get(), "the selected promoted conjecture is marked exactly once");
+        assertEquals(1, ctx.investigatedCountAtPaperId,
+                "legacy queue consumption happens before promoted-conjecture draft allocation");
     }
 
     @Test
@@ -365,19 +374,21 @@ class ConjectureInvestigationCycleTest {
         return e;
     }
 
-    private static ConjectureTopicProvider providerThatAlwaysReturns(Conjecture c) {
+    private static ConjectureTopicProvider providerThatAlwaysReturns(Conjecture c, AtomicInteger investigated) {
         ConjectureQueue queue = new ConjectureQueue() {
             @Override public Optional<Conjecture> next(String domain) { return Optional.of(c); }
             @Override public List<Conjecture> nextN(String domain, int n) { return List.of(c); }
+            @Override public void markInvestigated(Conjecture conjecture) { investigated.incrementAndGet(); }
         };
         return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
     }
 
-    private static ConjectureTopicProvider providerThatReturnsPromoted(Conjecture c) {
+    private static ConjectureTopicProvider providerThatReturnsPromoted(Conjecture c, AtomicInteger investigated) {
         ConjectureQueue queue = new ConjectureQueue() {
             @Override public Optional<Conjecture> next(String domain) { return Optional.empty(); }
             @Override public List<Conjecture> nextN(String domain, int n) { return List.of(); }
             @Override public Optional<Conjecture> nextPromotedAnomaly(String domain) { return Optional.of(c); }
+            @Override public void markInvestigated(Conjecture conjecture) { investigated.incrementAndGet(); }
         };
         return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
     }
@@ -404,9 +415,20 @@ class ConjectureInvestigationCycleTest {
         final AtomicReference<PaperDraft> lastDraft = new AtomicReference<>();
         final AtomicInteger paperIdCalls = new AtomicInteger();
         final List<ResearchPaper> publishedPapers = new ArrayList<>();
+        final IntSupplier investigatedCount;
+        int investigatedCountAtPaperId = -1;
+
+        CapturingContext() {
+            this(() -> 0);
+        }
+
+        CapturingContext(IntSupplier investigatedCount) {
+            this.investigatedCount = investigatedCount;
+        }
 
         @Override public String nextPaperId(UUID roomId) {
             paperIdCalls.incrementAndGet();
+            investigatedCountAtPaperId = investigatedCount.getAsInt();
             return "P-test-" + roomId.toString().substring(0, 4);
         }
         @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) {
