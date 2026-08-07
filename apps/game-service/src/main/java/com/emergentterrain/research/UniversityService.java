@@ -5,6 +5,7 @@ import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.repo.PaperCitationRepository;
 import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.RoomBotRepository;
+import com.emergentterrain.researchcontract.ResearchSelectionSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -3176,7 +3177,7 @@ public class UniversityService {
         List<Researcher> pool = botLifecycleService.buildResearcherPool(bots, states);
         if (!pool.isEmpty()) {
             if (researchCycleService.draftQueueSize() < maxDraftBacklog) {
-                Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
+                Random rng = new Random(ResearchSelectionSeed.from(roomId, gameTick));
                 researchCycleService.runCycle(roomId, pool, rng, gameTick, params,
                         peerReviewEnabled, cycleContext);
             } else {

@@ -26,6 +26,7 @@ import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
 import com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.emergentterrain.researchcontract.ResearchSelectionSeed;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,20 @@ import static org.mockito.Mockito.when;
 class GameResearchWorkMapperTest {
 
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+
+    @Test
+    void freezesTheSharedLegacySelectionSeed() throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000515");
+        long sourceRevision = 42L;
+
+        ResearchWorkRequest request = new GameResearchWorkMapper(mapper, false)
+                .fromTick(roomId, List.of(), sourceRevision, null);
+        ResearchDraftSelectionInput input = mapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                ResearchDraftSelectionInput.class);
+
+        assertThat(input.selectionSeed()).isEqualTo(ResearchSelectionSeed.from(roomId, sourceRevision));
+        assertThat(input.selectionSeed()).isEqualTo(sourceRevision * 1337L + roomId.getLeastSignificantBits());
+    }
 
     @Test
     void freezesTheLegacyWeightedStandardSelectionWithoutGameTypesInTheContract() throws Exception {

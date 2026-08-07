@@ -21,6 +21,7 @@ import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
 import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
 import com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.emergentterrain.researchcontract.ResearchSelectionSeed;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -105,7 +106,7 @@ public class GameResearchWorkMapper {
                 .map(source -> candidate(source, useFallback ? "FALLBACK" : "PRIMARY"))
                 .toList();
         String topicMode = topicsV2Enabled ? "UNIFORM" : "WEIGHTED";
-        long seed = sourceRevision * 1337L + workspaceId.getLeastSignificantBits();
+        long seed = ResearchSelectionSeed.from(workspaceId, sourceRevision);
         ResearchDraftSelectionInput standardInput = new ResearchDraftSelectionInput(
                 "legacy-standard-catalog-v1", seed, topicMode, candidates);
         if (candidates.isEmpty()) return standardInput;
