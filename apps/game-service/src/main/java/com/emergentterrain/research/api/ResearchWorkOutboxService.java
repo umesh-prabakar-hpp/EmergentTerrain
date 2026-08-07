@@ -35,8 +35,16 @@ public class ResearchWorkOutboxService {
     @Transactional
     public void enqueue(ResearchWorkRequest request) {
         try {
-            outbox.insertIfAbsent(request.requestId(), request.workType(), objectMapper.writeValueAsString(request),
-                    Instant.now());
+            String payloadJson = objectMapper.writeValueAsString(request);
+            int inserted = outbox.insertIfAbsent(request.requestId(), request.workType(), payloadJson, Instant.now());
+            if (inserted == 0) {
+                var existing = outbox.findById(request.requestId())
+                        .orElseThrow(() -> new IllegalStateException("Existing research work outbox row was not readable"));
+                if (!request.workType().equals(existing.getWorkType())
+                        || !payloadJson.equals(existing.getPayloadJson())) {
+                    throw new IllegalStateException("A requestId cannot be rebound to a different research work payload");
+                }
+            }
         } catch (JsonProcessingException serializationFailure) {
             throw new IllegalStateException("Unable to serialize research work request", serializationFailure);
         }
