@@ -117,6 +117,32 @@ class ResearchWorkOutboxServiceTest {
     }
 
     @Test
+    void permitsAnExactReservationReplayBeforeTheIdempotentOutboxInsert() {
+        ResearchWorkOutboxRepository outbox = mock(ResearchWorkOutboxRepository.class);
+        ResearchWorkSourceReservationRepository reservations = mock(ResearchWorkSourceReservationRepository.class);
+        UUID requestId = UUID.randomUUID();
+        ResearchWorkRequest request = new ResearchWorkRequest(requestId, UUID.randomUUID(), "RESEARCH_CYCLE", 12,
+                Instant.now(), null, null);
+        when(reservations.insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(0);
+        when(reservations.findById(requestId)).thenReturn(Optional.of(
+                new com.emergentterrain.domain.ResearchWorkSourceReservationEntry(
+                        requestId, "CONJECTURE", "conjecture-7")));
+        when(outbox.insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(1);
+
+        new ResearchWorkOutboxService(outbox, reservations, configuredMapper()).enqueueReserved(request,
+                new ResearchWorkSourceReservation(requestId, "CONJECTURE", "conjecture-7"));
+
+        verify(reservations).findById(requestId);
+        verify(outbox).insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.eq("RESEARCH_CYCLE"), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class));
+    }
+
+    @Test
     void permitsAnExactOutboxPayloadReplay() throws Exception {
         ResearchWorkOutboxRepository repository = mock(ResearchWorkOutboxRepository.class);
         ObjectMapper mapper = configuredMapper();
