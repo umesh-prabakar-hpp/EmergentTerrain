@@ -16,6 +16,12 @@ public final class StandardResearchDraftSelector {
     /** Accepts an existing RNG only for byte-compatible migration parity with a legacy caller. */
     public static ResearchDraftSelection select(ResearchDraftSelectionInput input, Random random) {
         ResearchDraftCandidate winner = selectCandidate(input, random);
+        return selectForCandidate(input, winner, random);
+    }
+
+    /** Completes the catalog-only portion after a caller has already elected its candidate. */
+    public static ResearchDraftSelection selectForCandidate(ResearchDraftSelectionInput input,
+                                                            ResearchDraftCandidate winner, Random random) {
         for (int draw = 0; draw < input.preTopicRandomDoubleDraws(); draw++) random.nextDouble();
         ResearchTopicOption topic = selectTopic(input, winner, random);
         topic = applyFrozenReselection(input, winner, topic, random);

@@ -13,6 +13,8 @@ import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
 import com.emergentterrain.researchcontract.ResearchDraftBranchResolver;
+import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
+import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.StandardResearchConjectureQueueSelector;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
@@ -222,6 +224,24 @@ class GameResearchWorkMapperTest {
         assertThat(catalogFallback.executionIntent())
                 .isEqualTo(ResearchDraftExecutionIntent.standardCatalog());
         assertThat(catalogFallback.catalogTopicSelectionRequired()).isTrue();
+    }
+
+    @Test
+    void frozenCyclePlannerElectsOnceAndSkipsCatalogForTerminalBranches() {
+        ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 7L,
+                "WEIGHTED", List.of(new ResearchDraftCandidate(UUID.randomUUID(), "PRIMARY", 1.0,
+                        "MATHEMATICS", List.of(new ResearchTopicOption("prime density", 1.0)))));
+        ResearchDraftExecutionIntent parameterized = new ResearchDraftExecutionIntent(
+                "DEFERRED_PARAMETERIZED_STUDY", mapper.createObjectNode());
+
+        var dynamic = FrozenResearchCyclePlanner.plan(input, parameterized, null, null);
+        var followUp = FrozenResearchCyclePlanner.plan(input, null, null,
+                new ResearchDraftExecutionIntent("DEFERRED_FOLLOW_UP_STUDY", mapper.createObjectNode()));
+
+        assertThat(dynamic.electedAuthor()).isNotNull();
+        assertThat(dynamic.catalogSelection()).isNull();
+        assertThat(followUp.electedAuthor()).isEqualTo(dynamic.electedAuthor());
+        assertThat(followUp.catalogSelection()).isNotNull();
     }
 
     @Test

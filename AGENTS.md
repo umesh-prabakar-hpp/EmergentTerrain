@@ -76,7 +76,8 @@ candidate consumed or route work. A probability-gated queue miss carries its pre
 in the frozen selection input so catalog topic parity is preserved. After author election,
 `ResearchDraftBranchResolver` locks parameterized-study then conjecture precedence; otherwise it
 still selects a catalog topic and applies a follow-up only as the later parameter override. It does
-not consume a queue item. `ResearchTopicHistorySnapshot` and
+not consume a queue item. `FrozenResearchCyclePlanner` composes that decision with one frozen
+author election and runs catalog-topic selection only when required. `ResearchTopicHistorySnapshot` and
 `ResearchTopicReselectionPolicy` now freeze and replay history-aware selection with an exact
 resampling-parity fixture and mapper-to-planner JSON-boundary coverage. The outbox freezes the
 game-owned bounded history and its live policy into planning work, with a real gateway-to-request
