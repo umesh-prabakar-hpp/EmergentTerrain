@@ -95,7 +95,8 @@ class ConjectureInvestigationCycleTest {
                 new PopulationEcologyService.PopulationParams(
                         10, 100L, 100L, 0.1, 0.5, 1.0);
 
-        svc.runCycle(UUID.randomUUID(), pool, new Random(0), 7L, pp,
+        CountingRandom rng = new CountingRandom();
+        svc.runCycle(UUID.randomUUID(), pool, rng, 7L, pp,
                 /* peerReviewEnabled */ true, ctx);
 
         PaperDraft draft = ctx.lastDraft.get();
@@ -106,6 +107,31 @@ class ConjectureInvestigationCycleTest {
         // No catalog topic name should appear — the catalog path never ran.
         assertFalse(draft.topicName().toLowerCase().contains("collatz"),
                 "topicName should NOT come from MathPhysicsEngine catalog: " + draft.topicName());
+        assertEquals(3, rng.nextIntCalls, "author election happens before ordinary queue selection");
+        assertEquals(1, rng.nextDoubleCalls,
+                "ordinary queue selection consumes its paper-share roll but not a catalog topic roll");
+    }
+
+    @Test
+    void runCyclePromotedConjectureAvoidsQueueProbabilityAndCatalogTopicRolls() {
+        ResearchCycleService svc = new ResearchCycleService();
+        Conjecture c = buildConjecture("happy_density", "prime_density", 0.0, 0.156, 5, -0.001);
+        svc.setConjectureTopicProvider(providerThatReturnsPromoted(c));
+        Researcher author = researcher();
+        CapturingContext ctx = new CapturingContext();
+        PopulationEcologyService.PopulationParams pp =
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0);
+        CountingRandom rng = new CountingRandom();
+
+        svc.runCycle(UUID.randomUUID(), List.of(author), rng, 7L, pp,
+                /* peerReviewEnabled */ true, ctx);
+
+        PaperDraft draft = ctx.lastDraft.get();
+        assertNotNull(draft);
+        assertEquals(PaperKind.ANOMALY_PROMOTION, draft.kind());
+        assertEquals(3, rng.nextIntCalls, "author election remains the only integer-random stage");
+        assertEquals(0, rng.nextDoubleCalls,
+                "promoted anomalies outrank ordinary probability and catalog-topic selection");
     }
 
     @Test
@@ -343,6 +369,15 @@ class ConjectureInvestigationCycleTest {
         ConjectureQueue queue = new ConjectureQueue() {
             @Override public Optional<Conjecture> next(String domain) { return Optional.of(c); }
             @Override public List<Conjecture> nextN(String domain, int n) { return List.of(c); }
+        };
+        return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
+    }
+
+    private static ConjectureTopicProvider providerThatReturnsPromoted(Conjecture c) {
+        ConjectureQueue queue = new ConjectureQueue() {
+            @Override public Optional<Conjecture> next(String domain) { return Optional.empty(); }
+            @Override public List<Conjecture> nextN(String domain, int n) { return List.of(); }
+            @Override public Optional<Conjecture> nextPromotedAnomaly(String domain) { return Optional.of(c); }
         };
         return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
     }
