@@ -10,6 +10,8 @@ import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.TopicCloneBackoff;
 import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
+import com.emergentterrain.researchcontract.StandardResearchConjectureQueueSelector;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
@@ -154,6 +156,20 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void freezesOrderedConjectureQueueCandidatesForReadOnlyPriorityParity() {
+        Conjecture promoted = conjecture(UUID.randomUUID(), "promoted_lhs");
+        Conjecture ordinary = conjecture(UUID.randomUUID(), "ordinary_lhs");
+        ResearchConjectureQueueSnapshot snapshot = new GameResearchWorkMapper(mapper, false)
+                .frozenConjectureQueueSnapshot("math", 1.0, List.of(promoted), List.of(ordinary));
+
+        var selected = StandardResearchConjectureQueueSelector.select(snapshot, new Random(7L));
+
+        assertThat(selected.specification().leftExpression()).isEqualTo("promoted_lhs");
+        assertThat(selected.preTopicRandomDoubleDraws()).isZero();
+        assertThat(snapshot.ordinaryCandidates()).hasSize(1);
+    }
+
+    @Test
     void mapsTopicHistoryToGenericFrozenEntriesWithoutEnablingReselection() {
         ResearchPaper paper = mock(ResearchPaper.class);
         when(paper.domain()).thenReturn("MATHEMATICS");
@@ -238,5 +254,20 @@ class GameResearchWorkMapperTest {
         when(bot.getType()).thenReturn("AGENT");
         when(bot.getLifecycleJson()).thenReturn(mapper.writeValueAsString(state));
         return bot;
+    }
+
+    private static Conjecture conjecture(UUID id, String lhs) {
+        Conjecture conjecture = mock(Conjecture.class);
+        when(conjecture.id()).thenReturn(id);
+        when(conjecture.domain()).thenReturn("math");
+        when(conjecture.kind()).thenReturn("BOUND");
+        when(conjecture.lhs()).thenReturn(lhs);
+        when(conjecture.rhs()).thenReturn("rhs");
+        when(conjecture.k()).thenReturn(1.0);
+        when(conjecture.k2()).thenReturn(0.0);
+        when(conjecture.c()).thenReturn(0.0);
+        when(conjecture.confirmedRuns()).thenReturn(1);
+        when(conjecture.p99Slack()).thenReturn(0.1);
+        return conjecture;
     }
 }

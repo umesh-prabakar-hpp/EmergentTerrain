@@ -7,6 +7,7 @@ import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
@@ -161,15 +162,29 @@ public class GameResearchWorkMapper {
      * will call this only after reproducing queue ordering and consumption semantics.
      */
     ResearchDraftExecutionIntent frozenConjectureIntent(Conjecture conjecture, String selectionReason) {
+        return new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                objectMapper.valueToTree(frozenConjectureSpecification(conjecture, selectionReason)));
+    }
+
+    ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(String domain, double ordinarySelectionProbability,
+                                                                   List<Conjecture> promoted,
+                                                                   List<Conjecture> ordinary) {
+        return new ResearchConjectureQueueSnapshot(ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1,
+                domain, ordinarySelectionProbability,
+                promoted == null ? List.of() : promoted.stream().map(conjecture ->
+                        frozenConjectureSpecification(conjecture, ResearchConjectureSpecification.PROMOTED_ANOMALY)).toList(),
+                ordinary == null ? List.of() : ordinary.stream().map(conjecture ->
+                        frozenConjectureSpecification(conjecture, ResearchConjectureSpecification.QUEUE_CANDIDATE)).toList());
+    }
+
+    private ResearchConjectureSpecification frozenConjectureSpecification(Conjecture conjecture, String selectionReason) {
         if (conjecture == null || conjecture.id() == null) {
             throw new IllegalArgumentException("A frozen conjecture requires a persistent source id");
         }
-        return new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
-                objectMapper.valueToTree(new ResearchConjectureSpecification(
-                        ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, conjecture.id().toString(),
-                        conjecture.domain(), conjecture.kind(), conjecture.lhs(), conjecture.rhs(), conjecture.rhs2(),
-                        conjecture.k(), conjecture.k2(), conjecture.c(), conjecture.confirmedRuns(), conjecture.p99Slack(),
-                        conjecture.captureWindowStart(), selectionReason)));
+        return new ResearchConjectureSpecification(ResearchConjectureSpecification.LEGACY_CONJECTURE_V1,
+                conjecture.id().toString(), conjecture.domain(), conjecture.kind(), conjecture.lhs(), conjecture.rhs(),
+                conjecture.rhs2(), conjecture.k(), conjecture.k2(), conjecture.c(), conjecture.confirmedRuns(),
+                conjecture.p99Slack(), conjecture.captureWindowStart(), selectionReason);
     }
 
     /** Maps game-owned paper history into immutable generic input; selection replay is not enabled yet. */
