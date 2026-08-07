@@ -14,6 +14,12 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -86,6 +92,87 @@ class FrozenResearchWorkSubmissionPersistenceTest {
         assertThat(outbox.count()).isEqualTo(1);
         assertThat(reservations.count()).isZero();
         assertThat(outbox.findById(original.requestId())).isPresent();
+    }
+
+    @Test
+    void concurrentMatchingReplaysCommitOnlyOneReservationAndOutboxPair() throws Exception {
+        UUID roomId = UUID.randomUUID();
+        ResearchWorkRequest request = mapper.fromTick(roomId, List.of(), 4L, null);
+        ResearchConjectureQueueSelection selection = selection("concurrent-conjecture");
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<Void> replay = () -> {
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Concurrent replay test did not receive its start signal");
+            }
+            coordinator.submitFrozenConjecture(request, selection);
+            return null;
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> first = executor.submit(replay);
+            Future<Void> second = executor.submit(replay);
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isEqualTo(1);
+        assertThat(reservations.findById(request.requestId())).isPresent().get()
+                .extracting(entry -> entry.getSourceId()).isEqualTo("concurrent-conjecture");
+    }
+
+    @Test
+    void concurrentConflictingReplaysLeaveOneCommittedHandoff() throws Exception {
+        UUID roomId = UUID.randomUUID();
+        ResearchWorkRequest request = mapper.fromTick(roomId, List.of(), 5L, null);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<Throwable> firstReplay = conflictingReplay(request, selection("concurrent-first"), ready, start);
+        Callable<Throwable> secondReplay = conflictingReplay(request, selection("concurrent-second"), ready, start);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> first = executor.submit(firstReplay);
+            Future<Throwable> second = executor.submit(secondReplay);
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            List<Throwable> outcomes = java.util.Arrays.asList(
+                    first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+            assertThat(outcomes).filteredOn(java.util.Objects::isNull).hasSize(1);
+            assertThat(outcomes).filteredOn(java.util.Objects::nonNull)
+                    .allSatisfy(error -> assertThat(error).isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("cannot be rebound"));
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isEqualTo(1);
+        assertThat(reservations.findById(request.requestId())).isPresent().get()
+                .extracting(entry -> entry.getSourceId())
+                .isIn("concurrent-first", "concurrent-second");
+    }
+
+    private Callable<Throwable> conflictingReplay(ResearchWorkRequest request,
+                                                   ResearchConjectureQueueSelection selection,
+                                                   CountDownLatch ready, CountDownLatch start) {
+        return () -> {
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Concurrent replay test did not receive its start signal");
+            }
+            try {
+                coordinator.submitFrozenConjecture(request, selection);
+                return null;
+            } catch (Throwable failure) {
+                return failure;
+            }
+        };
     }
 
     private static ResearchConjectureQueueSelection selection(String sourceId) {
