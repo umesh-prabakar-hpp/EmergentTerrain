@@ -87,6 +87,7 @@ class GenericResearchCycleExecutorTest {
         assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
         assertThat(result.findings().path("draftExecutionCanonicalPayload").path("studyId").asText())
                 .isEqualTo("study-7");
+        assertThat(result.findings().path("draftTopic").asText()).isEqualTo("study/study-7");
         assertThat(result.summary()).contains("without computation");
     }
 
@@ -113,6 +114,8 @@ class GenericResearchCycleExecutorTest {
         assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
         assertThat(result.findings().path("draftExecutionCanonicalPayload").path("leftExpression").asText())
                 .isEqualTo("left_metric");
+        assertThat(result.findings().path("draftTopic").asText())
+                .isEqualTo("conjecture/" + conjecture.sourceId());
         assertThat(result.summary()).contains("without computation");
     }
 }

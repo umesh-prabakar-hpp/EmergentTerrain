@@ -1,10 +1,15 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchDraftPlan;
+import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
-import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
+import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -14,7 +19,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Deterministic standard-draft planner that consumes only a frozen generic selection input. */
+/** Deterministic planner that consumes only a frozen generic selection input. */
 @Service
 public class FrozenResearchDraftPlanner {
     private final ResearchDraftPlanRepository plans;
@@ -36,7 +41,9 @@ public class FrozenResearchDraftPlanner {
         } catch (Exception invalidInput) {
             throw new IllegalArgumentException("Invalid frozen draft-selection input", invalidInput);
         }
-        ResearchDraftSelection selection = StandardResearchDraftSelector.select(input);
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozenCycle = FrozenResearchCyclePlanner.plan(input,
+                parameterizedStudy(input), conjectureSelection(input), followUp(input));
+        PlanningSelection selection = selectionFor(input, frozenCycle);
         UUID draftId = UUID.nameUUIDFromBytes(("draft-plan:" + request.requestId()).getBytes(StandardCharsets.UTF_8));
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
@@ -50,6 +57,56 @@ public class FrozenResearchDraftPlanner {
         }
         return plan;
     }
+
+    private static ResearchDraftExecutionIntent parameterizedStudy(ResearchDraftSelectionInput input) {
+        return ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY.equals(input.executionIntent().kind())
+                ? input.executionIntent() : null;
+    }
+
+    private static ResearchDraftExecutionIntent followUp(ResearchDraftSelectionInput input) {
+        return ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY.equals(input.executionIntent().kind())
+                ? input.executionIntent() : null;
+    }
+
+    private ResearchConjectureQueueSelection conjectureSelection(ResearchDraftSelectionInput input) {
+        if (ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
+            return new ResearchConjectureQueueSelection(read(input.executionIntent().payload(),
+                    ResearchConjectureSpecification.class, "conjecture specification"),
+                    input.preTopicRandomDoubleDraws());
+        }
+        return input.preTopicRandomDoubleDraws() == 0 ? null
+                : new ResearchConjectureQueueSelection(null, input.preTopicRandomDoubleDraws());
+    }
+
+    private PlanningSelection selectionFor(ResearchDraftSelectionInput input,
+                                           FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozenCycle) {
+        ResearchDraftSelection catalogSelection = frozenCycle.catalogSelection();
+        if (catalogSelection != null) {
+            return new PlanningSelection(catalogSelection.subjectId(), catalogSelection.domain(),
+                    catalogSelection.topic(), catalogSelection.eligibility());
+        }
+        ResearchDraftCandidate author = frozenCycle.electedAuthor();
+        String topic = switch (input.executionIntent().kind()) {
+            case ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY -> "study/" + read(
+                    input.executionIntent().payload(), ResearchStudySpecification.class, "parameterized study").studyId();
+            case ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY -> "conjecture/" + read(
+                    input.executionIntent().payload(), ResearchConjectureSpecification.class,
+                    "conjecture specification").sourceId();
+            default -> throw new IllegalStateException("Frozen branch omitted its required catalog selection");
+        };
+        String eligibility = "PRIMARY".equals(author.tier()) ? "CANDIDATE" : "FALLBACK_CANDIDATE";
+        return new PlanningSelection(author.subjectId(), author.domain(), topic, eligibility);
+    }
+
+    private <T> T read(JsonNode payload, Class<T> type, String description) {
+        try {
+            return objectMapper.treeToValue(payload, type);
+        } catch (Exception invalidPayload) {
+            throw new IllegalArgumentException("Invalid frozen " + description + " payload", invalidPayload);
+        }
+    }
+
+    private record PlanningSelection(UUID subjectId, String domain, String topic, String eligibility) { }
 
     private static String fingerprint(JsonNode input) {
         try {
