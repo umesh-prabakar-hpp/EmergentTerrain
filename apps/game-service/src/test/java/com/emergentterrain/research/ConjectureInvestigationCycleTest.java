@@ -162,6 +162,29 @@ class ConjectureInvestigationCycleTest {
         assertNull(author.getState().getPendingFollowUp(), "follow-up is consumed after catalog selection");
     }
 
+    @Test
+    void runCycleElectsAuthorBeforeDynamicBranchWithoutCatalogTopicRoll() {
+        ResearchCycleService svc = new ResearchCycleService();
+        Researcher author = researcher();
+        author.getState().setPendingDirective(new DynamicProblem(
+                "dynamic-1", "Prime density exceeds the baseline", 10, 30,
+                "isPrime", "fraction_satisfying", 0.0, "Prime density is above the baseline",
+                DynamicProblem.ExpectedRelation.ABOVE_BASELINE, null));
+        CapturingContext ctx = new CapturingContext();
+        PopulationEcologyService.PopulationParams pp =
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0);
+        CountingRandom rng = new CountingRandom();
+
+        svc.runCycle(UUID.randomUUID(), List.of(author), rng, 7L, pp,
+                /* peerReviewEnabled */ false, ctx);
+
+        assertEquals(3, rng.nextIntCalls,
+                "the legacy tournament elects an author before examining its dynamic directive");
+        assertEquals(1, rng.nextDoubleCalls,
+                "the dynamic author-error roll is the only double draw; no catalog topic was selected");
+        assertNull(author.getState().getPendingDirective());
+    }
+
     // ---------- Path B: frontier-framed conjecture investigation ----------
 
     @Test
@@ -382,6 +405,21 @@ class ConjectureInvestigationCycleTest {
             // ReplicationServiceTest stub serves.
             return MathPhysicsEngine.composePrimeConstellations(
                     2, 100, 25, 8, 7, 11, 8, 7.6, 0.18, 0.25, 0.08);
+        }
+    }
+
+    private static final class CountingRandom extends Random {
+        int nextIntCalls;
+        int nextDoubleCalls;
+
+        @Override public int nextInt(int bound) {
+            nextIntCalls++;
+            return 0;
+        }
+
+        @Override public double nextDouble() {
+            nextDoubleCalls++;
+            return 0.99;
         }
     }
 }
