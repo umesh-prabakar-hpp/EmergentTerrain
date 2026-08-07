@@ -73,9 +73,10 @@ frozen generic preparation payload, but the game must not enqueue it until queue
 consumption parity are captured. `ResearchConjectureQueueSnapshot` and its pure selector now
 freeze promoted-first versus probability-gated queue ordering for audit only; they must not mark a
 candidate consumed or route work. A probability-gated queue miss carries its pre-topic random draw
-in the frozen selection input so catalog topic parity is preserved. `ResearchDraftBranchResolver`
-locks the preparation precedence to parameterized study, conjecture, follow-up, then catalog; it
-does not consume a queue item. `ResearchTopicHistorySnapshot` and
+in the frozen selection input so catalog topic parity is preserved. After author election,
+`ResearchDraftBranchResolver` locks parameterized-study then conjecture precedence; otherwise it
+still selects a catalog topic and applies a follow-up only as the later parameter override. It does
+not consume a queue item. `ResearchTopicHistorySnapshot` and
 `ResearchTopicReselectionPolicy` now freeze and replay history-aware selection with an exact
 resampling-parity fixture and mapper-to-planner JSON-boundary coverage. The outbox freezes the
 game-owned bounded history and its live policy into planning work, with a real gateway-to-request

@@ -210,13 +210,18 @@ class GameResearchWorkMapperTest {
 
         assertThat(parameterizedFirst.executionIntent()).isEqualTo(parameterized);
         assertThat(parameterizedFirst.preTopicRandomDoubleDraws()).isZero();
+        assertThat(parameterizedFirst.catalogTopicSelectionRequired()).isFalse();
         assertThat(conjectureBeforeFollowUp.conjectureSelection()).isEqualTo(conjecture);
         assertThat(conjectureBeforeFollowUp.preTopicRandomDoubleDraws()).isEqualTo(1);
+        assertThat(conjectureBeforeFollowUp.catalogTopicSelectionRequired()).isFalse();
         assertThat(missedQueueBeforeFollowUp.executionIntent()).isEqualTo(followUp);
         assertThat(missedQueueBeforeFollowUp.preTopicRandomDoubleDraws()).isEqualTo(1);
+        assertThat(missedQueueBeforeFollowUp.catalogTopicSelectionRequired()).isTrue();
         assertThat(followUpBeforeCatalog.executionIntent()).isEqualTo(followUp);
+        assertThat(followUpBeforeCatalog.catalogTopicSelectionRequired()).isTrue();
         assertThat(catalogFallback.executionIntent())
                 .isEqualTo(ResearchDraftExecutionIntent.standardCatalog());
+        assertThat(catalogFallback.catalogTopicSelectionRequired()).isTrue();
     }
 
     @Test
