@@ -203,6 +203,26 @@ class GameResearchWorkMapperTest {
         assertThat(actual.topic()).isEqualTo(winner.topicOptions().get(expectedIndex).topic());
     }
 
+    @Test
+    void freezesHistoryAndPolicyIntoTheWorkRequestOnlyWhenExplicitlyRequested() throws Exception {
+        BotLifecycleState state = qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1});
+        ResearchPaper paper = mock(ResearchPaper.class);
+        when(paper.domain()).thenReturn("MATHEMATICS");
+        when(paper.topic()).thenReturn("Prime Density");
+        when(paper.status()).thenReturn("REJECTED");
+        when(paper.peerScore()).thenReturn(0.25);
+        ResearchTopicReselectionPolicy policy = new ResearchTopicReselectionPolicy("legacy-topic-backoff-v1",
+                true, false, 2, 0.6, 0.7);
+
+        ResearchWorkRequest request = new GameResearchWorkMapper(mapper, false).fromTick(UUID.randomUUID(),
+                List.of(bot(UUID.randomUUID(), state)), 33L, null, List.of(paper), policy);
+        ResearchDraftSelectionInput input = mapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                ResearchDraftSelectionInput.class);
+
+        assertThat(input.topicHistory().entries()).hasSize(1);
+        assertThat(input.topicReselectionPolicy()).isEqualTo(policy);
+    }
+
     private static BotLifecycleState qualifiedAdult(String domain, double[] weights) {
         BotLifecycleState state = new BotLifecycleState();
         state.setGenome(new BotGenome(domain, "COMPUTATIONAL", weights, 0.2, 1));

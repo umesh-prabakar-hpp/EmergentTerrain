@@ -72,7 +72,7 @@ and `ResearchParameterOverride` payloads and canonically prepared without comput
 frozen generic preparation payload, but the game must not enqueue it until queue ordering and
 consumption parity are captured. `ResearchTopicHistorySnapshot` and
 `ResearchTopicReselectionPolicy` now freeze and replay history-aware selection with an exact
-resampling-parity fixture, but the live outbox retains
+resampling-parity fixture and mapper-to-planner JSON-boundary coverage, but the live outbox retains
 the disabled policy until whole-path parity is captured. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit

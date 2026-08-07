@@ -46,14 +46,26 @@ public class GameResearchWorkMapper {
 
     public ResearchWorkRequest fromTick(UUID workspaceId, List<RoomBot> activeBots, long sourceRevision,
                                         GovernmentState governmentState) {
+        return fromTick(workspaceId, activeBots, sourceRevision, governmentState, List.of(),
+                ResearchTopicReselectionPolicy.disabled());
+    }
+
+    /**
+     * Freezes history-aware selection input for parity testing and a later reviewed outbox cutover.
+     * The production outbox uses the disabled-policy overload until its whole-path parity gate passes.
+     */
+    ResearchWorkRequest fromTick(UUID workspaceId, List<RoomBot> activeBots, long sourceRevision,
+                                 GovernmentState governmentState, List<ResearchPaper> recentPapers,
+                                 ResearchTopicReselectionPolicy topicReselectionPolicy) {
         List<ResearchSubject> subjects = activeBots.stream()
                 .map(this::subjectFor)
                 .toList();
         ObjectNode context = objectMapper.createObjectNode();
         context.set("governance", objectMapper.valueToTree(governmentState));
         context.put("subjectCount", subjects.size());
-        context.set("draftSelection", objectMapper.valueToTree(
-                standardSelectionInput(workspaceId, activeBots, sourceRevision)));
+        context.set("draftSelection", objectMapper.valueToTree(withTopicHistory(
+                standardSelectionInput(workspaceId, activeBots, sourceRevision), recentPapers,
+                topicReselectionPolicy)));
         UUID requestId = UUID.nameUUIDFromBytes(("research-cycle:" + workspaceId + ":" + sourceRevision)
                 .getBytes(StandardCharsets.UTF_8));
         return new ResearchWorkRequest(requestId, workspaceId, "RESEARCH_CYCLE", sourceRevision,
