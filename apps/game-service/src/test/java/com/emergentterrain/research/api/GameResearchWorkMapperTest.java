@@ -12,6 +12,7 @@ import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchDraftBranchResolver;
 import com.emergentterrain.researchcontract.StandardResearchConjectureQueueSelector;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
@@ -188,6 +189,34 @@ class GameResearchWorkMapperTest {
 
         assertThat(actual.topic()).isEqualTo(expected.topic());
         assertThat(frozen.executionIntent().kind()).isEqualTo("STANDARD_CATALOG");
+    }
+
+    @Test
+    void resolvesFrozenBranchPrecedenceBeforeAnyQueueConsumption() {
+        ResearchDraftExecutionIntent parameterized = new ResearchDraftExecutionIntent(
+                "DEFERRED_PARAMETERIZED_STUDY", mapper.createObjectNode());
+        ResearchDraftExecutionIntent followUp = new ResearchDraftExecutionIntent(
+                "DEFERRED_FOLLOW_UP_STUDY", mapper.createObjectNode());
+        var conjecture = new ResearchConjectureQueueSelection(new ResearchConjectureSpecification(
+                "legacy-conjecture-v1", UUID.randomUUID().toString(), "math", "BOUND", "lhs", "rhs", null,
+                1.0, 0.0, 0.0, 1, 0.1, null, "QUEUE_CANDIDATE"), 1);
+
+        var parameterizedFirst = ResearchDraftBranchResolver.resolve(parameterized, conjecture, followUp);
+        var conjectureBeforeFollowUp = ResearchDraftBranchResolver.resolve(null, conjecture, followUp);
+        var missedQueueBeforeFollowUp = ResearchDraftBranchResolver.resolve(
+                null, new ResearchConjectureQueueSelection(null, 1), followUp);
+        var followUpBeforeCatalog = ResearchDraftBranchResolver.resolve(null, null, followUp);
+        var catalogFallback = ResearchDraftBranchResolver.resolve(null, null, null);
+
+        assertThat(parameterizedFirst.executionIntent()).isEqualTo(parameterized);
+        assertThat(parameterizedFirst.preTopicRandomDoubleDraws()).isZero();
+        assertThat(conjectureBeforeFollowUp.conjectureSelection()).isEqualTo(conjecture);
+        assertThat(conjectureBeforeFollowUp.preTopicRandomDoubleDraws()).isEqualTo(1);
+        assertThat(missedQueueBeforeFollowUp.executionIntent()).isEqualTo(followUp);
+        assertThat(missedQueueBeforeFollowUp.preTopicRandomDoubleDraws()).isEqualTo(1);
+        assertThat(followUpBeforeCatalog.executionIntent()).isEqualTo(followUp);
+        assertThat(catalogFallback.executionIntent())
+                .isEqualTo(ResearchDraftExecutionIntent.standardCatalog());
     }
 
     @Test
