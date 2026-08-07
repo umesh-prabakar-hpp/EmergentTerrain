@@ -143,6 +143,31 @@ class ResearchWorkOutboxServiceTest {
     }
 
     @Test
+    void rejectsReservedRetryWhenItsOutboxPayloadDiffers() {
+        ResearchWorkOutboxRepository outbox = mock(ResearchWorkOutboxRepository.class);
+        ResearchWorkSourceReservationRepository reservations = mock(ResearchWorkSourceReservationRepository.class);
+        UUID requestId = UUID.randomUUID();
+        ResearchWorkRequest request = new ResearchWorkRequest(requestId, UUID.randomUUID(), "RESEARCH_CYCLE", 12,
+                Instant.now(), null, null);
+        when(reservations.insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(0);
+        when(reservations.findById(requestId)).thenReturn(Optional.of(
+                new com.emergentterrain.domain.ResearchWorkSourceReservationEntry(
+                        requestId, "CONJECTURE", "conjecture-7")));
+        when(outbox.insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(0);
+        when(outbox.findById(requestId)).thenReturn(Optional.of(
+                new com.emergentterrain.domain.ResearchWorkOutboxEntry(requestId, "RESEARCH_CYCLE", "{}")));
+
+        assertThatThrownBy(() -> new ResearchWorkOutboxService(outbox, reservations, configuredMapper()).enqueueReserved(
+                request, new ResearchWorkSourceReservation(requestId, "CONJECTURE", "conjecture-7")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("payload");
+    }
+
+    @Test
     void permitsAnExactOutboxPayloadReplay() throws Exception {
         ResearchWorkOutboxRepository repository = mock(ResearchWorkOutboxRepository.class);
         ObjectMapper mapper = configuredMapper();
