@@ -15,9 +15,12 @@ import com.emergentterrain.research.conjecture.ConjectureTopicProvider;
 import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchSelectionSeed;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -34,12 +37,50 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** Pins the legacy ordinary-conjecture branch against the frozen generic planner. */
+/** Pins legacy conjecture branches against the frozen generic planner. */
 class FrozenResearchCycleLegacyParityTest {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void frozenPlannerElectsTheSameAuthorBeforeTheLegacyOrdinaryConjectureBranch() throws Exception {
+        assertAuthorParity(false);
+    }
+
+    @Test
+    void frozenPlannerElectsTheSameAuthorBeforeTheLegacyPromotedConjectureBranch() throws Exception {
+        assertAuthorParity(true);
+    }
+
+    @Test
+    void ordinaryQueueMissPreservesTheLegacyProbabilityDrawBeforeFrozenCatalogSelection() throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000711");
+        long gameTick = 45L;
+        UUID firstId = UUID.fromString("00000000-0000-0000-0000-000000000712");
+        UUID secondId = UUID.fromString("00000000-0000-0000-0000-000000000713");
+        UUID thirdId = UUID.fromString("00000000-0000-0000-0000-000000000714");
+        BotLifecycleState first = qualifiedAdult(0.20);
+        BotLifecycleState second = qualifiedAdult(0.85);
+        BotLifecycleState third = qualifiedAdult(0.45);
+        ResearchWorkRequest request = new GameResearchWorkMapper(objectMapper, false).fromTick(roomId,
+                List.of(bot(firstId, first), bot(secondId, second), bot(thirdId, third)), gameTick, null);
+        ResearchDraftSelectionInput input = objectMapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+
+        Random legacyRandom = new Random(ResearchSelectionSeed.from(roomId, gameTick));
+        ResearchDraftCandidate legacyAuthor = StandardResearchDraftSelector.selectCandidate(input, legacyRandom);
+        assertThat(missProvider().selectConjecture("MATHEMATICS", legacyRandom)).isEmpty();
+        ResearchDraftSelection legacyCatalog = StandardResearchDraftSelector.selectForCandidate(
+                input, legacyAuthor, legacyRandom);
+
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(input, null,
+                new ResearchConjectureQueueSelection(null, 1), null);
+
+        assertThat(frozen.electedAuthor().subjectId()).isEqualTo(legacyAuthor.subjectId());
+        assertThat(frozen.catalogSelection()).isEqualTo(legacyCatalog);
+        assertThat(frozen.branch().preTopicRandomDoubleDraws()).isEqualTo(1);
+    }
+
+    private void assertAuthorParity(boolean promoted) throws Exception {
         UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000701");
         long gameTick = 44L;
         UUID firstId = UUID.fromString("00000000-0000-0000-0000-000000000702");
@@ -54,7 +95,7 @@ class FrozenResearchCycleLegacyParityTest {
         ResearchDraftSelectionInput input = objectMapper.treeToValue(
                 request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
         ResearchConjectureQueueSelection frozenConjecture = new ResearchConjectureQueueSelection(
-                specification("legacy-conjecture"), 1);
+                specification("legacy-conjecture", promoted), promoted ? 0 : 1);
         FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(
                 input, null, frozenConjecture, null);
 
@@ -63,7 +104,7 @@ class FrozenResearchCycleLegacyParityTest {
         legacyConjecture.setP99Slack(0.1);
         AtomicInteger investigated = new AtomicInteger();
         ResearchCycleService cycle = new ResearchCycleService();
-        cycle.setConjectureTopicProvider(ordinaryProvider(legacyConjecture, investigated));
+        cycle.setConjectureTopicProvider(provider(legacyConjecture, investigated, promoted));
         AtomicReference<PaperDraft> legacyDraft = new AtomicReference<>();
         cycle.runCycle(roomId, List.of(
                         new Researcher(firstId.toString(), first),
@@ -90,11 +131,24 @@ class FrozenResearchCycleLegacyParityTest {
         };
     }
 
-    private ConjectureTopicProvider ordinaryProvider(Conjecture conjecture, AtomicInteger investigated) {
+    private ConjectureTopicProvider provider(Conjecture conjecture, AtomicInteger investigated, boolean promoted) {
         ConjectureQueue queue = new ConjectureQueue() {
-            @Override public Optional<Conjecture> next(String domain) { return Optional.of(conjecture); }
+            @Override public Optional<Conjecture> next(String domain) {
+                return promoted ? Optional.empty() : Optional.of(conjecture);
+            }
             @Override public List<Conjecture> nextN(String domain, int count) { return List.of(conjecture); }
+            @Override public Optional<Conjecture> nextPromotedAnomaly(String domain) {
+                return promoted ? Optional.of(conjecture) : Optional.empty();
+            }
             @Override public void markInvestigated(Conjecture selected) { investigated.incrementAndGet(); }
+        };
+        return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
+    }
+
+    private ConjectureTopicProvider missProvider() {
+        ConjectureQueue queue = new ConjectureQueue() {
+            @Override public Optional<Conjecture> next(String domain) { return Optional.empty(); }
+            @Override public List<Conjecture> nextN(String domain, int count) { return List.of(); }
         };
         return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
     }
@@ -116,9 +170,9 @@ class FrozenResearchCycleLegacyParityTest {
         return bot;
     }
 
-    private static ResearchConjectureSpecification specification(String sourceId) {
+    private static ResearchConjectureSpecification specification(String sourceId, boolean promoted) {
         return new ResearchConjectureSpecification("legacy-conjecture-v1", sourceId, "math", "BOUND",
                 "happy_density", "prime_density", null, 0.0, 0.0, 0.156, 1, 0.1, null,
-                "QUEUE_CANDIDATE");
+                promoted ? "PROMOTED_ANOMALY" : "QUEUE_CANDIDATE");
     }
 }
