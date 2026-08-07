@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FrozenResearchWorkSubmissionPersistenceTest {
     @Autowired private GameResearchWorkMapper mapper;
     @Autowired private FrozenResearchWorkSubmissionCoordinator coordinator;
+    @Autowired private ResearchWorkOutboxService outboxService;
     @Autowired private ResearchWorkOutboxRepository outbox;
     @Autowired private ResearchWorkSourceReservationRepository reservations;
 
@@ -70,6 +71,21 @@ class FrozenResearchWorkSubmissionPersistenceTest {
         assertThat(reservations.count()).isEqualTo(1);
         assertThat(reservations.findById(request.requestId())).isPresent().get()
                 .extracting(entry -> entry.getSourceId()).isEqualTo("original-conjecture");
+    }
+
+    @Test
+    void outboxPayloadConflictRollsBackTheNewSourceReservation() {
+        UUID roomId = UUID.randomUUID();
+        ResearchWorkRequest original = mapper.fromTick(roomId, List.of(), 3L, null);
+        outboxService.enqueue(original);
+
+        assertThatThrownBy(() -> coordinator.submitFrozenConjecture(original, selection("new-conjecture")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be rebound to a different research work payload");
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isZero();
+        assertThat(outbox.findById(original.requestId())).isPresent();
     }
 
     private static ResearchConjectureQueueSelection selection(String sourceId) {
