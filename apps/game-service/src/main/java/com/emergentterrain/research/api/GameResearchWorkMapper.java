@@ -176,6 +176,29 @@ public class GameResearchWorkMapper {
         return new ResearchWorkSourceReservation(request.requestId(), "CONJECTURE", conjecture.sourceId());
     }
 
+    /**
+     * Builds an immutable, game-owned submission from an already observed queue decision.
+     * It never queries, consumes, or marks the live queue.
+     */
+    FrozenResearchWorkSubmission frozenConjectureSubmission(ResearchWorkRequest request,
+                                                            ResearchConjectureQueueSelection selection) {
+        if (selection == null || selection.specification() == null) {
+            throw new IllegalArgumentException("A frozen conjecture submission requires a selected conjecture");
+        }
+        ResearchDraftSelectionInput input;
+        try {
+            input = objectMapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                    ResearchDraftSelectionInput.class);
+        } catch (Exception invalidInput) {
+            throw new IllegalArgumentException("A frozen conjecture submission requires draftSelection input", invalidInput);
+        }
+        ObjectNode context = request.contextSnapshot().deepCopy();
+        context.set("draftSelection", objectMapper.valueToTree(withConjectureQueueSelection(input, selection)));
+        ResearchWorkRequest frozen = new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
+                request.sourceRevision(), request.requestedAt(), request.subjects(), context);
+        return new FrozenResearchWorkSubmission(frozen, conjectureReservation(frozen, selection.specification()));
+    }
+
     ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(String domain, double ordinarySelectionProbability,
                                                                    List<Conjecture> promoted,
                                                                    List<Conjecture> ordinary) {

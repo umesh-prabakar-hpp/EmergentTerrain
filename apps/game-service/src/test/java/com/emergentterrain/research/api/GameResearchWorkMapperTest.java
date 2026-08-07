@@ -270,6 +270,27 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void buildsImmutableConjectureSubmissionFromAnObservedQueueDecision() throws Exception {
+        UUID roomId = UUID.randomUUID();
+        ResearchWorkRequest request = new GameResearchWorkMapper(mapper, false).fromTick(roomId,
+                List.of(bot(UUID.randomUUID(), qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1}))),
+                4L, null);
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                "legacy-conjecture-v1", "conjecture-7", "math", "BOUND", "lhs", "rhs", null,
+                1.0, 0.0, 0.0, 1, 0.1, null, "QUEUE_CANDIDATE");
+
+        FrozenResearchWorkSubmission submission = new GameResearchWorkMapper(mapper, false)
+                .frozenConjectureSubmission(request, new ResearchConjectureQueueSelection(conjecture, 1));
+        ResearchDraftSelectionInput frozen = mapper.treeToValue(
+                submission.request().contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+
+        assertThat(submission.request().requestId()).isEqualTo(request.requestId());
+        assertThat(submission.reservation().sourceId()).isEqualTo("conjecture-7");
+        assertThat(frozen.executionIntent().kind()).isEqualTo("DEFERRED_CONJECTURE_STUDY");
+        assertThat(frozen.preTopicRandomDoubleDraws()).isEqualTo(1);
+    }
+
+    @Test
     void mapsTopicHistoryToGenericFrozenEntriesWithoutEnablingReselection() {
         ResearchPaper paper = mock(ResearchPaper.class);
         when(paper.domain()).thenReturn("MATHEMATICS");
