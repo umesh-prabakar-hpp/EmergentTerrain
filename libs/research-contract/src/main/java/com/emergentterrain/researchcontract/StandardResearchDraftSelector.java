@@ -16,6 +16,7 @@ public final class StandardResearchDraftSelector {
     /** Accepts an existing RNG only for byte-compatible migration parity with a legacy caller. */
     public static ResearchDraftSelection select(ResearchDraftSelectionInput input, Random random) {
         ResearchDraftCandidate winner = selectCandidate(input, random);
+        for (int draw = 0; draw < input.preTopicRandomDoubleDraws(); draw++) random.nextDouble();
         ResearchTopicOption topic = selectTopic(input, winner, random);
         topic = applyFrozenReselection(input, winner, topic, random);
         boolean hasPrimary = input.candidates().stream().anyMatch(candidate -> "PRIMARY".equals(candidate.tier()));

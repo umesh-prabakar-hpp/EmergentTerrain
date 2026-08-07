@@ -8,6 +8,7 @@ import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
@@ -175,6 +176,17 @@ public class GameResearchWorkMapper {
                         frozenConjectureSpecification(conjecture, ResearchConjectureSpecification.PROMOTED_ANOMALY)).toList(),
                 ordinary == null ? List.of() : ordinary.stream().map(conjecture ->
                         frozenConjectureSpecification(conjecture, ResearchConjectureSpecification.QUEUE_CANDIDATE)).toList());
+    }
+
+    /** Applies an already-observed, read-only queue decision without consuming game queue state. */
+    ResearchDraftSelectionInput withConjectureQueueSelection(ResearchDraftSelectionInput input,
+                                                              ResearchConjectureQueueSelection selection) {
+        ResearchDraftExecutionIntent intent = selection.specification() == null ? input.executionIntent()
+                : new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                        objectMapper.valueToTree(selection.specification()));
+        return new ResearchDraftSelectionInput(input.selectorVersion(), input.selectionSeed(),
+                input.topicSelectionMode(), input.candidates(), intent, input.topicHistory(),
+                input.topicReselectionPolicy(), selection.preTopicRandomDoubleDraws());
     }
 
     private ResearchConjectureSpecification frozenConjectureSpecification(Conjecture conjecture, String selectionReason) {

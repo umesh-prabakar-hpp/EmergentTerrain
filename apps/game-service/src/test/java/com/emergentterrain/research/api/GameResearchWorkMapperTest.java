@@ -11,6 +11,7 @@ import com.emergentterrain.research.TopicCloneBackoff;
 import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
 import com.emergentterrain.researchcontract.StandardResearchConjectureQueueSelector;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
@@ -167,6 +168,26 @@ class GameResearchWorkMapperTest {
         assertThat(selected.specification().leftExpression()).isEqualTo("promoted_lhs");
         assertThat(selected.preTopicRandomDoubleDraws()).isZero();
         assertThat(snapshot.ordinaryCandidates()).hasSize(1);
+    }
+
+    @Test
+    void preservesTheOrdinaryQueueMissDrawBeforeCatalogTopicSelection() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,
+                "WEIGHTED", List.of(new com.emergentterrain.researchcontract.ResearchDraftCandidate(subjectId,
+                "PRIMARY", 1.0, "MATHEMATICS", List.of(new ResearchTopicOption("first", 1.0),
+                new ResearchTopicOption("second", 1.0)))));
+        ResearchDraftSelectionInput frozen = new GameResearchWorkMapper(mapper, false)
+                .withConjectureQueueSelection(input, new ResearchConjectureQueueSelection(null, 1));
+
+        ResearchDraftSelection actual = StandardResearchDraftSelector.select(frozen);
+        Random legacy = new Random(71L);
+        var winner = StandardResearchDraftSelector.selectCandidate(input, legacy);
+        legacy.nextDouble(); // ordinary queue miss
+        ResearchTopicOption expected = StandardResearchDraftSelector.selectTopic(input, winner, legacy);
+
+        assertThat(actual.topic()).isEqualTo(expected.topic());
+        assertThat(frozen.executionIntent().kind()).isEqualTo("STANDARD_CATALOG");
     }
 
     @Test
