@@ -67,8 +67,9 @@ versioned, game-free study/parameter payloads and canonically prepared without c
 than being misrouted as standard work. Conjecture and history-dependent branches remain outside
 this first parity slice: a conjecture has a frozen preparation schema, but live queue selection is
 not routed until its ordering and consumption semantics have parity coverage. Topic history is also
-frozen with its reselection policy and can be replayed generically, but remains disabled in the
-live outbox until whole-path parity is covered. With matching
+frozen with its reselection policy and can be replayed generically; outbox work captures the
+game-owned bounded history and current policy, but remains planning-only until whole-path parity is
+covered. With matching
 `RESEARCH_RESULT_API_KEY` values, it retries delivery of the display-only result projection; this
 endpoint cannot apply gameplay effects.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
