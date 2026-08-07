@@ -103,6 +103,20 @@ class ResearchWorkOutboxServiceTest {
     }
 
     @Test
+    void rejectsReservationForAnotherRequestBeforeAnyPersistence() {
+        ResearchWorkOutboxRepository outbox = mock(ResearchWorkOutboxRepository.class);
+        ResearchWorkSourceReservationRepository reservations = mock(ResearchWorkSourceReservationRepository.class);
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 12,
+                Instant.now(), null, null);
+
+        assertThatThrownBy(() -> new ResearchWorkOutboxService(outbox, reservations, configuredMapper()).enqueueReserved(
+                request, new ResearchWorkSourceReservation(UUID.randomUUID(), "CONJECTURE", "conjecture-7")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must match");
+        verifyNoInteractions(reservations, outbox);
+    }
+
+    @Test
     void permitsAnExactOutboxPayloadReplay() throws Exception {
         ResearchWorkOutboxRepository repository = mock(ResearchWorkOutboxRepository.class);
         ObjectMapper mapper = configuredMapper();
