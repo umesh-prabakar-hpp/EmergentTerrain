@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -22,5 +23,16 @@ class FrozenResearchWorkSubmissionCoordinatorTest {
                 .submit(new FrozenResearchWorkSubmission(request, reservation));
 
         verify(outbox).enqueueReserved(request, reservation);
+    }
+
+    @Test
+    void rejectsAReservationForAnotherRequestBeforeCoordinatorUse() {
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 12,
+                Instant.now(), null, null);
+
+        assertThatThrownBy(() -> new FrozenResearchWorkSubmission(request,
+                new ResearchWorkSourceReservation(UUID.randomUUID(), "CONJECTURE", "c-7")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must match");
     }
 }

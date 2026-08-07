@@ -167,6 +167,15 @@ public class GameResearchWorkMapper {
                 objectMapper.valueToTree(frozenConjectureSpecification(conjecture, selectionReason)));
     }
 
+    /** Creates game-local reservation metadata from an already frozen generic conjecture selection. */
+    ResearchWorkSourceReservation conjectureReservation(ResearchWorkRequest request,
+                                                         ResearchConjectureSpecification conjecture) {
+        if (conjecture == null || conjecture.sourceId() == null || conjecture.sourceId().isBlank()) {
+            throw new IllegalArgumentException("A conjecture reservation requires a frozen source id");
+        }
+        return new ResearchWorkSourceReservation(request.requestId(), "CONJECTURE", conjecture.sourceId());
+    }
+
     ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(String domain, double ordinarySelectionProbability,
                                                                    List<Conjecture> promoted,
                                                                    List<Conjecture> ordinary) {

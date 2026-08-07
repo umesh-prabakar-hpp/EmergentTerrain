@@ -254,6 +254,22 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void mapsAFrozenConjectureToGameOwnedReservationMetadata() {
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                "legacy-conjecture-v1", "conjecture-7", "math", "BOUND", "lhs", "rhs", null,
+                1.0, 0.0, 0.0, 1, 0.1, null, "QUEUE_CANDIDATE");
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(),
+                "RESEARCH_CYCLE", 1L, java.time.Instant.now(), List.of(), mapper.createObjectNode());
+
+        ResearchWorkSourceReservation reservation = new GameResearchWorkMapper(mapper, false)
+                .conjectureReservation(request, conjecture);
+
+        assertThat(reservation.requestId()).isEqualTo(request.requestId());
+        assertThat(reservation.reservationType()).isEqualTo("CONJECTURE");
+        assertThat(reservation.sourceId()).isEqualTo("conjecture-7");
+    }
+
+    @Test
     void mapsTopicHistoryToGenericFrozenEntriesWithoutEnablingReselection() {
         ResearchPaper paper = mock(ResearchPaper.class);
         when(paper.domain()).thenReturn("MATHEMATICS");
