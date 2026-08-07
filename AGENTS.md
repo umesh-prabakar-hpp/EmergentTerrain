@@ -83,7 +83,8 @@ game-owned bounded history and its live policy into planning work, with a real g
 fixture, but may only emit a planning
 `ResearchResult` until whole-path parity is captured. `research_work_source_reservations` is a game-owned,
 request-keyed record written before its matching outbox row in the same transaction; it is reservation
-metadata only and must not by itself select or mark a live conjecture. The generic processor may emit only a `ResearchResult`
+metadata only and must not by itself select or mark a live conjecture. A retry may replay only the
+same reservation type and source id for its request id; rebinding is rejected. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.

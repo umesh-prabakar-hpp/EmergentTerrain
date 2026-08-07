@@ -54,8 +54,16 @@ public class ResearchWorkOutboxService {
         if (!request.requestId().equals(reservation.requestId())) {
             throw new IllegalArgumentException("Reservation requestId must match the work request");
         }
-        reservations.insertIfAbsent(reservation.requestId(), reservation.reservationType(), reservation.sourceId(),
-                Instant.now());
+        int inserted = reservations.insertIfAbsent(reservation.requestId(), reservation.reservationType(),
+                reservation.sourceId(), Instant.now());
+        if (inserted == 0) {
+            var existing = reservations.findById(reservation.requestId())
+                    .orElseThrow(() -> new IllegalStateException("Existing source reservation was not readable"));
+            if (!reservation.reservationType().equals(existing.getReservationType())
+                    || !reservation.sourceId().equals(existing.getSourceId())) {
+                throw new IllegalStateException("A requestId cannot be rebound to a different research source");
+            }
+        }
         enqueue(request);
     }
 }

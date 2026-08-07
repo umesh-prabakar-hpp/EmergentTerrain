@@ -7,11 +7,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class ResearchWorkOutboxServiceTest {
 
@@ -50,6 +54,9 @@ class ResearchWorkOutboxServiceTest {
         UUID requestId = UUID.randomUUID();
         ResearchWorkRequest request = new ResearchWorkRequest(requestId, UUID.randomUUID(), "RESEARCH_CYCLE", 12,
                 Instant.now(), null, null);
+        when(reservations.insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(1);
 
         new ResearchWorkOutboxService(outbox, reservations, configuredMapper()).enqueueReserved(request,
                 new ResearchWorkSourceReservation(requestId, "CONJECTURE", "conjecture-7"));
@@ -61,6 +68,29 @@ class ResearchWorkOutboxServiceTest {
         order.verify(outbox).insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
                 org.mockito.ArgumentMatchers.eq("RESEARCH_CYCLE"), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(Instant.class));
+    }
+
+    @Test
+    void rejectsRebindingAnExistingRequestToAnotherSource() {
+        ResearchWorkOutboxRepository outbox = mock(ResearchWorkOutboxRepository.class);
+        ResearchWorkSourceReservationRepository reservations = mock(ResearchWorkSourceReservationRepository.class);
+        UUID requestId = UUID.randomUUID();
+        ResearchWorkRequest request = new ResearchWorkRequest(requestId, UUID.randomUUID(), "RESEARCH_CYCLE", 12,
+                Instant.now(), null, null);
+        when(reservations.insertIfAbsent(org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(0);
+        when(reservations.findById(requestId)).thenReturn(Optional.of(
+                new com.emergentterrain.domain.ResearchWorkSourceReservationEntry(
+                        requestId, "CONJECTURE", "conjecture-7")));
+
+        ResearchWorkOutboxService service = new ResearchWorkOutboxService(outbox, reservations, configuredMapper());
+
+        assertThatThrownBy(() -> service.enqueueReserved(request,
+                new ResearchWorkSourceReservation(requestId, "CONJECTURE", "conjecture-8")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be rebound");
+        verifyNoInteractions(outbox);
     }
 
     private static ObjectMapper configuredMapper() {
