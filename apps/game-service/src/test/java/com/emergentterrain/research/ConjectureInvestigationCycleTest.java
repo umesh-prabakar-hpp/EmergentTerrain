@@ -139,6 +139,29 @@ class ConjectureInvestigationCycleTest {
         }
     }
 
+    @Test
+    void runCycleFollowUpKeepsCatalogTopicAndOverridesOnlyParameters() {
+        ResearchCycleService svc = new ResearchCycleService();
+        svc.setPhysicsEngineDelegate(new StubDelegate());
+        Researcher author = researcher();
+        author.getState().setPendingFollowUp(new FollowUpParams(42, 1.5, 0.6, "prior scan"));
+        CapturingContext ctx = new CapturingContext();
+        PopulationEcologyService.PopulationParams pp =
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0);
+
+        svc.runCycle(UUID.randomUUID(), List.of(author), new Random(0), 7L, pp,
+                /* peerReviewEnabled */ false, ctx);
+
+        PaperDraft draft = ctx.lastDraft.get();
+        assertNotNull(draft, "a follow-up still produces a catalog draft");
+        assertEquals(PaperKind.DOMAIN, draft.kind());
+        assertNotNull(draft.topicName(), "catalog topic selection still runs before the follow-up override");
+        assertTrue(draft.isFollowUp());
+        assertEquals(42, draft.param1());
+        assertEquals(1.5, draft.param2());
+        assertNull(author.getState().getPendingFollowUp(), "follow-up is consumed after catalog selection");
+    }
+
     // ---------- Path B: frontier-framed conjecture investigation ----------
 
     @Test
