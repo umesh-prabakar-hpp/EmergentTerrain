@@ -237,11 +237,20 @@ class GameResearchWorkMapperTest {
         var dynamic = FrozenResearchCyclePlanner.plan(input, parameterized, null, null);
         var followUp = FrozenResearchCyclePlanner.plan(input, null, null,
                 new ResearchDraftExecutionIntent("DEFERRED_FOLLOW_UP_STUDY", mapper.createObjectNode()));
+        var conjecture = FrozenResearchCyclePlanner.plan(input, null,
+                new ResearchConjectureQueueSelection(new ResearchConjectureSpecification(
+                        "legacy-conjecture-v1", UUID.randomUUID().toString(), "math", "BOUND", "lhs", "rhs",
+                        null, 1.0, 0.0, 0.0, 1, 0.1, null, "QUEUE_CANDIDATE"), 1), null);
+        var missedQueue = FrozenResearchCyclePlanner.plan(input, null,
+                new ResearchConjectureQueueSelection(null, 1), null);
 
         assertThat(dynamic.electedAuthor()).isNotNull();
         assertThat(dynamic.catalogSelection()).isNull();
         assertThat(followUp.electedAuthor()).isEqualTo(dynamic.electedAuthor());
         assertThat(followUp.catalogSelection()).isNotNull();
+        assertThat(conjecture.catalogSelection()).isNull();
+        assertThat(missedQueue.catalogSelection()).isNotNull();
+        assertThat(missedQueue.branch().preTopicRandomDoubleDraws()).isEqualTo(1);
     }
 
     @Test
