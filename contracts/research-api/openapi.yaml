@@ -158,6 +158,8 @@ components:
           $ref: '#/components/schemas/ResearchDraftExecutionIntent'
         topicHistory:
           $ref: '#/components/schemas/ResearchTopicHistorySnapshot'
+        topicReselectionPolicy:
+          $ref: '#/components/schemas/ResearchTopicReselectionPolicy'
     ResearchDraftExecutionIntent:
       type: object
       required: [kind, payload]
@@ -235,6 +237,17 @@ components:
         topic: { type: string, minLength: 1 }
         outcome: { type: string, minLength: 1 }
         peerScore: { type: number, format: double }
+    ResearchTopicReselectionPolicy:
+      type: object
+      description: Frozen settings for deterministic history-aware topic reselection.
+      required: [policyVersion, enabled, yieldAware, maxRetries, lowYieldPeerCeiling, lowYieldNullDecay]
+      properties:
+        policyVersion: { type: string, minLength: 1 }
+        enabled: { type: boolean }
+        yieldAware: { type: boolean }
+        maxRetries: { type: integer, format: int32, minimum: 0 }
+        lowYieldPeerCeiling: { type: number, format: double }
+        lowYieldNullDecay: { type: number, format: double, minimum: 0, maximum: 1 }
     ResearchDraftCandidate:
       type: object
       required: [subjectId, tier, selectionScore, domain, topicOptions]

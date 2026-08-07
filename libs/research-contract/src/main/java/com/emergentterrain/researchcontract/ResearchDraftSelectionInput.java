@@ -6,7 +6,8 @@ import java.util.List;
 public record ResearchDraftSelectionInput(String selectorVersion, long selectionSeed, String topicSelectionMode,
                                           List<ResearchDraftCandidate> candidates,
                                           ResearchDraftExecutionIntent executionIntent,
-                                          ResearchTopicHistorySnapshot topicHistory) {
+                                          ResearchTopicHistorySnapshot topicHistory,
+                                          ResearchTopicReselectionPolicy topicReselectionPolicy) {
     public ResearchDraftSelectionInput {
         if (selectorVersion == null || selectorVersion.isBlank()) {
             throw new IllegalArgumentException("selectorVersion is required");
@@ -17,18 +18,29 @@ public record ResearchDraftSelectionInput(String selectorVersion, long selection
         candidates = candidates == null ? List.of() : List.copyOf(candidates);
         executionIntent = executionIntent == null ? ResearchDraftExecutionIntent.standardCatalog() : executionIntent;
         topicHistory = topicHistory == null ? ResearchTopicHistorySnapshot.empty() : topicHistory;
+        topicReselectionPolicy = topicReselectionPolicy == null ? ResearchTopicReselectionPolicy.disabled()
+                : topicReselectionPolicy;
     }
 
     public ResearchDraftSelectionInput(String selectorVersion, long selectionSeed, String topicSelectionMode,
                                        List<ResearchDraftCandidate> candidates) {
         this(selectorVersion, selectionSeed, topicSelectionMode, candidates,
-                ResearchDraftExecutionIntent.standardCatalog(), ResearchTopicHistorySnapshot.empty());
+                ResearchDraftExecutionIntent.standardCatalog(), ResearchTopicHistorySnapshot.empty(),
+                ResearchTopicReselectionPolicy.disabled());
     }
 
     public ResearchDraftSelectionInput(String selectorVersion, long selectionSeed, String topicSelectionMode,
                                        List<ResearchDraftCandidate> candidates,
                                        ResearchDraftExecutionIntent executionIntent) {
         this(selectorVersion, selectionSeed, topicSelectionMode, candidates, executionIntent,
-                ResearchTopicHistorySnapshot.empty());
+                ResearchTopicHistorySnapshot.empty(), ResearchTopicReselectionPolicy.disabled());
+    }
+
+    public ResearchDraftSelectionInput(String selectorVersion, long selectionSeed, String topicSelectionMode,
+                                       List<ResearchDraftCandidate> candidates,
+                                       ResearchDraftExecutionIntent executionIntent,
+                                       ResearchTopicHistorySnapshot topicHistory) {
+        this(selectorVersion, selectionSeed, topicSelectionMode, candidates, executionIntent, topicHistory,
+                ResearchTopicReselectionPolicy.disabled());
     }
 }

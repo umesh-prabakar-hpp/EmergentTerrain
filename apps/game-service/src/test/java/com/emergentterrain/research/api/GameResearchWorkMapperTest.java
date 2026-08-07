@@ -7,6 +7,7 @@ import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.ResearchPaper;
+import com.emergentterrain.research.TopicCloneBackoff;
 import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
@@ -15,6 +16,9 @@ import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
+import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
+import com.emergentterrain.researchcontract.ResearchTopicOption;
+import com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -159,12 +163,44 @@ class GameResearchWorkMapperTest {
         ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 1L,
                 "WEIGHTED", List.of());
 
+        ResearchTopicReselectionPolicy policy = new ResearchTopicReselectionPolicy("legacy-topic-backoff-v1",
+                true, false, 3, 0.6, 0.7);
         ResearchDraftSelectionInput frozen = new GameResearchWorkMapper(mapper, false)
-                .withTopicHistory(input, List.of(paper));
+                .withTopicHistory(input, List.of(paper), policy);
 
         assertThat(frozen.topicHistory().snapshotVersion()).isEqualTo("legacy-topic-history-v1");
         assertThat(frozen.topicHistory().entries()).containsExactly(
                 new ResearchTopicHistoryEntry("MATHEMATICS", "prime density", "REJECTED", 0.25));
+        assertThat(frozen.topicReselectionPolicy()).isEqualTo(policy);
+    }
+
+    @Test
+    void genericFrozenHistoryReplayMatchesTheLegacyRejectionOnlyBackoffDraws() {
+        UUID subjectId = UUID.randomUUID();
+        List<ResearchTopicOption> topics = List.of(new ResearchTopicOption("cooled", 1.0),
+                new ResearchTopicOption("fresh", 1.0));
+        ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 43L,
+                "WEIGHTED", List.of(new com.emergentterrain.researchcontract.ResearchDraftCandidate(subjectId,
+                "PRIMARY", 1.0, "MATHEMATICS", topics)), ResearchDraftExecutionIntent.standardCatalog(),
+                new ResearchTopicHistorySnapshot("legacy-topic-history-v1", List.of(
+                        new ResearchTopicHistoryEntry("MATHEMATICS", "cooled", "REJECTED", 0.2))),
+                new ResearchTopicReselectionPolicy("legacy-topic-backoff-v1", true, false, 2, 0.0, 1.0));
+
+        ResearchDraftSelection actual = StandardResearchDraftSelector.select(input);
+        Random legacyRandom = new Random(input.selectionSeed());
+        var winner = StandardResearchDraftSelector.selectCandidate(input, legacyRandom);
+        var initial = StandardResearchDraftSelector.selectTopic(input, winner, legacyRandom);
+        ResearchPaper rejected = mock(ResearchPaper.class);
+        when(rejected.domain()).thenReturn("MATHEMATICS");
+        when(rejected.topic()).thenReturn("cooled");
+        when(rejected.status()).thenReturn("REJECTED");
+        int expectedIndex = TopicCloneBackoff.applyBackoff(winner.topicOptions().indexOf(initial), initial.topic(),
+                winner.domain(), List.of(rejected), () -> {
+                    ResearchTopicOption next = StandardResearchDraftSelector.selectTopic(input, winner, legacyRandom);
+                    return new TopicCloneBackoff.TopicCandidate(winner.topicOptions().indexOf(next), next.topic());
+                }, 2, legacyRandom);
+
+        assertThat(actual.topic()).isEqualTo(winner.topicOptions().get(expectedIndex).topic());
     }
 
     private static BotLifecycleState qualifiedAdult(String domain, double[] weights) {

@@ -17,6 +17,7 @@ public final class StandardResearchDraftSelector {
     public static ResearchDraftSelection select(ResearchDraftSelectionInput input, Random random) {
         ResearchDraftCandidate winner = selectCandidate(input, random);
         ResearchTopicOption topic = selectTopic(input, winner, random);
+        topic = applyFrozenReselection(input, winner, topic, random);
         boolean hasPrimary = input.candidates().stream().anyMatch(candidate -> "PRIMARY".equals(candidate.tier()));
         String eligibility = hasPrimary ? "CANDIDATE" : "FALLBACK_CANDIDATE";
         return new ResearchDraftSelection(winner.subjectId(), eligibility, winner.domain(), topic.topic());
@@ -59,5 +60,34 @@ public final class StandardResearchDraftSelector {
             if (target <= cumulative) return option;
         }
         return options.get(options.size() - 1);
+    }
+
+    private static ResearchTopicOption applyFrozenReselection(ResearchDraftSelectionInput input,
+                                                               ResearchDraftCandidate winner,
+                                                               ResearchTopicOption initial,
+                                                               Random random) {
+        ResearchTopicReselectionPolicy policy = input.topicReselectionPolicy();
+        if (!policy.enabled() || policy.maxRetries() <= 0) return initial;
+        ResearchTopicOption current = initial;
+        for (int attempt = 0; attempt <= policy.maxRetries(); attempt++) {
+            int rejected = count(input.topicHistory(), winner.domain(), current.topic(), "REJECTED", null);
+            int lowYield = policy.yieldAware()
+                    ? count(input.topicHistory(), winner.domain(), current.topic(), "NULL_RESULT",
+                            policy.lowYieldPeerCeiling())
+                    : 0;
+            double keepProbability = Math.pow(0.5, rejected) * Math.pow(policy.lowYieldNullDecay(), lowYield);
+            if (random.nextDouble() < keepProbability || attempt == policy.maxRetries()) return current;
+            current = selectTopic(input, winner, random);
+        }
+        return current;
+    }
+
+    private static int count(ResearchTopicHistorySnapshot history, String domain, String topic, String outcome,
+                             Double peerCeiling) {
+        return (int) history.entries().stream()
+                .filter(entry -> outcome.equalsIgnoreCase(entry.outcome()))
+                .filter(entry -> entry.domain().equalsIgnoreCase(domain) && entry.topic().equalsIgnoreCase(topic))
+                .filter(entry -> peerCeiling == null || entry.peerScore() <= peerCeiling)
+                .count();
     }
 }

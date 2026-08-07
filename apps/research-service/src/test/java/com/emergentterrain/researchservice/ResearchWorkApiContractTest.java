@@ -63,6 +63,7 @@ class ResearchWorkApiContractTest {
                 "ResearchWorkRequest:", "ResearchWorkReceipt:", "ResearchDraftSelectionInput:",
                 "ResearchDraftExecutionIntent:", "ResearchStudySpecification:", "ResearchParameterOverride:",
                 "ResearchConjectureSpecification:", "ResearchTopicHistorySnapshot:", "ResearchTopicHistoryEntry:",
+                "ResearchTopicReselectionPolicy:",
                 "name: X-Research-Work-Key");
     }
 

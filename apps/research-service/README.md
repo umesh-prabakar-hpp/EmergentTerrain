@@ -62,7 +62,8 @@ planning validation only—no computation, narration, review, or publication run
 contains no game types and does not yet replace the legacy paper-generation engine; conjecture and
 history-dependent branches remain out of scope for live routing. A frozen conjecture specification
 can be prepared, but must not be enqueued until game-side queue ordering and consumption parity are
-captured; a frozen topic-history snapshot likewise waits for exact generic resampling parity.
+captured. The generic topic-history replay and its policy are now available, but live work retains the disabled policy
+until full game-path parity is proven.
 
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
 game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before

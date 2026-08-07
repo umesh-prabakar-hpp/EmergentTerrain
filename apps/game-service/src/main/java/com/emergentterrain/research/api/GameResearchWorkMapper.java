@@ -17,6 +17,7 @@ import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
 import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
+import com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -162,6 +163,13 @@ public class GameResearchWorkMapper {
     /** Maps game-owned paper history into immutable generic input; selection replay is not enabled yet. */
     ResearchDraftSelectionInput withTopicHistory(ResearchDraftSelectionInput input,
                                                   List<ResearchPaper> recentPapers) {
+        return withTopicHistory(input, recentPapers, ResearchTopicReselectionPolicy.disabled());
+    }
+
+    /** The game freezes its policy values with history; callers enable it only after parity approval. */
+    ResearchDraftSelectionInput withTopicHistory(ResearchDraftSelectionInput input,
+                                                  List<ResearchPaper> recentPapers,
+                                                  ResearchTopicReselectionPolicy policy) {
         List<ResearchTopicHistoryEntry> entries = recentPapers == null ? List.of() : recentPapers.stream()
                 .filter(paper -> paper != null && paper.domain() != null && !paper.domain().isBlank()
                         && paper.topic() != null && !paper.topic().isBlank() && paper.status() != null
@@ -171,7 +179,7 @@ public class GameResearchWorkMapper {
                 .toList();
         return new ResearchDraftSelectionInput(input.selectorVersion(), input.selectionSeed(),
                 input.topicSelectionMode(), input.candidates(), input.executionIntent(),
-                new ResearchTopicHistorySnapshot(ResearchTopicHistorySnapshot.LEGACY_TOPIC_HISTORY_V1, entries));
+                new ResearchTopicHistorySnapshot(ResearchTopicHistorySnapshot.LEGACY_TOPIC_HISTORY_V1, entries), policy);
     }
 
     private record SelectionSource(UUID subjectId, BotLifecycleState lifecycle) { }
