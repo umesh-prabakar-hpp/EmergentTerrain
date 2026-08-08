@@ -28,4 +28,12 @@ interface ResearchWorkItemRepository extends JpaRepository<ResearchWorkItem, UUI
                        @Param("sourceRevision") long sourceRevision,
                        @Param("requestJson") String requestJson,
                        @Param("acceptedAt") Instant acceptedAt);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE ResearchWorkItem item
+            SET item.state = 'RUNNING', item.attempts = item.attempts + 1, item.claimedAt = :claimedAt
+            WHERE item.requestId = :requestId AND item.state = 'QUEUED'
+            """)
+    int claimQueued(@Param("requestId") UUID requestId, @Param("claimedAt") Instant claimedAt);
 }

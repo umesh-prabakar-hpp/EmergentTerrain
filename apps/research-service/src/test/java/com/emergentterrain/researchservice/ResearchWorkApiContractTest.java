@@ -56,6 +56,18 @@ class ResearchWorkApiContractTest {
     }
 
     @Test
+    void reportsAConflictingDuplicateAsAnHttpConflict() {
+        ResearchWorkInboxService inbox = mock(ResearchWorkInboxService.class);
+        ResearchWorkRequest request = request();
+        when(inbox.accept(request)).thenThrow(new ResearchWorkReplayConflictException());
+
+        assertThatThrownBy(() -> new ResearchWorkController(inbox, "work-key").submit("work-key", request))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        verify(inbox).accept(request);
+    }
+
+    @Test
     void openApiPublishesTheWorkEndpointReceiptAndCredential() throws Exception {
         String spec = Files.readString(openApi());
 

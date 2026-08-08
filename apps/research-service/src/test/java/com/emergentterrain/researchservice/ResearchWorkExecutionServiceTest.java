@@ -12,6 +12,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 class ResearchWorkExecutionServiceTest {
     @Test
@@ -26,6 +28,8 @@ class ResearchWorkExecutionServiceTest {
         ResearchWorkItem item = new ResearchWorkItem(plannedRequest.requestId(), plannedRequest.workspaceId(), plannedRequest.workType(),
                 plannedRequest.sourceRevision(), mapper.writeValueAsString(plannedRequest), Instant.now());
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
+        when(repository.claimQueued(org.mockito.ArgumentMatchers.eq(item.getRequestId()),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(1);
         ResearchWorkExecutionService service = new ResearchWorkExecutionService(repository,
                 List.of(new GenericResearchCycleExecutor(mapper,
                         new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
@@ -46,10 +50,32 @@ class ResearchWorkExecutionServiceTest {
         ResearchWorkItem item = new ResearchWorkItem(request.requestId(), request.workspaceId(), request.workType(),
                 request.sourceRevision(), mapper.writeValueAsString(request), Instant.now());
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
+        when(repository.claimQueued(org.mockito.ArgumentMatchers.eq(item.getRequestId()),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(1);
 
         new ResearchWorkExecutionService(repository, List.of(), mapper).execute(item);
 
         assertThat(item.getState()).isEqualTo("FAILED");
         verify(repository).save(item);
+    }
+
+    @Test
+    void leavesWorkForTheWorkerThatWonTheAtomicClaim() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "UNSUPPORTED", 3,
+                Instant.now(), List.of(), null);
+        ResearchWorkItem item = new ResearchWorkItem(request.requestId(), request.workspaceId(), request.workType(),
+                request.sourceRevision(), mapper.writeValueAsString(request), Instant.now());
+        ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
+        when(repository.claimQueued(org.mockito.ArgumentMatchers.eq(item.getRequestId()),
+                org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(0);
+        ResearchWorkExecutor executor = mock(ResearchWorkExecutor.class);
+
+        new ResearchWorkExecutionService(repository, List.of(executor), mapper).execute(item);
+
+        assertThat(item.getState()).isEqualTo("QUEUED");
+        verify(repository).claimQueued(org.mockito.ArgumentMatchers.eq(item.getRequestId()),
+                org.mockito.ArgumentMatchers.any(Instant.class));
+        verifyNoMoreInteractions(repository, executor);
     }
 }

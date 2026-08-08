@@ -72,10 +72,10 @@ public class ResearchWorkItem {
     public Instant getResultPublishedAt() { return resultPublishedAt; }
     public String getResultJson() { return resultJson; }
 
-    public void markRunning() {
+    public void markRunning(Instant claimedAt) {
         state = "RUNNING";
         attempts++;
-        claimedAt = Instant.now();
+        this.claimedAt = claimedAt;
     }
 
     public void markCompleted(String resultJson) {

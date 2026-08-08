@@ -33,6 +33,10 @@ public class ResearchWorkController {
         if (apiKey.isBlank() || !apiKey.equals(suppliedApiKey)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Research work credential required");
         }
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(inbox.accept(request));
+        try {
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(inbox.accept(request));
+        } catch (ResearchWorkReplayConflictException conflict) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflict.getMessage(), conflict);
+        }
     }
 }

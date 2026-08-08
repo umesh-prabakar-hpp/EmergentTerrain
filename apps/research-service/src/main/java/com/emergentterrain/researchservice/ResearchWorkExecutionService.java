@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 /** Claims queued work, runs one supported generic processor, and retains its durable result event. */
@@ -25,7 +26,9 @@ public class ResearchWorkExecutionService {
     @Transactional
     public void execute(ResearchWorkItem item) {
         if (!"QUEUED".equals(item.getState())) return;
-        item.markRunning();
+        Instant claimedAt = Instant.now();
+        if (workItems.claimQueued(item.getRequestId(), claimedAt) != 1) return;
+        item.markRunning(claimedAt);
         try {
             ResearchWorkRequest request = objectMapper.readValue(item.getRequestJson(), ResearchWorkRequest.class);
             ResearchWorkExecutor executor = executors.stream().filter(candidate -> candidate.supports(request.workType()))
