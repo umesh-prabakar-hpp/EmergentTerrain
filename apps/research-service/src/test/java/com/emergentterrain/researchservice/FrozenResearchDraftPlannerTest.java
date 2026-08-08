@@ -115,6 +115,44 @@ class FrozenResearchDraftPlannerTest {
     }
 
     @Test
+    void rejectsAnUnsupportedFrozenSelectorVersion() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchDraftSelectionInput unsupported = new ResearchDraftSelectionInput("future-selector-v2",
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(), standard.executionIntent(),
+                standard.topicHistory(), standard.topicReselectionPolicy(), standard.preTopicRandomDoubleDraws());
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(unsupported));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        assertThatThrownBy(() -> new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported frozen draft selector version");
+    }
+
+    @Test
+    void rejectsUnsupportedFrozenTopicHistoryAndPolicyVersions() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchDraftSelectionInput unknownHistory = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(), standard.executionIntent(),
+                new ResearchTopicHistorySnapshot("future-history-v2", List.of()), standard.topicReselectionPolicy(),
+                standard.preTopicRandomDoubleDraws());
+        ResearchDraftSelectionInput unknownPolicy = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(), standard.executionIntent(),
+                standard.topicHistory(), new ResearchTopicReselectionPolicy("future-policy-v2", false, false, 0, 0.0, 1.0),
+                standard.preTopicRandomDoubleDraws());
+
+        assertThatThrownBy(() -> plan(unknownHistory, subjectId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported frozen topic-history version");
+        assertThatThrownBy(() -> plan(unknownPolicy, subjectId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported frozen topic-reselection policy version");
+    }
+
+    @Test
     void preservesTerminalBranchAndQueueMissFollowUpSelectionAcrossTheWorkRequestJsonBoundary() throws Exception {
         UUID subjectId = UUID.randomUUID();
         ResearchDraftSelectionInput standard = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,
@@ -163,6 +201,14 @@ class FrozenResearchDraftPlannerTest {
                 Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
         ResearchWorkRequest reloaded = mapper.readValue(mapper.writeValueAsString(request), ResearchWorkRequest.class);
         return new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(reloaded);
+    }
+
+    private ResearchDraftPlan plan(ResearchDraftSelectionInput input, UUID subjectId) {
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        return new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request);
     }
 
     private static ResearchDraftSelectionInput withIntent(ResearchDraftSelectionInput standard,

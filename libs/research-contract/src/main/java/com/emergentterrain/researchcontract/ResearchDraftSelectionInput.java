@@ -1,6 +1,8 @@
 package com.emergentterrain.researchcontract;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Frozen generic inputs required to select one standard research draft deterministically. */
 public record ResearchDraftSelectionInput(String selectorVersion, long selectionSeed, String topicSelectionMode,
@@ -9,6 +11,8 @@ public record ResearchDraftSelectionInput(String selectorVersion, long selection
                                           ResearchTopicHistorySnapshot topicHistory,
                                           ResearchTopicReselectionPolicy topicReselectionPolicy,
                                           int preTopicRandomDoubleDraws) {
+    public static final String LEGACY_STANDARD_CATALOG_V1 = "legacy-standard-catalog-v1";
+
     public ResearchDraftSelectionInput {
         if (selectorVersion == null || selectorVersion.isBlank()) {
             throw new IllegalArgumentException("selectorVersion is required");
@@ -17,6 +21,12 @@ public record ResearchDraftSelectionInput(String selectorVersion, long selection
             throw new IllegalArgumentException("topicSelectionMode must be WEIGHTED or UNIFORM");
         }
         candidates = candidates == null ? List.of() : List.copyOf(candidates);
+        Set<java.util.UUID> candidateIds = new HashSet<>();
+        for (ResearchDraftCandidate candidate : candidates) {
+            if (!candidateIds.add(candidate.subjectId())) {
+                throw new IllegalArgumentException("candidates must not contain duplicate subject IDs");
+            }
+        }
         executionIntent = executionIntent == null ? ResearchDraftExecutionIntent.standardCatalog() : executionIntent;
         topicHistory = topicHistory == null ? ResearchTopicHistorySnapshot.empty() : topicHistory;
         topicReselectionPolicy = topicReselectionPolicy == null ? ResearchTopicReselectionPolicy.disabled()

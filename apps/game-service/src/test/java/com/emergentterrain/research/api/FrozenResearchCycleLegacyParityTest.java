@@ -3,6 +3,8 @@ package com.emergentterrain.research.api;
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.MathPhysicsEngine;
+import com.emergentterrain.research.MathPhysicsEngineDelegate;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PopulationEcologyService;
@@ -21,6 +23,7 @@ import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchSelectionSeed;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
+import com.emergentterrain.llm.JuliaMathClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -78,6 +81,38 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(frozen.electedAuthor().subjectId()).isEqualTo(legacyAuthor.subjectId());
         assertThat(frozen.catalogSelection()).isEqualTo(legacyCatalog);
         assertThat(frozen.branch().preTopicRandomDoubleDraws()).isEqualTo(1);
+    }
+
+    @Test
+    void directLegacyStandardCycleProducesTheFrozenAuthorAndCatalogTopic() throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000721");
+        long gameTick = 46L;
+        UUID firstId = UUID.fromString("00000000-0000-0000-0000-000000000722");
+        UUID secondId = UUID.fromString("00000000-0000-0000-0000-000000000723");
+        UUID thirdId = UUID.fromString("00000000-0000-0000-0000-000000000724");
+        BotLifecycleState first = qualifiedAdult(0.20);
+        BotLifecycleState second = qualifiedAdult(0.85);
+        BotLifecycleState third = qualifiedAdult(0.45);
+        ResearchWorkRequest request = new GameResearchWorkMapper(objectMapper, false).fromTick(roomId,
+                List.of(bot(firstId, first), bot(secondId, second), bot(thirdId, third)), gameTick, null);
+        ResearchDraftSelectionInput input = objectMapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(input,
+                null, null, null);
+        AtomicReference<PaperDraft> legacyDraft = new AtomicReference<>();
+        ResearchCycleService cycle = new ResearchCycleService();
+        cycle.setPhysicsEngineDelegate(new StandardCycleStubDelegate());
+
+        cycle.runCycle(roomId, List.of(new Researcher(firstId.toString(), first),
+                        new Researcher(secondId.toString(), second), new Researcher(thirdId.toString(), third)),
+                new Random(ResearchSelectionSeed.from(roomId, gameTick)), gameTick,
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0),
+                false, capture(legacyDraft));
+
+        assertThat(legacyDraft.get()).isNotNull();
+        assertThat(legacyDraft.get().authorBotId()).isEqualTo(frozen.electedAuthor().subjectId().toString());
+        assertThat(legacyDraft.get().domain()).isEqualTo(frozen.catalogSelection().domain());
+        assertThat(legacyDraft.get().topicName()).isEqualTo(frozen.catalogSelection().topic());
     }
 
     private void assertAuthorParity(boolean promoted) throws Exception {
@@ -174,5 +209,21 @@ class FrozenResearchCycleLegacyParityTest {
         return new ResearchConjectureSpecification("legacy-conjecture-v1", sourceId, "math", "BOUND",
                 "happy_density", "prime_density", null, 0.0, 0.0, 0.156, 1, 0.1, null,
                 promoted ? "PROMOTED_ANOMALY" : "QUEUE_CANDIDATE");
+    }
+
+    private static final class StandardCycleStubDelegate extends MathPhysicsEngineDelegate {
+        StandardCycleStubDelegate() {
+            super((JuliaMathClient) null);
+        }
+
+        @Override
+        public MathPhysicsEngine.ResearchResult compute(String domain, int topicIndex,
+                                                        int param1, double param2,
+                                                        MathPhysicsEngine.SearchParams searchParams) {
+            return new MathPhysicsEngine.ResearchResult("Deterministic parity result.",
+                    100.0, 1.0, 1.0, 100.0, true, "Theory-consistent test result.",
+                    MathPhysicsEngine.ClaimStatus.SUPPORTED, "Supported by the deterministic stub.",
+                    "The test result is supported.", "test-equation");
+        }
     }
 }

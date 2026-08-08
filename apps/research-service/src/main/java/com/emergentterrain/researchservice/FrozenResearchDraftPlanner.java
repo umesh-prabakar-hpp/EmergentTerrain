@@ -46,6 +46,8 @@ public class FrozenResearchDraftPlanner {
         } catch (Exception invalidInput) {
             throw new IllegalArgumentException("Invalid frozen draft-selection input", invalidInput);
         }
+        requireSupportedSelectorVersion(input);
+        requireSupportedTopicSelectionVersions(input);
         FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozenCycle = FrozenResearchCyclePlanner.plan(input,
                 parameterizedStudy(input), conjectureSelection(input), followUp(input));
         PlanningSelection selection = selectionFor(input, frozenCycle);
@@ -117,6 +119,25 @@ public class FrozenResearchDraftPlanner {
     private static void requireSelectedSubject(ResearchWorkRequest request, UUID selectedSubjectId) {
         if (request.subjects().stream().noneMatch(subject -> selectedSubjectId.equals(subject.subjectId()))) {
             throw new IllegalArgumentException("Frozen selected subject is not present in the work request");
+        }
+    }
+
+    private static void requireSupportedSelectorVersion(ResearchDraftSelectionInput input) {
+        if (!ResearchDraftSelectionInput.LEGACY_STANDARD_CATALOG_V1.equals(input.selectorVersion())) {
+            throw new IllegalArgumentException("Unsupported frozen draft selector version: " + input.selectorVersion());
+        }
+    }
+
+    private static void requireSupportedTopicSelectionVersions(ResearchDraftSelectionInput input) {
+        if (!com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot.LEGACY_TOPIC_HISTORY_V1
+                .equals(input.topicHistory().snapshotVersion())) {
+            throw new IllegalArgumentException("Unsupported frozen topic-history version: "
+                    + input.topicHistory().snapshotVersion());
+        }
+        if (!com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy.LEGACY_TOPIC_BACKOFF_V1
+                .equals(input.topicReselectionPolicy().policyVersion())) {
+            throw new IllegalArgumentException("Unsupported frozen topic-reselection policy version: "
+                    + input.topicReselectionPolicy().policyVersion());
         }
     }
 
