@@ -344,6 +344,30 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void freezesAnOrdinaryQueueMissOntoTheGenericPlanningRequest() throws Exception {
+        UUID subjectId = UUID.randomUUID();
+        GameResearchWorkMapper mapper = new GameResearchWorkMapper(this.mapper, false);
+        ResearchWorkRequest request = mapper.fromTick(UUID.randomUUID(),
+                List.of(bot(subjectId, qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1}))), 4L, null);
+        ResearchConjectureQueueSnapshot snapshot = mapper.frozenConjectureQueueSnapshot("math", Double.MIN_VALUE,
+                List.of(), List.of(conjecture(UUID.randomUUID(), "ordinary_lhs")));
+
+        ResearchWorkRequest frozenRequest = mapper.frozenQueueSnapshotRequest(request, snapshot);
+        ResearchDraftSelectionInput original = this.mapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        ResearchDraftSelectionInput frozen = this.mapper.treeToValue(
+                frozenRequest.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        ResearchDraftSelection expected = FrozenResearchCyclePlanner.plan(original, null,
+                new ResearchConjectureQueueSelection(null, 1), null).catalogSelection();
+        ResearchDraftSelection actual = StandardResearchDraftSelector.select(frozen);
+
+        assertThat(frozenRequest.requestId()).isEqualTo(request.requestId());
+        assertThat(frozen.executionIntent()).isEqualTo(original.executionIntent());
+        assertThat(frozen.preTopicRandomDoubleDraws()).isEqualTo(1);
+        assertThat(actual).isEqualTo(expected);
+    }
+
+    @Test
     void mapsTopicHistoryToGenericFrozenEntriesWithoutEnablingReselection() {
         ResearchPaper paper = mock(ResearchPaper.class);
         when(paper.domain()).thenReturn("MATHEMATICS");

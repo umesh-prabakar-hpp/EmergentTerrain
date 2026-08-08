@@ -187,13 +187,7 @@ public class GameResearchWorkMapper {
         if (selection == null || selection.specification() == null) {
             throw new IllegalArgumentException("A frozen conjecture submission requires a selected conjecture");
         }
-        ResearchDraftSelectionInput input;
-        try {
-            input = objectMapper.treeToValue(request.contextSnapshot().path("draftSelection"),
-                    ResearchDraftSelectionInput.class);
-        } catch (Exception invalidInput) {
-            throw new IllegalArgumentException("A frozen conjecture submission requires draftSelection input", invalidInput);
-        }
+        ResearchDraftSelectionInput input = draftSelectionInput(request);
         ObjectNode context = request.contextSnapshot().deepCopy();
         context.set("draftSelection", objectMapper.valueToTree(withConjectureQueueSelection(input, selection)));
         ResearchWorkRequest frozen = new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
@@ -207,19 +201,30 @@ public class GameResearchWorkMapper {
      */
     FrozenResearchWorkSubmission frozenConjectureSubmissionFromSnapshot(ResearchWorkRequest request,
                                                                           ResearchConjectureQueueSnapshot snapshot) {
-        ResearchDraftSelectionInput input;
-        try {
-            input = objectMapper.treeToValue(request.contextSnapshot().path("draftSelection"),
-                    ResearchDraftSelectionInput.class);
-        } catch (Exception invalidInput) {
-            throw new IllegalArgumentException("A frozen conjecture submission requires draftSelection input", invalidInput);
-        }
-        ResearchConjectureQueueSelection selection = FrozenResearchCyclePlanner
-                .observeConjectureQueue(input, snapshot).conjectureSelection();
-        if (selection.specification() == null) {
+        ResearchWorkRequest frozen = frozenQueueSnapshotRequest(request, snapshot);
+        ResearchDraftSelectionInput input = draftSelectionInput(frozen);
+        if (!ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
             throw new IllegalArgumentException("Frozen queue observation did not select a conjecture");
         }
-        return frozenConjectureSubmission(request, selection);
+        ResearchConjectureSpecification conjecture = read(input.executionIntent().payload(),
+                ResearchConjectureSpecification.class, "conjecture specification");
+        return frozenConjectureSubmission(frozen,
+                new ResearchConjectureQueueSelection(conjecture, input.preTopicRandomDoubleDraws()));
+    }
+
+    /**
+     * Freezes a read-only queue observation into generic planning input, including an ordinary
+     * queue miss that must consume its recorded pre-topic draw. It performs no source reservation.
+     */
+    ResearchWorkRequest frozenQueueSnapshotRequest(ResearchWorkRequest request,
+                                                    ResearchConjectureQueueSnapshot snapshot) {
+        ResearchDraftSelectionInput input = draftSelectionInput(request);
+        ResearchConjectureQueueSelection selection = FrozenResearchCyclePlanner
+                .observeConjectureQueue(input, snapshot).conjectureSelection();
+        ObjectNode context = request.contextSnapshot().deepCopy();
+        context.set("draftSelection", objectMapper.valueToTree(withConjectureQueueSelection(input, selection)));
+        return new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
+                request.sourceRevision(), request.requestedAt(), request.subjects(), context);
     }
 
     ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(String domain, double ordinarySelectionProbability,
@@ -286,6 +291,23 @@ public class GameResearchWorkMapper {
             return objectMapper.readTree(json);
         } catch (Exception ignored) {
             return objectMapper.getNodeFactory().textNode(json);
+        }
+    }
+
+    private ResearchDraftSelectionInput draftSelectionInput(ResearchWorkRequest request) {
+        try {
+            return objectMapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                    ResearchDraftSelectionInput.class);
+        } catch (Exception invalidInput) {
+            throw new IllegalArgumentException("A frozen conjecture submission requires draftSelection input", invalidInput);
+        }
+    }
+
+    private <T> T read(JsonNode payload, Class<T> type, String description) {
+        try {
+            return objectMapper.treeToValue(payload, type);
+        } catch (Exception invalidPayload) {
+            throw new IllegalArgumentException("Invalid frozen " + description + " payload", invalidPayload);
         }
     }
 }
