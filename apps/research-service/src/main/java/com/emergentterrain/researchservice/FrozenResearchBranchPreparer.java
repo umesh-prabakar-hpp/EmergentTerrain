@@ -21,17 +21,33 @@ public class FrozenResearchBranchPreparer {
     public PreparedBranch prepare(ResearchDraftPlan draft) {
         return switch (draft.executionKind()) {
             case ResearchDraftExecutionIntent.STANDARD_CATALOG -> PreparedBranch.notApplicable();
-            case ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY -> new PreparedBranch(
-                    "PREPARED", write(read(draft.executionPayload(), ResearchStudySpecification.class,
-                            "parameterized study")));
+            case ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY -> prepareStudy(draft);
             case ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY -> new PreparedBranch(
                     "PREPARED", write(read(draft.executionPayload(), ResearchParameterOverride.class,
                             "parameter override")));
-            case ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY -> new PreparedBranch(
-                    "PREPARED", write(read(draft.executionPayload(), ResearchConjectureSpecification.class,
-                            "conjecture specification")));
+            case ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY -> prepareConjecture(draft);
             default -> throw new IllegalArgumentException("Unsupported frozen execution kind: " + draft.executionKind());
         };
+    }
+
+    private PreparedBranch prepareStudy(ResearchDraftPlan draft) {
+        ResearchStudySpecification study = read(draft.executionPayload(), ResearchStudySpecification.class,
+                "parameterized study");
+        requireTopic(draft, "study/" + study.studyId());
+        return new PreparedBranch("PREPARED", write(study));
+    }
+
+    private PreparedBranch prepareConjecture(ResearchDraftPlan draft) {
+        ResearchConjectureSpecification conjecture = read(draft.executionPayload(), ResearchConjectureSpecification.class,
+                "conjecture specification");
+        requireTopic(draft, "conjecture/" + conjecture.sourceId());
+        return new PreparedBranch("PREPARED", write(conjecture));
+    }
+
+    private static void requireTopic(ResearchDraftPlan draft, String expectedTopic) {
+        if (!expectedTopic.equals(draft.topic())) {
+            throw new IllegalArgumentException("Frozen execution payload does not match draft topic");
+        }
     }
 
     private <T> T read(JsonNode payload, Class<T> type, String description) {

@@ -12,11 +12,16 @@ import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 /** Deterministic planner that consumes only a frozen generic selection input. */
@@ -108,12 +113,30 @@ public class FrozenResearchDraftPlanner {
 
     private record PlanningSelection(UUID subjectId, String domain, String topic, String eligibility) { }
 
-    private static String fingerprint(JsonNode input) {
+    private String fingerprint(JsonNode input) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(input.toString().getBytes(StandardCharsets.UTF_8));
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(
+                    objectMapper.writeValueAsBytes(canonicalize(input)));
             return java.util.HexFormat.of().formatHex(digest);
         } catch (Exception unavailable) {
             throw new IllegalStateException("SHA-256 is unavailable", unavailable);
         }
+    }
+
+    private JsonNode canonicalize(JsonNode input) {
+        if (input.isObject()) {
+            ObjectNode canonical = objectMapper.createObjectNode();
+            List<String> fields = new ArrayList<>();
+            input.fieldNames().forEachRemaining(fields::add);
+            Collections.sort(fields);
+            for (String field : fields) canonical.set(field, canonicalize(input.get(field)));
+            return canonical;
+        }
+        if (input.isArray()) {
+            ArrayNode canonical = objectMapper.createArrayNode();
+            input.forEach(value -> canonical.add(canonicalize(value)));
+            return canonical;
+        }
+        return input;
     }
 }

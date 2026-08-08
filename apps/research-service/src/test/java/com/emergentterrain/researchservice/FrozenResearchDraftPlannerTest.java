@@ -19,10 +19,14 @@ import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -67,6 +71,32 @@ class FrozenResearchDraftPlannerTest {
 
         assertThat(plan.topic()).isEqualTo(StandardResearchDraftSelector.select(input).topic());
         assertThat(plan.inputFingerprint()).isNotBlank();
+    }
+
+    @Test
+    void givesEquivalentFrozenInputsTheSameFingerprintRegardlessOfJsonFieldOrder() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 43L,
+                "WEIGHTED", List.of(new ResearchDraftCandidate(subjectId, "PRIMARY", 1.0, "MATHEMATICS",
+                List.of(new ResearchTopicOption("cooled", 1.0), new ResearchTopicOption("fresh", 1.0)))));
+        ObjectNode canonical = mapper.valueToTree(input);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", canonical);
+        ObjectNode reorderedContext = mapper.createObjectNode();
+        reorderedContext.set("draftSelection", reverseObjectFields(canonical));
+        UUID requestId = UUID.randomUUID();
+        UUID workspaceId = UUID.randomUUID();
+        Instant requestedAt = Instant.parse("2026-08-06T12:03:00Z");
+        ResearchWorkRequest canonicalRequest = new ResearchWorkRequest(requestId, workspaceId, "RESEARCH_CYCLE", 17,
+                requestedAt, List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        ResearchWorkRequest reorderedRequest = new ResearchWorkRequest(requestId, workspaceId, "RESEARCH_CYCLE", 17,
+                requestedAt, List.of(new ResearchSubject(subjectId, "AGENT", null)), reorderedContext);
+        FrozenResearchDraftPlanner planner = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper);
+
+        ResearchDraftPlan canonicalPlan = planner.plan(canonicalRequest);
+        ResearchDraftPlan reorderedPlan = planner.plan(reorderedRequest);
+
+        assertThat(reorderedPlan.inputFingerprint()).isEqualTo(canonicalPlan.inputFingerprint());
     }
 
     @Test
@@ -126,5 +156,22 @@ class FrozenResearchDraftPlannerTest {
         return new ResearchDraftSelectionInput(standard.selectorVersion(), standard.selectionSeed(),
                 standard.topicSelectionMode(), standard.candidates(), intent, standard.topicHistory(),
                 standard.topicReselectionPolicy(), preTopicRandomDoubleDraws);
+    }
+
+    private JsonNode reverseObjectFields(JsonNode input) {
+        if (input.isObject()) {
+            ObjectNode reordered = mapper.createObjectNode();
+            List<String> fields = new ArrayList<>();
+            input.fieldNames().forEachRemaining(fields::add);
+            Collections.reverse(fields);
+            for (String field : fields) reordered.set(field, reverseObjectFields(input.get(field)));
+            return reordered;
+        }
+        if (input.isArray()) {
+            ArrayNode reordered = mapper.createArrayNode();
+            input.forEach(value -> reordered.add(reverseObjectFields(value)));
+            return reordered;
+        }
+        return input;
     }
 }
