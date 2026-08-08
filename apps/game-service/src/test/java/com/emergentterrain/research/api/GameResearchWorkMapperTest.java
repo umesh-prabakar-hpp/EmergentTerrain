@@ -190,6 +190,27 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void rejectsQueueSnapshotCandidatesWithTheWrongDomainOrPriority() {
+        ResearchConjectureSpecification ordinary = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "c-1", "physics", "BOUND", "lhs", "rhs",
+                null, 1.0, 0.0, 0.0, 1, 0.1, null, ResearchConjectureSpecification.QUEUE_CANDIDATE);
+
+        assertThatThrownBy(() -> new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0, List.of(), List.of(ordinary)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must match");
+
+        ResearchConjectureSpecification wrongPriority = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "c-2", "math", "BOUND", "lhs", "rhs",
+                null, 1.0, 0.0, 0.0, 1, 0.1, null, ResearchConjectureSpecification.QUEUE_CANDIDATE);
+        assertThatThrownBy(() -> new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0,
+                List.of(wrongPriority), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must match");
+    }
+
+    @Test
     void preservesTheOrdinaryQueueMissDrawBeforeCatalogTopicSelection() {
         UUID subjectId = UUID.randomUUID();
         ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,

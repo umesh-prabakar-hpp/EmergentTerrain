@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Game-side anti-corruption adapter; no game types cross the research contract. */
@@ -201,15 +202,9 @@ public class GameResearchWorkMapper {
      */
     FrozenResearchWorkSubmission frozenConjectureSubmissionFromSnapshot(ResearchWorkRequest request,
                                                                           ResearchConjectureQueueSnapshot snapshot) {
-        ResearchWorkRequest frozen = frozenQueueSnapshotRequest(request, snapshot);
-        ResearchDraftSelectionInput input = draftSelectionInput(frozen);
-        if (!ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
-            throw new IllegalArgumentException("Frozen queue observation did not select a conjecture");
-        }
-        ResearchConjectureSpecification conjecture = read(input.executionIntent().payload(),
-                ResearchConjectureSpecification.class, "conjecture specification");
-        return frozenConjectureSubmission(frozen,
-                new ResearchConjectureQueueSelection(conjecture, input.preTopicRandomDoubleDraws()));
+        FrozenResearchQueueSnapshotPreparation preparation = frozenQueueSnapshotPreparation(request, snapshot);
+        return new FrozenResearchWorkSubmission(preparation.request(), preparation.sourceReservation()
+                .orElseThrow(() -> new IllegalArgumentException("Frozen queue observation did not select a conjecture")));
     }
 
     /**
@@ -225,6 +220,20 @@ public class GameResearchWorkMapper {
         context.set("draftSelection", objectMapper.valueToTree(withConjectureQueueSelection(input, selection)));
         return new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
                 request.sourceRevision(), request.requestedAt(), request.subjects(), context);
+    }
+
+    /** Prepares either a source-reserved selected conjecture or an ordinary frozen planning request. */
+    FrozenResearchQueueSnapshotPreparation frozenQueueSnapshotPreparation(ResearchWorkRequest request,
+                                                                            ResearchConjectureQueueSnapshot snapshot) {
+        ResearchWorkRequest frozen = frozenQueueSnapshotRequest(request, snapshot);
+        ResearchDraftSelectionInput input = draftSelectionInput(frozen);
+        if (!ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
+            return new FrozenResearchQueueSnapshotPreparation(frozen, Optional.empty());
+        }
+        ResearchConjectureSpecification conjecture = read(input.executionIntent().payload(),
+                ResearchConjectureSpecification.class, "conjecture specification");
+        return new FrozenResearchQueueSnapshotPreparation(frozen,
+                Optional.of(conjectureReservation(frozen, conjecture)));
     }
 
     ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(String domain, double ordinarySelectionProbability,

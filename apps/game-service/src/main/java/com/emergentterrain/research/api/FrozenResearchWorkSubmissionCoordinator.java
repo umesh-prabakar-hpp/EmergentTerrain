@@ -30,4 +30,14 @@ public class FrozenResearchWorkSubmissionCoordinator {
                                                     ResearchConjectureQueueSnapshot snapshot) {
         submit(mapper.frozenConjectureSubmissionFromSnapshot(request, snapshot));
     }
+
+    /** Persists either branch of a frozen snapshot observation without querying or mutating a live queue. */
+    public void submitFrozenQueueSnapshot(ResearchWorkRequest request, ResearchConjectureQueueSnapshot snapshot) {
+        FrozenResearchQueueSnapshotPreparation preparation = mapper.frozenQueueSnapshotPreparation(request, snapshot);
+        if (preparation.sourceReservation().isPresent()) {
+            outbox.enqueueReserved(preparation.request(), preparation.sourceReservation().get());
+        } else {
+            outbox.enqueue(preparation.request());
+        }
+    }
 }
