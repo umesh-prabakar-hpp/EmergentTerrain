@@ -220,6 +220,60 @@ class FrozenResearchWorkSubmissionPersistenceTest {
         assertThat(reservations.count()).isZero();
     }
 
+    @Test
+    void concurrentExactSelectedSnapshotReplaysCommitOneReservedHandoff() throws Exception {
+        ResearchWorkRequest request = requestWithCandidate(10L);
+        ResearchConjectureQueueSnapshot selected = promotedSnapshot("concurrent-snapshot-conjecture");
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> first = executor.submit(snapshotReplay(request, selected, ready, start));
+            Future<Throwable> second = executor.submit(snapshotReplay(request, selected, ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(first.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(second.get(10, TimeUnit.SECONDS)).isNull();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isEqualTo(1);
+        assertThat(reservations.findById(request.requestId())).isPresent().get()
+                .extracting(entry -> entry.getSourceId()).isEqualTo("concurrent-snapshot-conjecture");
+    }
+
+    @Test
+    void concurrentSelectedAndMissedSnapshotsCommitOnlyOneCoherentOutcome() throws Exception {
+        ResearchWorkRequest request = requestWithCandidate(11L);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> selected = executor.submit(snapshotReplay(request, promotedSnapshot("race-conjecture"),
+                    ready, start));
+            Future<Throwable> missed = executor.submit(snapshotReplay(request, queueMissSnapshot(), ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            List<Throwable> outcomes = java.util.Arrays.asList(
+                    selected.get(10, TimeUnit.SECONDS), missed.get(10, TimeUnit.SECONDS));
+            assertThat(outcomes).filteredOn(java.util.Objects::isNull).hasSize(1);
+            assertThat(outcomes).filteredOn(java.util.Objects::nonNull)
+                    .allSatisfy(error -> assertThat(error).isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("cannot be rebound"));
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isIn(0L, 1L);
+        if (reservations.count() == 1) {
+            assertThat(reservations.findById(request.requestId())).isPresent().get()
+                    .extracting(entry -> entry.getSourceId()).isEqualTo("race-conjecture");
+        }
+    }
+
     private Callable<Throwable> conflictingReplay(ResearchWorkRequest request,
                                                    ResearchConjectureQueueSelection selection,
                                                    CountDownLatch ready, CountDownLatch start) {
@@ -230,6 +284,22 @@ class FrozenResearchWorkSubmissionPersistenceTest {
             }
             try {
                 coordinator.submitFrozenConjecture(request, selection);
+                return null;
+            } catch (Throwable failure) {
+                return failure;
+            }
+        };
+    }
+
+    private Callable<Throwable> snapshotReplay(ResearchWorkRequest request, ResearchConjectureQueueSnapshot snapshot,
+                                                CountDownLatch ready, CountDownLatch start) {
+        return () -> {
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Concurrent snapshot replay test did not receive its start signal");
+            }
+            try {
+                coordinator.submitFrozenQueueSnapshot(request, snapshot);
                 return null;
             } catch (Throwable failure) {
                 return failure;
