@@ -19,6 +19,24 @@ public final class FrozenResearchCyclePlanner {
         return new FrozenResearchCyclePlan(author, branch, catalogSelection);
     }
 
+    /**
+     * Replays the legacy author-election and read-only queue-observation stages before a generic
+     * work submission is constructed. It never reads or consumes a live queue.
+     */
+    public static FrozenResearchQueueObservation observeConjectureQueue(ResearchDraftSelectionInput input,
+                                                                          ResearchConjectureQueueSnapshot snapshot) {
+        if (ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
+            throw new IllegalArgumentException("A frozen conjecture input must not be selected again");
+        }
+        Random random = new Random(input.selectionSeed());
+        ResearchDraftCandidate author = StandardResearchDraftSelector.selectCandidate(input, random);
+        ResearchConjectureQueueSelection selection = ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY
+                .equals(input.executionIntent().kind())
+                ? new ResearchConjectureQueueSelection(null, 0)
+                : StandardResearchConjectureQueueSelector.select(snapshot, random);
+        return new FrozenResearchQueueObservation(author, selection);
+    }
+
     private static ResearchDraftSelectionInput withBranch(ResearchDraftSelectionInput input,
                                                            ResearchDraftBranchResolver.ResearchDraftBranchDecision branch) {
         return new ResearchDraftSelectionInput(input.selectorVersion(), input.selectionSeed(),
@@ -29,4 +47,8 @@ public final class FrozenResearchCyclePlanner {
     public record FrozenResearchCyclePlan(ResearchDraftCandidate electedAuthor,
                                           ResearchDraftBranchResolver.ResearchDraftBranchDecision branch,
                                           ResearchDraftSelection catalogSelection) { }
+
+    /** Immutable read-only queue observation paired with the author elected by the same frozen seed. */
+    public record FrozenResearchQueueObservation(ResearchDraftCandidate electedAuthor,
+                                                 ResearchConjectureQueueSelection conjectureSelection) { }
 }

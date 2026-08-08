@@ -2,11 +2,17 @@ package com.emergentterrain.research.api;
 
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchSubject;
+import com.emergentterrain.researchcontract.ResearchTopicOption;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,5 +61,32 @@ class FrozenResearchWorkSubmissionCoordinatorTest {
         verify(outbox).enqueueReserved(org.mockito.ArgumentMatchers.argThat(
                         frozen -> frozen.requestId().equals(request.requestId())),
                 org.mockito.ArgumentMatchers.argThat(reservation -> reservation.sourceId().equals("c-7")));
+    }
+
+    @Test
+    void relaysASelectionReplayedFromAnImmutableQueueSnapshotWithoutQueueAccess() {
+        ResearchWorkOutboxService outbox = mock(ResearchWorkOutboxService.class);
+        ObjectMapper mapper = new ObjectMapper();
+        GameResearchWorkMapper gameMapper = new GameResearchWorkMapper(mapper, false);
+        UUID subjectId = UUID.randomUUID();
+        var context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(new ResearchDraftSelectionInput(
+                "legacy-standard-catalog-v1", 1L, "WEIGHTED", List.of(new ResearchDraftCandidate(
+                subjectId, "PRIMARY", 1.0, "MATHEMATICS", List.of(new ResearchTopicOption("topic", 1.0)))))));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 1,
+                Instant.now(), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                "legacy-conjecture-v1", "c-8", "math", "BOUND", "lhs", "rhs", null,
+                1, 0, 0, 1, 0.1, null, "PROMOTED_ANOMALY");
+        ResearchConjectureQueueSnapshot snapshot = new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0,
+                List.of(conjecture), List.of());
+
+        new FrozenResearchWorkSubmissionCoordinator(gameMapper, outbox)
+                .submitFrozenConjectureFromSnapshot(request, snapshot);
+
+        verify(outbox).enqueueReserved(org.mockito.ArgumentMatchers.argThat(
+                        frozen -> frozen.requestId().equals(request.requestId())),
+                org.mockito.ArgumentMatchers.argThat(reservation -> reservation.sourceId().equals("c-8")));
     }
 }

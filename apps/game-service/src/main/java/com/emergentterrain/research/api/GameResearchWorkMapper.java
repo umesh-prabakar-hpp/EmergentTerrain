@@ -22,6 +22,7 @@ import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
 import com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.ResearchSelectionSeed;
+import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -198,6 +199,27 @@ public class GameResearchWorkMapper {
         ResearchWorkRequest frozen = new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
                 request.sourceRevision(), request.requestedAt(), request.subjects(), context);
         return new FrozenResearchWorkSubmission(frozen, conjectureReservation(frozen, selection.specification()));
+    }
+
+    /**
+     * Builds a reserved submission from an immutable queue observation. This is an audit/cutover
+     * seam only: callers supply the snapshot and this method never queries or consumes game state.
+     */
+    FrozenResearchWorkSubmission frozenConjectureSubmissionFromSnapshot(ResearchWorkRequest request,
+                                                                          ResearchConjectureQueueSnapshot snapshot) {
+        ResearchDraftSelectionInput input;
+        try {
+            input = objectMapper.treeToValue(request.contextSnapshot().path("draftSelection"),
+                    ResearchDraftSelectionInput.class);
+        } catch (Exception invalidInput) {
+            throw new IllegalArgumentException("A frozen conjecture submission requires draftSelection input", invalidInput);
+        }
+        ResearchConjectureQueueSelection selection = FrozenResearchCyclePlanner
+                .observeConjectureQueue(input, snapshot).conjectureSelection();
+        if (selection.specification() == null) {
+            throw new IllegalArgumentException("Frozen queue observation did not select a conjecture");
+        }
+        return frozenConjectureSubmission(request, selection);
     }
 
     ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(String domain, double ordinarySelectionProbability,

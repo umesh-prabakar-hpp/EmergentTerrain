@@ -1,6 +1,7 @@
 package com.emergentterrain.research.api;
 
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import org.springframework.stereotype.Service;
 
@@ -22,5 +23,11 @@ public class FrozenResearchWorkSubmissionCoordinator {
     /** Relays only an already observed queue decision; this method never reads or mutates the queue. */
     public void submitFrozenConjecture(ResearchWorkRequest request, ResearchConjectureQueueSelection selection) {
         submit(mapper.frozenConjectureSubmission(request, selection));
+    }
+
+    /** Relays a selection reproduced from an already frozen queue snapshot; it never reads a live queue. */
+    public void submitFrozenConjectureFromSnapshot(ResearchWorkRequest request,
+                                                    ResearchConjectureQueueSnapshot snapshot) {
+        submit(mapper.frozenConjectureSubmissionFromSnapshot(request, snapshot));
     }
 }

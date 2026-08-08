@@ -36,6 +36,7 @@ import java.util.Random;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -303,6 +304,43 @@ class GameResearchWorkMapperTest {
         assertThat(submission.reservation().sourceId()).isEqualTo("conjecture-7");
         assertThat(frozen.executionIntent().kind()).isEqualTo("DEFERRED_CONJECTURE_STUDY");
         assertThat(frozen.preTopicRandomDoubleDraws()).isEqualTo(1);
+    }
+
+    @Test
+    void buildsAReservedConjectureSubmissionFromAnImmutableQueueSnapshot() throws Exception {
+        UUID roomId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        GameResearchWorkMapper mapper = new GameResearchWorkMapper(this.mapper, false);
+        ResearchWorkRequest request = mapper.fromTick(roomId,
+                List.of(bot(authorId, qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1}))), 4L, null);
+        Conjecture ordinary = conjecture(UUID.randomUUID(), "ordinary_lhs");
+        ResearchConjectureQueueSnapshot snapshot = mapper.frozenConjectureQueueSnapshot("math", 1.0,
+                List.of(), List.of(ordinary));
+
+        FrozenResearchWorkSubmission submission = mapper.frozenConjectureSubmissionFromSnapshot(request, snapshot);
+        ResearchDraftSelectionInput frozen = this.mapper.treeToValue(
+                submission.request().contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+
+        assertThat(submission.request().requestId()).isEqualTo(request.requestId());
+        assertThat(submission.reservation().sourceId()).isEqualTo(ordinary.id().toString());
+        assertThat(frozen.executionIntent().kind()).isEqualTo("DEFERRED_CONJECTURE_STUDY");
+        assertThat(frozen.preTopicRandomDoubleDraws()).isEqualTo(1);
+    }
+
+    @Test
+    void immutableQueueSnapshotCannotOverrideAParameterizedStudy() throws Exception {
+        BotLifecycleState state = qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1});
+        state.setPendingDirective(new DynamicProblem("directive-1", "bounded study", 10, 40,
+                "isPrime", "fraction_satisfying", 0.5, "above baseline"));
+        GameResearchWorkMapper mapper = new GameResearchWorkMapper(this.mapper, false);
+        ResearchWorkRequest request = mapper.fromTick(UUID.randomUUID(), List.of(bot(UUID.randomUUID(), state)),
+                4L, null);
+        ResearchConjectureQueueSnapshot snapshot = mapper.frozenConjectureQueueSnapshot("math", 1.0, List.of(),
+                List.of(conjecture(UUID.randomUUID(), "ordinary_lhs")));
+
+        assertThatThrownBy(() -> mapper.frozenConjectureSubmissionFromSnapshot(request, snapshot))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("did not select");
     }
 
     @Test

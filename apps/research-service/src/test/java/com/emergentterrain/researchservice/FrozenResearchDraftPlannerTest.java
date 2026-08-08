@@ -5,6 +5,11 @@ import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchDraftPlan;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchParameterOverride;
+import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
 import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
@@ -62,5 +67,64 @@ class FrozenResearchDraftPlannerTest {
 
         assertThat(plan.topic()).isEqualTo(StandardResearchDraftSelector.select(input).topic());
         assertThat(plan.inputFingerprint()).isNotBlank();
+    }
+
+    @Test
+    void preservesTerminalBranchAndQueueMissFollowUpSelectionAcrossTheWorkRequestJsonBoundary() throws Exception {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,
+                "WEIGHTED", List.of(new ResearchDraftCandidate(subjectId, "PRIMARY", 1.0, "MATHEMATICS",
+                List.of(new ResearchTopicOption("first", 1.0), new ResearchTopicOption("second", 1.0)))));
+        ResearchStudySpecification study = new ResearchStudySpecification(
+                ResearchStudySpecification.LEGACY_PARAMETERIZED_STUDY_V1, "study-7", "bounded study",
+                10, 50, "isPrime", "fraction_satisfying", 0.5, "above baseline", "ABOVE_BASELINE", null);
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "conjecture-7", "MATHEMATICS", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.QUEUE_CANDIDATE);
+        ResearchParameterOverride followUp = new ResearchParameterOverride(
+                ResearchParameterOverride.LEGACY_FOLLOW_UP_V1, 42, 1.5, 0.6, "prior scan");
+
+        ResearchDraftPlan parameterizedPlan = planAfterJsonRoundTrip(withIntent(standard,
+                new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY,
+                        mapper.valueToTree(study)), 1), subjectId);
+        ResearchDraftPlan conjecturePlan = planAfterJsonRoundTrip(withIntent(standard,
+                new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                        mapper.valueToTree(conjecture)), 1), subjectId);
+        ResearchDraftSelectionInput queueMissFollowUp = withIntent(standard,
+                new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY,
+                        mapper.valueToTree(followUp)), 1);
+        ResearchDraftPlan followUpPlan = planAfterJsonRoundTrip(queueMissFollowUp, subjectId);
+        ResearchDraftSelection expectedFollowUp = FrozenResearchCyclePlanner.plan(standard, null,
+                new ResearchConjectureQueueSelection(null, 1), queueMissFollowUp.executionIntent()).catalogSelection();
+
+        assertThat(parameterizedPlan.subjectId()).isEqualTo(subjectId);
+        assertThat(parameterizedPlan.topic()).isEqualTo("study/study-7");
+        assertThat(parameterizedPlan.executionKind())
+                .isEqualTo(ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY);
+        assertThat(conjecturePlan.subjectId()).isEqualTo(subjectId);
+        assertThat(conjecturePlan.topic()).isEqualTo("conjecture/conjecture-7");
+        assertThat(conjecturePlan.executionKind())
+                .isEqualTo(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY);
+        assertThat(followUpPlan.subjectId()).isEqualTo(expectedFollowUp.subjectId());
+        assertThat(followUpPlan.topic()).isEqualTo(expectedFollowUp.topic());
+        assertThat(followUpPlan.executionKind()).isEqualTo(ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY);
+    }
+
+    private ResearchDraftPlan planAfterJsonRoundTrip(ResearchDraftSelectionInput input, UUID subjectId) throws Exception {
+        var context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        ResearchWorkRequest reloaded = mapper.readValue(mapper.writeValueAsString(request), ResearchWorkRequest.class);
+        return new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(reloaded);
+    }
+
+    private static ResearchDraftSelectionInput withIntent(ResearchDraftSelectionInput standard,
+                                                           ResearchDraftExecutionIntent intent,
+                                                           int preTopicRandomDoubleDraws) {
+        return new ResearchDraftSelectionInput(standard.selectorVersion(), standard.selectionSeed(),
+                standard.topicSelectionMode(), standard.candidates(), intent, standard.topicHistory(),
+                standard.topicReselectionPolicy(), preTopicRandomDoubleDraws);
     }
 }
