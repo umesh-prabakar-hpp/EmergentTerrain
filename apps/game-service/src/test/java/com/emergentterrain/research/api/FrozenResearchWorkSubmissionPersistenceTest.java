@@ -4,8 +4,14 @@ import com.emergentterrain.EmergentTerrainApplication;
 import com.emergentterrain.repo.ResearchWorkOutboxRepository;
 import com.emergentterrain.repo.ResearchWorkSourceReservationRepository;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchDraftCandidate;
+import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
+import com.emergentterrain.researchcontract.ResearchSubject;
+import com.emergentterrain.researchcontract.ResearchTopicOption;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +40,7 @@ class FrozenResearchWorkSubmissionPersistenceTest {
     @Autowired private ResearchWorkOutboxService outboxService;
     @Autowired private ResearchWorkOutboxRepository outbox;
     @Autowired private ResearchWorkSourceReservationRepository reservations;
+    @Autowired private ObjectMapper objectMapper;
 
     @BeforeEach
     void clearHandoffTables() {
@@ -158,6 +166,60 @@ class FrozenResearchWorkSubmissionPersistenceTest {
                 .isIn("concurrent-first", "concurrent-second");
     }
 
+    @Test
+    void exactFrozenQueueSnapshotReplaysPersistOneReservedHandoff() {
+        ResearchWorkRequest request = requestWithCandidate(6L);
+        ResearchConjectureQueueSnapshot selected = promotedSnapshot("snapshot-conjecture");
+
+        coordinator.submitFrozenQueueSnapshot(request, selected);
+        coordinator.submitFrozenQueueSnapshot(request, selected);
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isEqualTo(1);
+        assertThat(reservations.findById(request.requestId())).isPresent().get()
+                .extracting(entry -> entry.getSourceId()).isEqualTo("snapshot-conjecture");
+    }
+
+    @Test
+    void selectedThenMissedSnapshotReplayPreservesTheOriginalReservedHandoff() {
+        ResearchWorkRequest request = requestWithCandidate(7L);
+        coordinator.submitFrozenQueueSnapshot(request, promotedSnapshot("selected-conjecture"));
+
+        assertThatThrownBy(() -> coordinator.submitFrozenQueueSnapshot(request, queueMissSnapshot()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be rebound to a different research work payload");
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isEqualTo(1);
+        assertThat(reservations.findById(request.requestId())).isPresent().get()
+                .extracting(entry -> entry.getSourceId()).isEqualTo("selected-conjecture");
+    }
+
+    @Test
+    void exactFrozenQueueMissReplaysPersistOneUnreservedHandoff() {
+        ResearchWorkRequest request = requestWithCandidate(8L);
+        ResearchConjectureQueueSnapshot missed = queueMissSnapshot();
+
+        coordinator.submitFrozenQueueSnapshot(request, missed);
+        coordinator.submitFrozenQueueSnapshot(request, missed);
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isZero();
+    }
+
+    @Test
+    void missedThenSelectedSnapshotReplayRollsBackTheNewReservation() {
+        ResearchWorkRequest request = requestWithCandidate(9L);
+        coordinator.submitFrozenQueueSnapshot(request, queueMissSnapshot());
+
+        assertThatThrownBy(() -> coordinator.submitFrozenQueueSnapshot(request, promotedSnapshot("late-conjecture")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be rebound to a different research work payload");
+
+        assertThat(outbox.count()).isEqualTo(1);
+        assertThat(reservations.count()).isZero();
+    }
+
     private Callable<Throwable> conflictingReplay(ResearchWorkRequest request,
                                                    ResearchConjectureQueueSelection selection,
                                                    CountDownLatch ready, CountDownLatch start) {
@@ -179,5 +241,28 @@ class FrozenResearchWorkSubmissionPersistenceTest {
         return new ResearchConjectureQueueSelection(new ResearchConjectureSpecification(
                 "legacy-conjecture-v1", sourceId, "math", "BOUND", "lhs", "rhs", null,
                 1, 0, 0, 1, 0.1, null, "QUEUE_CANDIDATE"), 1);
+    }
+
+    private ResearchWorkRequest requestWithCandidate(long sourceRevision) {
+        UUID subjectId = UUID.randomUUID();
+        var context = objectMapper.createObjectNode();
+        context.set("draftSelection", objectMapper.valueToTree(new ResearchDraftSelectionInput(
+                "legacy-standard-catalog-v1", sourceRevision, "WEIGHTED", List.of(new ResearchDraftCandidate(
+                subjectId, "PRIMARY", 1.0, "MATHEMATICS", List.of(new ResearchTopicOption("topic", 1.0)))))));
+        return new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", sourceRevision,
+                Instant.now(), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+    }
+
+    private static ResearchConjectureQueueSnapshot promotedSnapshot(String sourceId) {
+        return new ResearchConjectureQueueSnapshot(ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1,
+                "math", 1.0, List.of(new ResearchConjectureSpecification("legacy-conjecture-v1", sourceId,
+                "math", "BOUND", "lhs", "rhs", null, 1, 0, 0, 1, 0.1, null, "PROMOTED_ANOMALY")), List.of());
+    }
+
+    private static ResearchConjectureQueueSnapshot queueMissSnapshot() {
+        return new ResearchConjectureQueueSnapshot(ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1,
+                "math", Double.MIN_VALUE, List.of(), List.of(new ResearchConjectureSpecification(
+                "legacy-conjecture-v1", "missed-conjecture", "math", "BOUND", "lhs", "rhs", null,
+                1, 0, 0, 1, 0.1, null, "QUEUE_CANDIDATE")));
     }
 }
