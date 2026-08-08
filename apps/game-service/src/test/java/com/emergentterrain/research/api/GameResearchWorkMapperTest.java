@@ -211,6 +211,28 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void rejectsDuplicateOrTooLongFrozenConjectureSourceIds() {
+        ResearchConjectureSpecification promoted = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "same-source", "math", "BOUND", "lhs", "rhs",
+                null, 1.0, 0.0, 0.0, 1, 0.1, null, ResearchConjectureSpecification.PROMOTED_ANOMALY);
+        ResearchConjectureSpecification ordinary = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "same-source", "math", "BOUND", "lhs", "rhs",
+                null, 1.0, 0.0, 0.0, 1, 0.1, null, ResearchConjectureSpecification.QUEUE_CANDIDATE);
+
+        assertThatThrownBy(() -> new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0,
+                List.of(promoted), List.of(ordinary)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unique source ids");
+        assertThatThrownBy(() -> new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1,
+                "s".repeat(ResearchConjectureSpecification.MAX_SOURCE_ID_LENGTH + 1), "math", "BOUND", "lhs", "rhs",
+                null, 1.0, 0.0, 0.0, 1, 0.1, null, ResearchConjectureSpecification.QUEUE_CANDIDATE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most");
+    }
+
+    @Test
     void preservesTheOrdinaryQueueMissDrawBeforeCatalogTopicSelection() {
         UUID subjectId = UUID.randomUUID();
         ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,

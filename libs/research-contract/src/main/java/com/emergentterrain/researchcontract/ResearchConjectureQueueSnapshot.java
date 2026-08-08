@@ -1,6 +1,8 @@
 package com.emergentterrain.researchcontract;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Immutable, ordered queue observation used to audit conjecture-selection parity. */
 public record ResearchConjectureQueueSnapshot(String snapshotVersion, String domain,
@@ -19,6 +21,7 @@ public record ResearchConjectureQueueSnapshot(String snapshotVersion, String dom
         ordinaryCandidates = ordinaryCandidates == null ? List.of() : List.copyOf(ordinaryCandidates);
         validateCandidates(promotedCandidates, domain, ResearchConjectureSpecification.PROMOTED_ANOMALY);
         validateCandidates(ordinaryCandidates, domain, ResearchConjectureSpecification.QUEUE_CANDIDATE);
+        validateUniqueSourceIds(promotedCandidates, ordinaryCandidates);
     }
 
     private static void validateCandidates(List<ResearchConjectureSpecification> candidates, String domain,
@@ -27,6 +30,15 @@ public record ResearchConjectureQueueSnapshot(String snapshotVersion, String dom
                 || !domain.equalsIgnoreCase(candidate.domain())
                 || !selectionReason.equals(candidate.selectionReason()))) {
             throw new IllegalArgumentException("Frozen conjecture queue candidates must match snapshot domain and priority");
+        }
+    }
+
+    private static void validateUniqueSourceIds(List<ResearchConjectureSpecification> promoted,
+                                                List<ResearchConjectureSpecification> ordinary) {
+        Set<String> sourceIds = new HashSet<>();
+        if (java.util.stream.Stream.concat(promoted.stream(), ordinary.stream())
+                .anyMatch(candidate -> !sourceIds.add(candidate.sourceId()))) {
+            throw new IllegalArgumentException("Frozen conjecture queue candidates must have unique source ids");
         }
     }
 }

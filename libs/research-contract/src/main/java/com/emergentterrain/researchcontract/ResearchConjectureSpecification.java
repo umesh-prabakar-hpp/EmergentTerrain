@@ -13,10 +13,14 @@ public record ResearchConjectureSpecification(String specificationVersion, Strin
     public static final String LEGACY_CONJECTURE_V1 = "legacy-conjecture-v1";
     public static final String QUEUE_CANDIDATE = "QUEUE_CANDIDATE";
     public static final String PROMOTED_ANOMALY = "PROMOTED_ANOMALY";
+    public static final int MAX_SOURCE_ID_LENGTH = 256;
 
     public ResearchConjectureSpecification {
         requireText(specificationVersion, "specificationVersion");
         requireText(sourceId, "sourceId");
+        if (sourceId.length() > MAX_SOURCE_ID_LENGTH) {
+            throw new IllegalArgumentException("sourceId must be at most " + MAX_SOURCE_ID_LENGTH + " characters");
+        }
         requireText(domain, "domain");
         requireText(resultKind, "resultKind");
         requireText(leftExpression, "leftExpression");
