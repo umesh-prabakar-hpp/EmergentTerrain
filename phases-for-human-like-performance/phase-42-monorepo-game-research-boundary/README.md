@@ -233,10 +233,12 @@ Browser → game service → research API → research service
   extension requires an explicit game-owned validation policy and contract test before research
   may emit a recommendation; research must never write game-owned tables, invoke privileged game
   actions, or directly apply gameplay effects.
-- A hermetic direct parity test now runs the legacy standard catalog cycle alongside the frozen
-  planner; with the same seed it must produce the same author, domain, and catalog topic. The
-  ordinary and promoted conjecture branch parity tests remain separate because those branches
-  deliberately avoid a catalog-topic selection.
+- Hermetic direct parity tests now run the legacy standard catalog cycle alongside the frozen
+  planner for both the qualified and cold-start fallback pools; with the same seed they must
+  produce the same author, domain, and catalog topic. A direct follow-up parity case additionally
+  proves that its parameter override retains that catalog selection. The ordinary and promoted
+  conjecture branch parity tests remain separate because those branches deliberately avoid a
+  catalog-topic selection.
 - Each service owns its database schema or database.  Cross-service reads and writes occur through
   APIs/events, never through shared ORM entities or direct SQL.
 

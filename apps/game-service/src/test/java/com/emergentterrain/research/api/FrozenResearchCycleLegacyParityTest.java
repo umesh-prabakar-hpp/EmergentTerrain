@@ -3,6 +3,7 @@ package com.emergentterrain.research.api;
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.MathPhysicsEngineDelegate;
 import com.emergentterrain.research.NarrationResult;
@@ -115,6 +116,70 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(legacyDraft.get().topicName()).isEqualTo(frozen.catalogSelection().topic());
     }
 
+    @Test
+    void directLegacyColdStartFallbackProducesTheFrozenAuthorAndCatalogTopic() throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000731");
+        long gameTick = 47L;
+        UUID firstId = UUID.fromString("00000000-0000-0000-0000-000000000732");
+        UUID secondId = UUID.fromString("00000000-0000-0000-0000-000000000733");
+        UUID thirdId = UUID.fromString("00000000-0000-0000-0000-000000000734");
+        BotLifecycleState first = matureUnqualified(0.20);
+        BotLifecycleState second = matureUnqualified(0.85);
+        BotLifecycleState third = matureUnqualified(0.45);
+        ResearchWorkRequest request = new GameResearchWorkMapper(objectMapper, false).fromTick(roomId,
+                List.of(bot(firstId, first), bot(secondId, second), bot(thirdId, third)), gameTick, null);
+        ResearchDraftSelectionInput input = objectMapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(input,
+                null, null, null);
+        AtomicReference<PaperDraft> legacyDraft = new AtomicReference<>();
+        ResearchCycleService cycle = new ResearchCycleService();
+        cycle.setPhysicsEngineDelegate(new StandardCycleStubDelegate());
+
+        cycle.runCycle(roomId, List.of(new Researcher(firstId.toString(), first),
+                        new Researcher(secondId.toString(), second), new Researcher(thirdId.toString(), third)),
+                new Random(ResearchSelectionSeed.from(roomId, gameTick)), gameTick,
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0),
+                false, capture(legacyDraft));
+
+        assertThat(frozen.catalogSelection().eligibility()).isEqualTo("FALLBACK_CANDIDATE");
+        assertThat(legacyDraft.get()).isNotNull();
+        assertThat(legacyDraft.get().authorBotId()).isEqualTo(frozen.electedAuthor().subjectId().toString());
+        assertThat(legacyDraft.get().domain()).isEqualTo(frozen.catalogSelection().domain());
+        assertThat(legacyDraft.get().topicName()).isEqualTo(frozen.catalogSelection().topic());
+    }
+
+    @Test
+    void directLegacyFollowUpRetainsTheFrozenCatalogSelectionAndOverridesOnlyParameters() throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000741");
+        long gameTick = 48L;
+        UUID authorId = UUID.fromString("00000000-0000-0000-0000-000000000742");
+        BotLifecycleState author = qualifiedAdult(0.85);
+        author.setPendingFollowUp(new FollowUpParams(42, 1.5, 0.6, "prior bounded scan"));
+        ResearchWorkRequest request = new GameResearchWorkMapper(objectMapper, false).fromTick(roomId,
+                List.of(bot(authorId, author)), gameTick, null);
+        ResearchDraftSelectionInput input = objectMapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(input,
+                null, null, input.executionIntent());
+        AtomicReference<PaperDraft> legacyDraft = new AtomicReference<>();
+        ResearchCycleService cycle = new ResearchCycleService();
+        cycle.setPhysicsEngineDelegate(new StandardCycleStubDelegate());
+
+        cycle.runCycle(roomId, List.of(new Researcher(authorId.toString(), author)),
+                new Random(ResearchSelectionSeed.from(roomId, gameTick)), gameTick,
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0),
+                false, capture(legacyDraft));
+
+        assertThat(frozen.catalogSelection()).isNotNull();
+        assertThat(legacyDraft.get()).isNotNull();
+        assertThat(legacyDraft.get().authorBotId()).isEqualTo(frozen.electedAuthor().subjectId().toString());
+        assertThat(legacyDraft.get().topicName()).isEqualTo(frozen.catalogSelection().topic());
+        assertThat(legacyDraft.get().isFollowUp()).isTrue();
+        assertThat(legacyDraft.get().param1()).isEqualTo(42);
+        assertThat(legacyDraft.get().param2()).isEqualTo(1.5);
+    }
+
     private void assertAuthorParity(boolean promoted) throws Exception {
         UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000701");
         long gameTick = 44L;
@@ -194,6 +259,12 @@ class FrozenResearchCycleLegacyParityTest {
         state.setLifecycle(BotLifecycleState.Phase.ADULT);
         state.setResearchStatus(BotLifecycleState.ResearchStatus.QUALIFIED);
         state.setReputation(reputation);
+        return state;
+    }
+
+    private BotLifecycleState matureUnqualified(double reputation) {
+        BotLifecycleState state = qualifiedAdult(reputation);
+        state.setResearchStatus(BotLifecycleState.ResearchStatus.UNQUALIFIED);
         return state;
     }
 
