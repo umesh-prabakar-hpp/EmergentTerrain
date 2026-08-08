@@ -49,6 +49,7 @@ public class FrozenResearchDraftPlanner {
         FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozenCycle = FrozenResearchCyclePlanner.plan(input,
                 parameterizedStudy(input), conjectureSelection(input), followUp(input));
         PlanningSelection selection = selectionFor(input, frozenCycle);
+        requireSelectedSubject(request, selection.subjectId());
         UUID draftId = UUID.nameUUIDFromBytes(("draft-plan:" + request.requestId()).getBytes(StandardCharsets.UTF_8));
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
@@ -112,6 +113,12 @@ public class FrozenResearchDraftPlanner {
     }
 
     private record PlanningSelection(UUID subjectId, String domain, String topic, String eligibility) { }
+
+    private static void requireSelectedSubject(ResearchWorkRequest request, UUID selectedSubjectId) {
+        if (request.subjects().stream().noneMatch(subject -> selectedSubjectId.equals(subject.subjectId()))) {
+            throw new IllegalArgumentException("Frozen selected subject is not present in the work request");
+        }
+    }
 
     private String fingerprint(JsonNode input) {
         try {

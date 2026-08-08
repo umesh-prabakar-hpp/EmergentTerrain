@@ -22,9 +22,7 @@ public class FrozenResearchBranchPreparer {
         return switch (draft.executionKind()) {
             case ResearchDraftExecutionIntent.STANDARD_CATALOG -> PreparedBranch.notApplicable();
             case ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY -> prepareStudy(draft);
-            case ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY -> new PreparedBranch(
-                    "PREPARED", write(read(draft.executionPayload(), ResearchParameterOverride.class,
-                            "parameter override")));
+            case ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY -> prepareFollowUp(draft);
             case ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY -> prepareConjecture(draft);
             default -> throw new IllegalArgumentException("Unsupported frozen execution kind: " + draft.executionKind());
         };
@@ -33,6 +31,8 @@ public class FrozenResearchBranchPreparer {
     private PreparedBranch prepareStudy(ResearchDraftPlan draft) {
         ResearchStudySpecification study = read(draft.executionPayload(), ResearchStudySpecification.class,
                 "parameterized study");
+        requireVersion(study.specificationVersion(), ResearchStudySpecification.LEGACY_PARAMETERIZED_STUDY_V1,
+                "parameterized study");
         requireTopic(draft, "study/" + study.studyId());
         return new PreparedBranch("PREPARED", write(study));
     }
@@ -40,13 +40,29 @@ public class FrozenResearchBranchPreparer {
     private PreparedBranch prepareConjecture(ResearchDraftPlan draft) {
         ResearchConjectureSpecification conjecture = read(draft.executionPayload(), ResearchConjectureSpecification.class,
                 "conjecture specification");
+        requireVersion(conjecture.specificationVersion(), ResearchConjectureSpecification.LEGACY_CONJECTURE_V1,
+                "conjecture specification");
         requireTopic(draft, "conjecture/" + conjecture.sourceId());
         return new PreparedBranch("PREPARED", write(conjecture));
+    }
+
+    private PreparedBranch prepareFollowUp(ResearchDraftPlan draft) {
+        ResearchParameterOverride override = read(draft.executionPayload(), ResearchParameterOverride.class,
+                "parameter override");
+        requireVersion(override.overrideVersion(), ResearchParameterOverride.LEGACY_FOLLOW_UP_V1,
+                "parameter override");
+        return new PreparedBranch("PREPARED", write(override));
     }
 
     private static void requireTopic(ResearchDraftPlan draft, String expectedTopic) {
         if (!expectedTopic.equals(draft.topic())) {
             throw new IllegalArgumentException("Frozen execution payload does not match draft topic");
+        }
+    }
+
+    private static void requireVersion(String actual, String supported, String description) {
+        if (!supported.equals(actual)) {
+            throw new IllegalArgumentException("Unsupported frozen " + description + " version: " + actual);
         }
     }
 

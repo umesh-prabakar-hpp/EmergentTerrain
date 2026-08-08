@@ -49,6 +49,18 @@ class FrozenResearchBranchPreparerTest {
                 .hasMessageContaining("does not match draft topic");
     }
 
+    @Test
+    void rejectsAnUnknownFrozenStudyVersion() {
+        ResearchStudySpecification unsupported = new ResearchStudySpecification("future-study-v2", "study-7",
+                "bounded study", 10, 50, "isPrime", "fraction_satisfying", 0.5,
+                "above baseline", "ABOVE_BASELINE", null);
+
+        assertThatThrownBy(() -> preparer.prepare(plan(ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY,
+                "study/study-7", mapper.valueToTree(unsupported))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported frozen parameterized study version");
+    }
+
     private static ResearchStudySpecification study(String studyId) {
         return new ResearchStudySpecification(ResearchStudySpecification.LEGACY_PARAMETERIZED_STUDY_V1, studyId,
                 "bounded study", 10, 50, "isPrime", "fraction_satisfying", 0.5,

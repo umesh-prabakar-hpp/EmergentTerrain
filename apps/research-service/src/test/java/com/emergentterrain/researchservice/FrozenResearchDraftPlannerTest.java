@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class FrozenResearchDraftPlannerTest {
@@ -97,6 +98,20 @@ class FrozenResearchDraftPlannerTest {
         ResearchDraftPlan reorderedPlan = planner.plan(reorderedRequest);
 
         assertThat(reorderedPlan.inputFingerprint()).isEqualTo(canonicalPlan.inputFingerprint());
+    }
+
+    @Test
+    void rejectsASelectedCandidateThatWasNotProvidedAsAGenericSubject() {
+        UUID selectedSubjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = FrozenDraftSelectionFixtures.primaryInput(selectedSubjectId);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(UUID.randomUUID(), "AGENT", null)), context);
+
+        assertThatThrownBy(() -> new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("selected subject is not present");
     }
 
     @Test

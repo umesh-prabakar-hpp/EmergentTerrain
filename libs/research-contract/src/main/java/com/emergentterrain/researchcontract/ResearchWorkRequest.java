@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -34,6 +36,12 @@ public record ResearchWorkRequest(
         }
         requestedAt = requestedAt == null ? Instant.now() : requestedAt;
         subjects = subjects == null ? List.of() : List.copyOf(subjects);
+        Set<UUID> subjectIds = new HashSet<>();
+        for (ResearchSubject subject : subjects) {
+            if (!subjectIds.add(subject.subjectId())) {
+                throw new IllegalArgumentException("subjects must not contain duplicate subject IDs");
+            }
+        }
         contextSnapshot = contextSnapshot == null ? JsonNodeFactory.instance.objectNode() : contextSnapshot;
     }
 }
