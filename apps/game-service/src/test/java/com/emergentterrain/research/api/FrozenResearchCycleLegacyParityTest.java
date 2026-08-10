@@ -23,6 +23,7 @@ import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchSelectionSeed;
+import com.emergentterrain.researchcontract.ResearchTopicReselectionPolicy;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
 import com.emergentterrain.llm.JuliaMathClient;
@@ -210,6 +211,54 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(author.getPendingDirective()).isNull();
     }
 
+    @Test
+    void directLegacyRejectionBackoffProducesTheFrozenHistoryAwareTopic() throws Exception {
+        assertHistoryBackoffParity("REJECTED", false);
+    }
+
+    @Test
+    void directLegacyYieldAwareBackoffProducesTheFrozenHistoryAwareTopic() throws Exception {
+        assertHistoryBackoffParity("NULL_RESULT", true);
+    }
+
+    private void assertHistoryBackoffParity(String historyStatus, boolean yieldAware) throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000761");
+        long gameTick = 53L;
+        UUID authorId = UUID.fromString("00000000-0000-0000-0000-000000000762");
+        BotLifecycleState author = qualifiedAdult(0.85);
+        List<ResearchPaper> history = cooledHistory(historyStatus, yieldAware ? 0.4 : 1.0);
+        ResearchTopicReselectionPolicy policy = new ResearchTopicReselectionPolicy("legacy-topic-backoff-v1",
+                true, yieldAware, 2, 0.6, 0.7);
+        ResearchWorkRequest request = new GameResearchWorkMapper(objectMapper, false).fromTick(roomId,
+                List.of(bot(authorId, author)), gameTick, null, history, policy);
+        ResearchDraftSelectionInput input = objectMapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(input,
+                null, null, null);
+        ResearchDraftSelectionInput withoutBackoff = new ResearchDraftSelectionInput(input.selectorVersion(),
+                input.selectionSeed(), input.topicSelectionMode(), input.candidates(), input.executionIntent(),
+                input.topicHistory(), ResearchTopicReselectionPolicy.disabled(), input.preTopicRandomDoubleDraws());
+        ResearchDraftSelection initial = StandardResearchDraftSelector.select(withoutBackoff);
+        AtomicReference<PaperDraft> legacyDraft = new AtomicReference<>();
+        ResearchCycleService cycle = new ResearchCycleService();
+        cycle.setPhysicsEngineDelegate(new StandardCycleStubDelegate());
+        cycle.setTopicCloneBackoffEnabled(true);
+        cycle.setTopicCloneBackoffMaxRetries(policy.maxRetries());
+        cycle.setLowYieldBackoffEnabled(yieldAware);
+        cycle.setLowYieldPeerCeiling(policy.lowYieldPeerCeiling());
+        cycle.setLowYieldNullDecay(policy.lowYieldNullDecay());
+
+        cycle.runCycle(roomId, List.of(new Researcher(authorId.toString(), author)),
+                new Random(ResearchSelectionSeed.from(roomId, gameTick)), gameTick,
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0),
+                false, capture(legacyDraft, history));
+
+        assertThat(legacyDraft.get()).isNotNull();
+        assertThat(legacyDraft.get().authorBotId()).isEqualTo(frozen.electedAuthor().subjectId().toString());
+        assertThat(legacyDraft.get().topicName()).isEqualTo(frozen.catalogSelection().topic());
+        assertThat(frozen.catalogSelection().topic()).isNotEqualTo(initial.topic());
+    }
+
     private void assertAuthorParity(boolean promoted) throws Exception {
         UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000701");
         long gameTick = 44L;
@@ -251,10 +300,25 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(investigated).hasValue(1);
     }
 
+    private List<ResearchPaper> cooledHistory(String status, double peerScore) {
+        return java.util.stream.IntStream.range(0, 5).mapToObj(index -> {
+            ResearchPaper paper = mock(ResearchPaper.class);
+            when(paper.domain()).thenReturn("MATHEMATICS");
+            when(paper.topic()).thenReturn(MathPhysicsEngine.topicName("MATHEMATICS", index));
+            when(paper.status()).thenReturn(status);
+            when(paper.peerScore()).thenReturn(peerScore);
+            return paper;
+        }).toList();
+    }
+
     private ResearchCycleService.Context capture(AtomicReference<PaperDraft> draft) {
+        return capture(draft, List.of());
+    }
+
+    private ResearchCycleService.Context capture(AtomicReference<PaperDraft> draft, List<ResearchPaper> history) {
         return new ResearchCycleService.Context() {
             @Override public String nextPaperId(UUID roomId) { return "P-test-" + roomId; }
-            @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) { return List.of(); }
+            @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) { return history; }
             @Override public void publishPaper(PaperDraft paper, NarrationResult narration) { draft.set(paper); }
             @Override public Consumer<PaperDraft> narratingCallback() { return null; }
             @Override public Function<Object[], Object> formulationCallback() { return null; }
