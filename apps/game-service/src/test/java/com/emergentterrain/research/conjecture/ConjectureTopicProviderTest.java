@@ -140,6 +140,31 @@ class ConjectureTopicProviderTest {
                 ConjectureTopicProvider.MAX_QUEUE_OBSERVATION_CANDIDATES + 1));
     }
 
+    @Test
+    void consumesOnlyTheExactPersistentObservationWithoutReadingTheQueue() {
+        Conjecture observed = conjecture("observed");
+        java.util.UUID sourceId = java.util.UUID.randomUUID();
+        org.springframework.test.util.ReflectionTestUtils.setField(observed, "id", sourceId);
+        ConjectureQueue queue = mock(ConjectureQueue.class);
+
+        build(queue, 1.0).consumeObservedConjecture(observed);
+
+        verify(queue).markInvestigated(observed);
+        verify(queue, never()).next(any());
+        verify(queue, never()).nextN(any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(queue, never()).nextPromotedAnomaly(any());
+    }
+
+    @Test
+    void refusesToConsumeWithoutAPersistentSourceOrQueue() {
+        assertThrows(IllegalArgumentException.class,
+                () -> build(mock(ConjectureQueue.class), 1.0).consumeObservedConjecture(conjecture("transient")));
+
+        Conjecture persistent = conjecture("persistent");
+        org.springframework.test.util.ReflectionTestUtils.setField(persistent, "id", java.util.UUID.randomUUID());
+        assertThrows(IllegalStateException.class, () -> buildNoMiner(1.0).consumeObservedConjecture(persistent));
+    }
+
     // ---------- helpers ----------
 
     private static ConjectureTopicProvider build(ConjectureQueue queue, double share) {

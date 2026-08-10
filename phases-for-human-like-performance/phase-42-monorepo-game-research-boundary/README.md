@@ -84,6 +84,12 @@
   the legacy queue's read-only surfaces, then map that observation to the generic frozen snapshot.
   This is intentionally not wired to the outbox: the observation never reserves or marks a source,
   and no live conjecture routing has been enabled.
+- A separate, explicitly-invoked game-owned consumption seam now proves the transactional half of
+  a future cutover without enabling it: it accepts only an already-observed persistent conjecture
+  whose id matches the frozen `CONJECTURE` reservation, persists/revalidates the reservation and
+  outbox row, atomically claims that reservation once, then stamps that exact queue source. A
+  source-stamping failure rolls back new handoff state, and an exact replay does not stamp twice.
+  It is not called by the tick gateway and never observes, ranks, or selects a live queue.
 
 ## Live standalone validation — 2026-08-04
 

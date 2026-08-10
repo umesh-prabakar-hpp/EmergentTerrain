@@ -94,7 +94,11 @@ fixture, but may only emit a planning
 request-keyed record written before its matching outbox row in the same transaction; it is reservation
 metadata only and must not by itself select or mark a live conjecture. A retry may replay only the
 same reservation type/source id and the same serialized generic work payload for its request id;
-rebinding is rejected. The generic processor may emit only a `ResearchResult`
+rebinding is rejected. The separate `FrozenResearchConjectureConsumptionCoordinator` is an
+explicit, unwired game-side cutover seam: it accepts only an already-observed persistent
+conjecture whose id matches that reservation, claims the reservation once, then marks that exact
+source in the same transaction. It must never observe/select/rank a queue; source-stamping failure
+rolls back new handoff state and exact replays must not stamp twice. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.

@@ -72,6 +72,10 @@ selection and consumption are not routed. Its display-only planning result inclu
 provenance (snapshot version, tier counts, and random-draw cadence); unsupported queue-observation
 versions fail closed. The game can now capture a bounded, read-only legacy queue observation for
 audit and map it to the generic frozen snapshot, but it neither reserves nor marks a candidate.
+An explicitly invoked, game-owned transactional cutover seam can subsequently accept an exact
+already-observed persistent conjecture: it records the matching reservation/outbox pair, claims
+that reservation once, and stamps only that matching source. It is not wired to the tick gateway
+or live routing; a failed stamp rolls the new handoff back and an exact replay cannot stamp twice.
 Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is

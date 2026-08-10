@@ -26,6 +26,14 @@ public class ResearchWorkSourceReservationEntry {
     @Column(nullable = false)
     private Instant createdAt;
 
+    /**
+     * Game-owned acknowledgement that this reservation's exact source was consumed in the
+     * same transaction as its durable handoff.  Null means a reserved audit handoff has not
+     * crossed the explicit consumption seam yet.
+     */
+    @Column(name = "consumed_at")
+    private Instant consumedAt;
+
     protected ResearchWorkSourceReservationEntry() {
     }
 
@@ -39,6 +47,7 @@ public class ResearchWorkSourceReservationEntry {
     public String getReservationType() { return reservationType; }
     public String getSourceId() { return sourceId; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getConsumedAt() { return consumedAt; }
 
     @PrePersist
     void create() {

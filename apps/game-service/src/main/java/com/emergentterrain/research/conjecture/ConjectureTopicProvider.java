@@ -121,6 +121,20 @@ public class ConjectureTopicProvider {
     }
 
     /**
+     * Consumes an exact, previously observed source for the Phase 42 transactional handoff.
+     * This method never reads or selects from the queue; callers must supply the already
+     * observed candidate and hold the surrounding game transaction.
+     */
+    public void consumeObservedConjecture(Conjecture conjecture) {
+        if (conjecture == null || conjecture.id() == null) {
+            throw new IllegalArgumentException("A consumed conjecture must have a persistent source id");
+        }
+        queue.orElseThrow(() -> new IllegalStateException(
+                "Cannot consume an observed conjecture because no queue is configured"))
+                .markInvestigated(conjecture);
+    }
+
+    /**
      * Captures the legacy promoted-first / ordinary queue inputs without rolling, selecting, or
      * consuming them. This is an audit seam for Phase 42; callers must still leave live routing
      * disabled until selection and consumption are atomically parity-proven.

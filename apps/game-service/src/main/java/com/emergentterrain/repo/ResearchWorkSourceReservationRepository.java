@@ -23,4 +23,23 @@ public interface ResearchWorkSourceReservationRepository
                        @Param("reservationType") String reservationType,
                        @Param("sourceId") String sourceId,
                        @Param("createdAt") Instant createdAt);
+
+    /**
+     * Claims exactly one game-owned reservation for source consumption.  Matching replays see
+     * zero rows after the first claim, so they can revalidate the durable request without
+     * stamping a live source again.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE research_work_source_reservations
+               SET consumed_at = :consumedAt
+             WHERE request_id = :requestId
+               AND reservation_type = :reservationType
+               AND source_id = :sourceId
+               AND consumed_at IS NULL
+            """, nativeQuery = true)
+    int claimForConsumption(@Param("requestId") UUID requestId,
+                            @Param("reservationType") String reservationType,
+                            @Param("sourceId") String sourceId,
+                            @Param("consumedAt") Instant consumedAt);
 }
