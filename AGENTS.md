@@ -98,7 +98,11 @@ rebinding is rejected. The separate `FrozenResearchConjectureConsumptionCoordina
 explicit, unwired game-side cutover seam: it accepts only an already-observed persistent
 conjecture whose id matches that reservation, claims the reservation once, then marks that exact
 source in the same transaction. It must never observe/select/rank a queue; source-stamping failure
-rolls back new handoff state and exact replays must not stamp twice. The generic processor may emit only a `ResearchResult`
+rolls back new handoff state and exact replays must not stamp twice. `ResearchExecutionPreparation`
+is the research-owned, generic readiness record after a frozen draft: it fingerprints canonical
+input only and is never a computation result or authorization. Standard catalog work must remain
+`AWAITING_COMPUTATION_INPUTS` until legacy parameter/formulation parity is frozen; other prepared
+branches remain `PREPARED_NO_COMPUTATION`. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.

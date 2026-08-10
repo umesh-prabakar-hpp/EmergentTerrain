@@ -31,13 +31,15 @@ class GenericResearchCycleExecutorTest {
                 Instant.parse("2026-08-05T12:00:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
         FrozenResearchDraftPlanner planner = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper);
         ResearchResult result = new GenericResearchCycleExecutor(mapper, planner,
-                new FrozenResearchBranchPreparer(mapper)).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper)).execute(request);
         assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
         assertThat(result.requestId()).isEqualTo(request.requestId());
         assertThat(result.findings().path("subjectCount").asInt()).isEqualTo(1);
         assertThat(result.findings().path("sourceRevision").asLong()).isEqualTo(7L);
         assertThat(result.findings().path("draftEligibility").asText()).isEqualTo("CANDIDATE");
         assertThat(result.findings().path("draftSelectorVersion").asText()).isEqualTo("legacy-standard-catalog-v1");
+        assertThat(result.findings().path("draftExecutionReadiness").asText())
+                .isEqualTo("AWAITING_COMPUTATION_INPUTS");
     }
 
     @Test
@@ -57,12 +59,13 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper)).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper)).execute(request);
 
         assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
         assertThat(result.findings().path("draftExecutionKind").asText()).isEqualTo("DEFERRED_FOLLOW_UP_STUDY");
         assertThat(result.findings().path("draftExecutionStatus").asText()).isEqualTo("PREPARED");
         assertThat(result.findings().path("draftExecutionCanonicalPayload").path("parameterOne").asInt()).isEqualTo(42);
+        assertThat(result.findings().path("draftExecutionReadiness").asText()).isEqualTo("PREPARED_NO_COMPUTATION");
     }
 
     @Test
@@ -83,7 +86,7 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper)).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper)).execute(request);
 
         assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
         assertThat(result.findings().path("draftExecutionCanonicalPayload").path("studyId").asText())
@@ -110,7 +113,7 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper)).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper)).execute(request);
 
         assertThat(result.outcome()).isEqualTo("DRAFT_BRANCH_PREPARED");
         assertThat(result.findings().path("draftExecutionCanonicalPayload").path("leftExpression").asText())
@@ -143,12 +146,16 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper)).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper)).execute(request);
 
         assertThat(result.findings().path("draftQueueObservation").path("replayed").asBoolean()).isTrue();
         assertThat(result.findings().path("draftQueueObservation").path("snapshotVersion").asText())
                 .isEqualTo(ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1);
         assertThat(result.findings().path("draftQueueObservation").path("promotedCandidateCount").asInt()).isEqualTo(1);
         assertThat(result.findings().path("draftQueueObservation").path("ordinaryCandidateCount").asInt()).isZero();
+    }
+
+    private static FrozenResearchExecutionPreparer executionPreparer(ObjectMapper mapper) {
+        return new FrozenResearchExecutionPreparer(mock(ResearchExecutionPreparationRepository.class), mapper);
     }
 }

@@ -90,6 +90,12 @@
   outbox row, atomically claims that reservation once, then stamps that exact queue source. A
   source-stamping failure rolls back new handoff state, and an exact replay does not stamp twice.
   It is not called by the tick gateway and never observes, ranks, or selects a live queue.
+- Research now persists a separate generic `ResearchExecutionPreparation` after each frozen plan.
+  It fingerprints its canonical input for exact replay, contains no result or authorization to
+  compute, and is owned entirely by the research service. Standard-catalog drafts report
+  `AWAITING_COMPUTATION_INPUTS` until their legacy parameter/formulation parity is frozen; prepared
+  parameterized, follow-up, and conjecture branches report `PREPARED_NO_COMPUTATION` and still do
+  not invoke the legacy executor.
 
 ## Live standalone validation — 2026-08-04
 

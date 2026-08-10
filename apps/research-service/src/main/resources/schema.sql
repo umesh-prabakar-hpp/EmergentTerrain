@@ -109,3 +109,17 @@ ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS selector_version VARCH
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS input_fingerprint VARCHAR(64) NOT NULL DEFAULT 'unavailable';
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS execution_kind VARCHAR(64) NOT NULL DEFAULT 'STANDARD_CATALOG';
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS execution_payload_json TEXT NOT NULL DEFAULT '{}';
+
+-- Frozen execution-readiness records are research-owned and intentionally do not represent a
+-- computation result. They are the durable input boundary for a later reviewed executor.
+CREATE TABLE IF NOT EXISTS research_execution_preparations (
+    preparation_id UUID PRIMARY KEY,
+    draft_id UUID NOT NULL UNIQUE,
+    request_id UUID NOT NULL UNIQUE,
+    preparation_version VARCHAR(128) NOT NULL,
+    execution_kind VARCHAR(64) NOT NULL,
+    readiness VARCHAR(64) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
+    canonical_input_json TEXT NOT NULL,
+    prepared_at TIMESTAMP WITH TIME ZONE NOT NULL
+);

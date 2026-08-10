@@ -33,7 +33,8 @@ class ResearchWorkExecutionServiceTest {
         ResearchWorkExecutionService service = new ResearchWorkExecutionService(repository,
                 List.of(new GenericResearchCycleExecutor(mapper,
                         new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                        new FrozenResearchBranchPreparer(mapper))), mapper);
+                        new FrozenResearchBranchPreparer(mapper),
+                        new FrozenResearchExecutionPreparer(mock(ResearchExecutionPreparationRepository.class), mapper))), mapper);
 
         service.execute(item);
 

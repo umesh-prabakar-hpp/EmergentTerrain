@@ -76,6 +76,9 @@ An explicitly invoked, game-owned transactional cutover seam can subsequently ac
 already-observed persistent conjecture: it records the matching reservation/outbox pair, claims
 that reservation once, and stamps only that matching source. It is not wired to the tick gateway
 or live routing; a failed stamp rolls the new handoff back and an exact replay cannot stamp twice.
+The research service now also persists a generic, fingerprinted execution-readiness record after
+draft planning. It records canonical frozen input only: standard-catalog work is explicitly blocked
+until computation inputs are frozen, and prepared branches remain non-computing.
 Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is

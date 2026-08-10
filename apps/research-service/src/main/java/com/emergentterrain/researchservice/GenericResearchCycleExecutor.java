@@ -2,6 +2,7 @@ package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchResult;
 import com.emergentterrain.researchcontract.ResearchDraftPlan;
+import com.emergentterrain.researchcontract.ResearchExecutionPreparation;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -17,12 +18,15 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     private final ObjectMapper objectMapper;
     private final FrozenResearchDraftPlanner draftPlanner;
     private final FrozenResearchBranchPreparer branchPreparer;
+    private final FrozenResearchExecutionPreparer executionPreparer;
 
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
-                                        FrozenResearchBranchPreparer branchPreparer) {
+                                        FrozenResearchBranchPreparer branchPreparer,
+                                        FrozenResearchExecutionPreparer executionPreparer) {
         this.objectMapper = objectMapper;
         this.draftPlanner = draftPlanner;
         this.branchPreparer = branchPreparer;
+        this.executionPreparer = executionPreparer;
     }
 
     @Override public boolean supports(String workType) { return "RESEARCH_CYCLE".equals(workType); }
@@ -31,6 +35,7 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     public ResearchResult execute(ResearchWorkRequest request) {
         ResearchDraftPlan draft = draftPlanner.plan(request);
         FrozenResearchBranchPreparer.PreparedBranch branch = branchPreparer.prepare(draft);
+        ResearchExecutionPreparation executionPreparation = executionPreparer.prepare(draft, branch);
         ObjectNode findings = objectMapper.createObjectNode();
         findings.put("sourceRevision", request.sourceRevision());
         findings.put("subjectCount", request.subjects().size());
@@ -46,6 +51,10 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         findings.set("draftExecutionPayload", draft.executionPayload());
         findings.put("draftExecutionStatus", branch.status());
         if (branch.canonicalPayload() != null) findings.set("draftExecutionCanonicalPayload", branch.canonicalPayload());
+        findings.put("draftExecutionPreparationVersion", executionPreparation.preparationVersion());
+        findings.put("draftExecutionReadiness", executionPreparation.readiness());
+        findings.put("draftExecutionInputFingerprint", executionPreparation.inputFingerprint());
+        findings.set("draftExecutionCanonicalInput", executionPreparation.canonicalInput());
         appendQueueObservationProvenance(request, findings);
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())
                 .getBytes(StandardCharsets.UTF_8));
