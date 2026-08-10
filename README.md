@@ -69,7 +69,8 @@ this first parity slice: a conjecture has a frozen preparation schema, and a bou
 probability-gated queue observation now travels with `draftSelection` so research independently
 replays and verifies the selected branch (or probability miss). This remains audit-only: live queue
 selection and consumption are not routed. Its display-only planning result includes compact replay
-provenance (snapshot version, tier counts, and random-draw cadence). Topic history is also
+provenance (snapshot version, tier counts, and random-draw cadence); unsupported queue-observation
+versions fail closed. Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is
 covered. With matching

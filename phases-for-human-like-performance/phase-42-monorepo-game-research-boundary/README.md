@@ -78,7 +78,8 @@
   mismatched selection before persisting a draft plan. This is audit hardening only: it neither
   reads nor consumes a live game queue, and conjecture routing remains disabled pending complete
   queue-consumption parity. The display-only planning result reports only compact replay provenance
-  (version, priority-tier counts, and random-draw cadence) for later parity audits.
+  (version, priority-tier counts, and random-draw cadence) for later parity audits; the planner
+  accepts only the supported legacy queue-observation version and rejects unknown versions.
 
 ## Live standalone validation — 2026-08-04
 

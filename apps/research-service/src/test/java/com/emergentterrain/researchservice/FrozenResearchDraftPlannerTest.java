@@ -158,6 +158,22 @@ class FrozenResearchDraftPlannerTest {
     }
 
     @Test
+    void rejectsAnUnsupportedFrozenQueueObservationVersion() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchConjectureQueueSnapshot unsupportedSnapshot = new ResearchConjectureQueueSnapshot(
+                "future-conjecture-queue-v2", "math", 0.0, List.of(), List.of());
+        ResearchDraftSelectionInput unsupported = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(),
+                standard.executionIntent(), standard.topicHistory(), standard.topicReselectionPolicy(),
+                unsupportedSnapshot, 0);
+
+        assertThatThrownBy(() -> plan(unsupported, subjectId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported frozen conjecture queue snapshot version");
+    }
+
+    @Test
     void preservesTerminalBranchAndQueueMissFollowUpSelectionAcrossTheWorkRequestJsonBoundary() throws Exception {
         UUID subjectId = UUID.randomUUID();
         ResearchDraftSelectionInput standard = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,
@@ -242,6 +258,26 @@ class FrozenResearchDraftPlannerTest {
                 snapshot, 0);
 
         assertThatThrownBy(() -> plan(observed, subjectId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not match its recorded selection");
+    }
+
+    @Test
+    void rejectsAProbabilityGatedQueueMissThatDropsItsRequiredRandomDraw() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchConjectureSpecification ordinary = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "queue-ordinary", "math", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.QUEUE_CANDIDATE);
+        ResearchConjectureQueueSnapshot snapshot = new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", Double.MIN_VALUE,
+                List.of(), List.of(ordinary));
+        ResearchDraftSelectionInput tampered = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(),
+                standard.executionIntent(), standard.topicHistory(), standard.topicReselectionPolicy(), snapshot, 0);
+
+        assertThatThrownBy(() -> plan(tampered, subjectId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match its recorded selection");
     }

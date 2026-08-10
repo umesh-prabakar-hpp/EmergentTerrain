@@ -48,6 +48,7 @@ public class FrozenResearchDraftPlanner {
         }
         requireSupportedSelectorVersion(input);
         requireSupportedTopicSelectionVersions(input);
+        requireSupportedQueueObservationVersion(input);
         FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozenCycle = FrozenResearchCyclePlanner.plan(input,
                 parameterizedStudy(input), conjectureSelection(input), followUp(input));
         PlanningSelection selection = selectionFor(input, frozenCycle);
@@ -155,6 +156,15 @@ public class FrozenResearchDraftPlanner {
                 .equals(input.topicReselectionPolicy().policyVersion())) {
             throw new IllegalArgumentException("Unsupported frozen topic-reselection policy version: "
                     + input.topicReselectionPolicy().policyVersion());
+        }
+    }
+
+    private static void requireSupportedQueueObservationVersion(ResearchDraftSelectionInput input) {
+        if (input.conjectureQueueSnapshot() != null
+                && !com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1
+                .equals(input.conjectureQueueSnapshot().snapshotVersion())) {
+            throw new IllegalArgumentException("Unsupported frozen conjecture queue snapshot version: "
+                    + input.conjectureQueueSnapshot().snapshotVersion());
         }
     }
 

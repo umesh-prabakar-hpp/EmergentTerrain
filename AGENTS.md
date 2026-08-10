@@ -77,7 +77,8 @@ observation against its selected branch or miss; this is audit only and must not
 consumed or route live work. A probability-gated queue miss carries its pre-topic random draw in
 the frozen selection input so catalog topic parity is preserved. The display-only planning result
 may expose only compact replay provenance (version, candidate counts, and draw cadence), never a
-live queue action or gameplay recommendation. After author election,
+live queue action or gameplay recommendation. The research planner accepts only
+`legacy-conjecture-queue-v1`; unknown snapshot versions fail closed. After author election,
 `ResearchDraftBranchResolver` locks parameterized-study then conjecture precedence; otherwise it
 still selects a catalog topic and applies a follow-up only as the later parameter override. It does
 not consume a queue item. `FrozenResearchCyclePlanner` composes that decision with one frozen
