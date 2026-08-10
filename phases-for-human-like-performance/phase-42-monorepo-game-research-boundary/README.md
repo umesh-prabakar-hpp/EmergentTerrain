@@ -236,9 +236,14 @@ Browser → game service → research API → research service
 - Hermetic direct parity tests now run the legacy standard catalog cycle alongside the frozen
   planner for both the qualified and cold-start fallback pools; with the same seed they must
   produce the same author, domain, and catalog topic. A direct follow-up parity case additionally
-  proves that its parameter override retains that catalog selection. The ordinary and promoted
+  proves that its parameter override retains that catalog selection. Parameterized-study parity
+  pins the same elected author, terminal branch, and directive consumption while deliberately
+  retaining only a deferred study plan, not a computation-output claim. The ordinary and promoted
   conjecture branch parity tests remain separate because those branches deliberately avoid a
   catalog-topic selection.
+- A deterministic draft-plan ID is now a durable binding: an exact replay returns the stored
+  frozen plan (including its original planning timestamp), while an altered frozen input under the
+  same ID fails closed rather than silently replanning or rebinding it.
 - Each service owns its database schema or database.  Cross-service reads and writes occur through
   APIs/events, never through shared ORM entities or direct SQL.
 

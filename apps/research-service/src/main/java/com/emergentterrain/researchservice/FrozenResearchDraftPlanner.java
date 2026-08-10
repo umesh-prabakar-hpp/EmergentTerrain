@@ -57,13 +57,25 @@ public class FrozenResearchDraftPlanner {
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
                 input.selectorVersion(), fingerprint(frozenInput), input.executionIntent().kind(),
                 input.executionIntent().payload(), Instant.now());
-        if (!plans.existsById(draftId)) {
-            plans.save(new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(),
-                    plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(),
-                    plan.inputFingerprint(), plan.executionKind(), objectMapper.valueToTree(plan.executionPayload()).toString(),
-                    plan.plannedAt()));
-        }
+        return plans.findById(draftId)
+                .map(existing -> reuseExistingPlan(existing, plan))
+                .orElseGet(() -> saveNewPlan(plan));
+    }
+
+    private ResearchDraftPlan saveNewPlan(ResearchDraftPlan plan) {
+        plans.save(new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(),
+                plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(),
+                plan.inputFingerprint(), plan.executionKind(), objectMapper.valueToTree(plan.executionPayload()).toString(),
+                plan.plannedAt()));
         return plan;
+    }
+
+    private ResearchDraftPlan reuseExistingPlan(ResearchDraftPlanRecord existing, ResearchDraftPlan calculated) {
+        ResearchDraftPlan persisted = existing.toPlan(objectMapper);
+        if (!existing.matches(calculated, objectMapper)) {
+            throw new IllegalStateException("Frozen draft id is already bound to a different plan");
+        }
+        return persisted;
     }
 
     private static ResearchDraftExecutionIntent parameterizedStudy(ResearchDraftSelectionInput input) {

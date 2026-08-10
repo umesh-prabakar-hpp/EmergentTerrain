@@ -3,6 +3,7 @@ package com.emergentterrain.research.api;
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.MathPhysicsEngineDelegate;
@@ -178,6 +179,35 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(legacyDraft.get().isFollowUp()).isTrue();
         assertThat(legacyDraft.get().param1()).isEqualTo(42);
         assertThat(legacyDraft.get().param2()).isEqualTo(1.5);
+    }
+
+    @Test
+    void directLegacyParameterizedStudyAndFrozenPlannerElectTheSameTerminalAuthor() throws Exception {
+        UUID roomId = UUID.fromString("00000000-0000-0000-0000-000000000751");
+        long gameTick = 49L;
+        UUID authorId = UUID.fromString("00000000-0000-0000-0000-000000000752");
+        BotLifecycleState author = qualifiedAdult(0.85);
+        author.setPendingDirective(new DynamicProblem("study-8", "bounded prime study", 10, 30,
+                "isPrime", "fraction_satisfying", 0.5, "Prime density is above the baseline",
+                DynamicProblem.ExpectedRelation.ABOVE_BASELINE, null));
+        ResearchWorkRequest request = new GameResearchWorkMapper(objectMapper, false).fromTick(roomId,
+                List.of(bot(authorId, author)), gameTick, null);
+        ResearchDraftSelectionInput input = objectMapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        FrozenResearchCyclePlanner.FrozenResearchCyclePlan frozen = FrozenResearchCyclePlanner.plan(input,
+                input.executionIntent(), null, null);
+        ResearchCycleService cycle = new ResearchCycleService();
+
+        cycle.runCycle(roomId, List.of(new Researcher(authorId.toString(), author)),
+                new Random(ResearchSelectionSeed.from(roomId, gameTick)), gameTick,
+                new PopulationEcologyService.PopulationParams(10, 100L, 100L, 0.1, 0.5, 1.0),
+                false, capture(new AtomicReference<>()));
+
+        assertThat(frozen.electedAuthor().subjectId()).isEqualTo(authorId);
+        assertThat(frozen.catalogSelection()).isNull();
+        assertThat(frozen.branch().executionIntent().kind())
+                .isEqualTo("DEFERRED_PARAMETERIZED_STUDY");
+        assertThat(author.getPendingDirective()).isNull();
     }
 
     private void assertAuthorParity(boolean promoted) throws Exception {

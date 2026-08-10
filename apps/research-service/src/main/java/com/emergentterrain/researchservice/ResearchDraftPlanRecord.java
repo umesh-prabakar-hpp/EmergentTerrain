@@ -1,5 +1,7 @@
 package com.emergentterrain.researchservice;
 
+import com.emergentterrain.researchcontract.ResearchDraftPlan;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -31,5 +33,29 @@ public class ResearchDraftPlanRecord {
         this.domain=domain; this.topic=topic; this.eligibility=eligibility;
         this.selectorVersion=selectorVersion; this.inputFingerprint=inputFingerprint;
         this.executionKind=executionKind; this.executionPayloadJson=executionPayloadJson; this.plannedAt=plannedAt;
+    }
+
+    ResearchDraftPlan toPlan(ObjectMapper objectMapper) {
+        try {
+            return new ResearchDraftPlan(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility,
+                    selectorVersion, inputFingerprint, executionKind, objectMapper.readTree(executionPayloadJson), plannedAt);
+        } catch (Exception invalidPayload) {
+            throw new IllegalStateException("Stored frozen draft plan has invalid execution payload", invalidPayload);
+        }
+    }
+
+    boolean matches(ResearchDraftPlan expected, ObjectMapper objectMapper) {
+        ResearchDraftPlan actual = toPlan(objectMapper);
+        return actual.draftId().equals(expected.draftId())
+                && actual.requestId().equals(expected.requestId())
+                && actual.workspaceId().equals(expected.workspaceId())
+                && actual.subjectId().equals(expected.subjectId())
+                && actual.domain().equals(expected.domain())
+                && actual.topic().equals(expected.topic())
+                && actual.eligibility().equals(expected.eligibility())
+                && actual.selectorVersion().equals(expected.selectorVersion())
+                && actual.inputFingerprint().equals(expected.inputFingerprint())
+                && actual.executionKind().equals(expected.executionKind())
+                && actual.executionPayload().equals(expected.executionPayload());
     }
 }

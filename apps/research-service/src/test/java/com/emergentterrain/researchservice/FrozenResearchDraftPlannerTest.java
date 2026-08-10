@@ -28,11 +28,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class FrozenResearchDraftPlannerTest {
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
@@ -194,6 +198,46 @@ class FrozenResearchDraftPlannerTest {
         assertThat(followUpPlan.executionKind()).isEqualTo(ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY);
     }
 
+    @Test
+    void exactReplayReturnsTheDurablyFrozenPlanInsteadOfReplanningIt() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchWorkRequest request = request(FrozenDraftSelectionFixtures.primaryInput(subjectId), subjectId,
+                UUID.randomUUID());
+        ResearchDraftPlan expected = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper)
+                .plan(request);
+        ResearchDraftPlanRecord stored = recordFor(expected);
+        ResearchDraftPlanRepository repository = mock(ResearchDraftPlanRepository.class);
+        when(repository.findById(expected.draftId())).thenReturn(Optional.of(stored));
+
+        ResearchDraftPlan replay = new FrozenResearchDraftPlanner(repository, mapper).plan(request);
+
+        assertThat(replay).isEqualTo(expected);
+        verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void rejectsReplayWhenTheDeterministicDraftIdWouldBindDifferentFrozenInput() {
+        UUID subjectId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        ResearchDraftSelectionInput original = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchWorkRequest initialRequest = request(original, subjectId, requestId);
+        ResearchDraftPlan expected = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper)
+                .plan(initialRequest);
+        ResearchDraftPlanRepository repository = mock(ResearchDraftPlanRepository.class);
+        when(repository.findById(expected.draftId())).thenReturn(Optional.of(recordFor(expected)));
+        ResearchDraftSelectionInput conflicting = new ResearchDraftSelectionInput(original.selectorVersion(),
+                original.selectionSeed(), original.topicSelectionMode(), List.of(new ResearchDraftCandidate(subjectId,
+                "PRIMARY", 1.0, "MATHEMATICS", List.of(new ResearchTopicOption("different-topic", 1.0)))),
+                original.executionIntent(), original.topicHistory(), original.topicReselectionPolicy(),
+                original.preTopicRandomDoubleDraws());
+
+        assertThatThrownBy(() -> new FrozenResearchDraftPlanner(repository, mapper)
+                .plan(request(conflicting, subjectId, requestId)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already bound to a different plan");
+        verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
     private ResearchDraftPlan planAfterJsonRoundTrip(ResearchDraftSelectionInput input, UUID subjectId) throws Exception {
         var context = mapper.createObjectNode();
         context.set("draftSelection", mapper.valueToTree(input));
@@ -201,6 +245,19 @@ class FrozenResearchDraftPlannerTest {
                 Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
         ResearchWorkRequest reloaded = mapper.readValue(mapper.writeValueAsString(request), ResearchWorkRequest.class);
         return new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(reloaded);
+    }
+
+    private ResearchWorkRequest request(ResearchDraftSelectionInput input, UUID subjectId, UUID requestId) {
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        return new ResearchWorkRequest(requestId, UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+    }
+
+    private ResearchDraftPlanRecord recordFor(ResearchDraftPlan plan) {
+        return new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(), plan.subjectId(),
+                plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(), plan.inputFingerprint(),
+                plan.executionKind(), mapper.valueToTree(plan.executionPayload()).toString(), plan.plannedAt());
     }
 
     private ResearchDraftPlan plan(ResearchDraftSelectionInput input, UUID subjectId) {
