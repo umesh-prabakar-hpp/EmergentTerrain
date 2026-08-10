@@ -81,6 +81,10 @@ class GameResearchWorkMapperTest {
         assertThat(actual.topic()).isEqualTo(MathPhysicsEngine.topicName("MATHEMATICS", expectedIndex));
         assertThat(request.contextSnapshot().path("draftSelection").path("selectorVersion").asText())
                 .isEqualTo("legacy-standard-catalog-v1");
+        assertThat(input.candidates().get(0).parameterSamplingProfile().parameterOneCenter())
+                .isEqualTo(state.getGenome().getParamCenter1());
+        assertThat(input.candidates().get(0).parameterSamplingProfile().parameterTwoRadius())
+                .isEqualTo(state.getGenome().getParamRadius2());
     }
 
     @Test

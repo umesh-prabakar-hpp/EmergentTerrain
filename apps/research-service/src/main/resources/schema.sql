@@ -109,6 +109,7 @@ ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS selector_version VARCH
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS input_fingerprint VARCHAR(64) NOT NULL DEFAULT 'unavailable';
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS execution_kind VARCHAR(64) NOT NULL DEFAULT 'STANDARD_CATALOG';
 ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS execution_payload_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE research_draft_plans ADD COLUMN IF NOT EXISTS fallback_parameter_sample_json TEXT;
 
 -- Frozen execution-readiness records are research-owned and intentionally do not represent a
 -- computation result. They are the durable input boundary for a later reviewed executor.

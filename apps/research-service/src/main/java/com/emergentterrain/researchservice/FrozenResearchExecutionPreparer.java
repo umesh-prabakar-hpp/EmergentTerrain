@@ -43,6 +43,9 @@ public class FrozenResearchExecutionPreparer {
         canonicalInput.put("draftInputFingerprint", draft.inputFingerprint());
         JsonNode payload = branch.canonicalPayload() == null ? draft.executionPayload() : branch.canonicalPayload();
         canonicalInput.set("executionPayload", payload);
+        if (draft.fallbackParameterSample() != null) {
+            canonicalInput.set("fallbackParameterSample", objectMapper.valueToTree(draft.fallbackParameterSample()));
+        }
         String readiness = ResearchDraftExecutionIntent.STANDARD_CATALOG.equals(draft.executionKind())
                 ? ResearchExecutionPreparation.AWAITING_COMPUTATION_INPUTS
                 : ResearchExecutionPreparation.PREPARED_NO_COMPUTATION;

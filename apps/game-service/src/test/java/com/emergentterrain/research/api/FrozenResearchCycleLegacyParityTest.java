@@ -17,6 +17,7 @@ import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.research.conjecture.ConjectureQueue;
 import com.emergentterrain.research.conjecture.ConjectureTopicProvider;
 import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
+import com.emergentterrain.researchcontract.FrozenResearchParameterSampler;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
@@ -116,6 +117,9 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(legacyDraft.get().authorBotId()).isEqualTo(frozen.electedAuthor().subjectId().toString());
         assertThat(legacyDraft.get().domain()).isEqualTo(frozen.catalogSelection().domain());
         assertThat(legacyDraft.get().topicName()).isEqualTo(frozen.catalogSelection().topic());
+        var frozenFallbackSample = FrozenResearchParameterSampler.sampleFallback(input).orElseThrow();
+        assertThat(legacyDraft.get().param1()).isEqualTo(frozenFallbackSample.parameterOne());
+        assertThat(legacyDraft.get().param2()).isEqualTo(frozenFallbackSample.parameterTwo());
     }
 
     @Test

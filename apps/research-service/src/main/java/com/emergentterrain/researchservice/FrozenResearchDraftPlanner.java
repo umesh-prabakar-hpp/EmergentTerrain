@@ -10,6 +10,8 @@ import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
+import com.emergentterrain.researchcontract.FrozenResearchParameterSampler;
+import com.emergentterrain.researchcontract.ResearchParameterSample;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -57,7 +59,7 @@ public class FrozenResearchDraftPlanner {
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
                 input.selectorVersion(), fingerprint(frozenInput), input.executionIntent().kind(),
-                input.executionIntent().payload(), Instant.now());
+                input.executionIntent().payload(), fallbackParameterSample(input, selection), Instant.now());
         return plans.findById(draftId)
                 .map(existing -> reuseExistingPlan(existing, plan))
                 .orElseGet(() -> saveNewPlan(plan));
@@ -67,7 +69,8 @@ public class FrozenResearchDraftPlanner {
         plans.save(new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(),
                 plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(),
                 plan.inputFingerprint(), plan.executionKind(), objectMapper.valueToTree(plan.executionPayload()).toString(),
-                plan.plannedAt()));
+                plan.fallbackParameterSample() == null ? null
+                        : objectMapper.valueToTree(plan.fallbackParameterSample()).toString(), plan.plannedAt()));
         return plan;
     }
 
@@ -122,6 +125,14 @@ public class FrozenResearchDraftPlanner {
         };
         String eligibility = "PRIMARY".equals(author.tier()) ? "CANDIDATE" : "FALLBACK_CANDIDATE";
         return new PlanningSelection(author.subjectId(), author.domain(), topic, eligibility);
+    }
+
+    private static ResearchParameterSample fallbackParameterSample(ResearchDraftSelectionInput input,
+                                                                    PlanningSelection selection) {
+        return FrozenResearchParameterSampler.sampleFallback(input)
+                .filter(sample -> sample.subjectId().equals(selection.subjectId())
+                        && sample.domain().equals(selection.domain()) && sample.topic().equals(selection.topic()))
+                .orElse(null);
     }
 
     private <T> T read(JsonNode payload, Class<T> type, String description) {

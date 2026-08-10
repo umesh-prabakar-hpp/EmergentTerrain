@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId,
                                 String domain, String topic, String eligibility, String selectorVersion,
                                 String inputFingerprint, String executionKind, JsonNode executionPayload,
-                                Instant plannedAt) {
+                                ResearchParameterSample fallbackParameterSample, Instant plannedAt) {
     public ResearchDraftPlan {
         Objects.requireNonNull(draftId, "draftId");
         Objects.requireNonNull(requestId, "requestId");
@@ -23,5 +23,14 @@ public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, 
         }
         executionPayload = executionPayload == null ? JsonNodeFactory.instance.objectNode() : executionPayload;
         plannedAt = plannedAt == null ? Instant.now() : plannedAt;
+    }
+
+    /** Compatibility constructor for plans persisted before fallback-sampling parity was captured. */
+    public ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId,
+                             String domain, String topic, String eligibility, String selectorVersion,
+                             String inputFingerprint, String executionKind, JsonNode executionPayload,
+                             Instant plannedAt) {
+        this(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility, selectorVersion,
+                inputFingerprint, executionKind, executionPayload, null, plannedAt);
     }
 }

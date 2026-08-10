@@ -96,6 +96,11 @@
   `AWAITING_COMPUTATION_INPUTS` until their legacy parameter/formulation parity is frozen; prepared
   parameterized, follow-up, and conjecture branches report `PREPARED_NO_COMPUTATION` and still do
   not invoke the legacy executor.
+- The game now includes `ResearchParameterSamplingProfile` with each generic draft candidate.
+  `FrozenResearchParameterSampler` replays the bounded fallback parameter draw after the frozen
+  author/topic and recorded queue-miss cadence, matching the legacy no-formulation path. Its
+  `ResearchParameterSample` is persisted only as canonical readiness input; it never replaces a
+  formulation result and does not permit computation.
 
 ## Live standalone validation — 2026-08-04
 

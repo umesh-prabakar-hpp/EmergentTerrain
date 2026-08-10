@@ -102,7 +102,10 @@ rolls back new handoff state and exact replays must not stamp twice. `ResearchEx
 is the research-owned, generic readiness record after a frozen draft: it fingerprints canonical
 input only and is never a computation result or authorization. Standard catalog work must remain
 `AWAITING_COMPUTATION_INPUTS` until legacy parameter/formulation parity is frozen; other prepared
-branches remain `PREPARED_NO_COMPUTATION`. The generic processor may emit only a `ResearchResult`
+branches remain `PREPARED_NO_COMPUTATION`. `ResearchParameterSamplingProfile` and the pure
+`FrozenResearchParameterSampler` freeze/replay only the legacy no-formulation fallback after the
+same author/topic/queue-miss draws; the resulting `ResearchParameterSample` is audit input and
+must never substitute for an LLM formulation result or authorize computation. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.

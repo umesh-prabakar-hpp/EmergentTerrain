@@ -15,6 +15,7 @@ import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
+import com.emergentterrain.researchcontract.ResearchParameterSamplingProfile;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
@@ -130,7 +131,11 @@ public class GameResearchWorkMapper {
             double weight = topicsV2Enabled ? 1.0 : source.lifecycle().getGenome().getTopicWeights()[index];
             topics.add(new ResearchTopicOption(MathPhysicsEngine.topicName(domain, index), weight));
         }
-        return new ResearchDraftCandidate(source.subjectId(), tier, source.lifecycle().fitness(), domain, topics);
+        var genome = source.lifecycle().getGenome();
+        ResearchParameterSamplingProfile fallbackSampling = new ResearchParameterSamplingProfile(
+                genome.getParamCenter1(), genome.getParamCenter2(), genome.getParamRadius1(), genome.getParamRadius2());
+        return new ResearchDraftCandidate(source.subjectId(), tier, source.lifecycle().fitness(), domain, topics,
+                fallbackSampling);
     }
 
     private BotLifecycleState lifecycle(RoomBot bot) {

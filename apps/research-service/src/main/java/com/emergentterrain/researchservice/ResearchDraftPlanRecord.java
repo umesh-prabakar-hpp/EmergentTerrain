@@ -24,21 +24,33 @@ public class ResearchDraftPlanRecord {
     @Column(nullable = false, length = 64) private String inputFingerprint;
     @Column(nullable = false, length = 64) private String executionKind;
     @Column(nullable = false, columnDefinition = "text") private String executionPayloadJson;
+    @Column(columnDefinition = "text") private String fallbackParameterSampleJson;
     @Column(nullable = false) private Instant plannedAt;
     protected ResearchDraftPlanRecord() { }
     public ResearchDraftPlanRecord(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId, String domain,
                                    String topic, String eligibility, String selectorVersion, String inputFingerprint,
-                                   String executionKind, String executionPayloadJson, Instant plannedAt) {
+                                   String executionKind, String executionPayloadJson, String fallbackParameterSampleJson,
+                                   Instant plannedAt) {
         this.draftId=draftId; this.requestId=requestId; this.workspaceId=workspaceId; this.subjectId=subjectId;
         this.domain=domain; this.topic=topic; this.eligibility=eligibility;
         this.selectorVersion=selectorVersion; this.inputFingerprint=inputFingerprint;
-        this.executionKind=executionKind; this.executionPayloadJson=executionPayloadJson; this.plannedAt=plannedAt;
+        this.executionKind=executionKind; this.executionPayloadJson=executionPayloadJson;
+        this.fallbackParameterSampleJson=fallbackParameterSampleJson; this.plannedAt=plannedAt;
+    }
+
+    ResearchDraftPlanRecord(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId, String domain,
+                            String topic, String eligibility, String selectorVersion, String inputFingerprint,
+                            String executionKind, String executionPayloadJson, Instant plannedAt) {
+        this(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility, selectorVersion,
+                inputFingerprint, executionKind, executionPayloadJson, null, plannedAt);
     }
 
     ResearchDraftPlan toPlan(ObjectMapper objectMapper) {
         try {
             return new ResearchDraftPlan(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility,
-                    selectorVersion, inputFingerprint, executionKind, objectMapper.readTree(executionPayloadJson), plannedAt);
+                    selectorVersion, inputFingerprint, executionKind, objectMapper.readTree(executionPayloadJson),
+                    fallbackParameterSampleJson == null ? null : objectMapper.readValue(fallbackParameterSampleJson,
+                            com.emergentterrain.researchcontract.ResearchParameterSample.class), plannedAt);
         } catch (Exception invalidPayload) {
             throw new IllegalStateException("Stored frozen draft plan has invalid execution payload", invalidPayload);
         }
@@ -56,6 +68,7 @@ public class ResearchDraftPlanRecord {
                 && actual.selectorVersion().equals(expected.selectorVersion())
                 && actual.inputFingerprint().equals(expected.inputFingerprint())
                 && actual.executionKind().equals(expected.executionKind())
-                && actual.executionPayload().equals(expected.executionPayload());
+                && actual.executionPayload().equals(expected.executionPayload())
+                && java.util.Objects.equals(actual.fallbackParameterSample(), expected.fallbackParameterSample());
     }
 }
