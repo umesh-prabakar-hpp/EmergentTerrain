@@ -74,7 +74,8 @@ class ResearchWorkApiContractTest {
         assertThat(spec).contains("/api/v1/research/work:", "operationId: submitResearchWork",
                 "ResearchWorkRequest:", "ResearchWorkReceipt:", "ResearchDraftSelectionInput:",
                 "ResearchDraftExecutionIntent:", "ResearchStudySpecification:", "ResearchParameterOverride:",
-                "ResearchConjectureSpecification:", "ResearchTopicHistorySnapshot:", "ResearchTopicHistoryEntry:",
+                "ResearchConjectureSpecification:", "ResearchConjectureQueueSnapshot:",
+                "ResearchTopicHistorySnapshot:", "ResearchTopicHistoryEntry:",
                 "ResearchTopicReselectionPolicy:",
                 "name: X-Research-Work-Key");
     }

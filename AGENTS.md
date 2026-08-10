@@ -71,9 +71,13 @@ and `ResearchParameterOverride` payloads and canonically prepared without comput
 `DRAFT_BRANCH_PREPARED`, never a research claim. `ResearchConjectureSpecification` is also a
 frozen generic preparation payload, but the game must not enqueue it until queue ordering and
 consumption parity are captured. `ResearchConjectureQueueSnapshot` and its pure selector now
-freeze promoted-first versus probability-gated queue ordering for audit only; they must not mark a
-candidate consumed or route work. A probability-gated queue miss carries its pre-topic random draw
-in the frozen selection input so catalog topic parity is preserved. After author election,
+freeze a bounded (64 candidates per priority tier) promoted-first versus probability-gated queue
+observation inside the frozen selection input. Research independently replays and verifies that
+observation against its selected branch or miss; this is audit only and must not mark a candidate
+consumed or route live work. A probability-gated queue miss carries its pre-topic random draw in
+the frozen selection input so catalog topic parity is preserved. The display-only planning result
+may expose only compact replay provenance (version, candidate counts, and draw cadence), never a
+live queue action or gameplay recommendation. After author election,
 `ResearchDraftBranchResolver` locks parameterized-study then conjecture precedence; otherwise it
 still selects a catalog topic and applies a follow-up only as the later parameter override. It does
 not consume a queue item. `FrozenResearchCyclePlanner` composes that decision with one frozen

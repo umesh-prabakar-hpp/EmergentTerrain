@@ -10,6 +10,8 @@ public record ResearchConjectureQueueSnapshot(String snapshotVersion, String dom
                                               List<ResearchConjectureSpecification> promotedCandidates,
                                               List<ResearchConjectureSpecification> ordinaryCandidates) {
     public static final String LEGACY_CONJECTURE_QUEUE_V1 = "legacy-conjecture-queue-v1";
+    /** A bounded audit surface; selection needs only the ordered head of each priority tier. */
+    public static final int MAX_CANDIDATES_PER_PRIORITY = 64;
 
     public ResearchConjectureQueueSnapshot {
         if (snapshotVersion == null || snapshotVersion.isBlank() || domain == null || domain.isBlank()
@@ -19,6 +21,10 @@ public record ResearchConjectureQueueSnapshot(String snapshotVersion, String dom
         }
         promotedCandidates = promotedCandidates == null ? List.of() : List.copyOf(promotedCandidates);
         ordinaryCandidates = ordinaryCandidates == null ? List.of() : List.copyOf(ordinaryCandidates);
+        if (promotedCandidates.size() > MAX_CANDIDATES_PER_PRIORITY
+                || ordinaryCandidates.size() > MAX_CANDIDATES_PER_PRIORITY) {
+            throw new IllegalArgumentException("Frozen conjecture queue candidates exceed the bounded snapshot limit");
+        }
         validateCandidates(promotedCandidates, domain, ResearchConjectureSpecification.PROMOTED_ANOMALY);
         validateCandidates(ordinaryCandidates, domain, ResearchConjectureSpecification.QUEUE_CANDIDATE);
         validateUniqueSourceIds(promotedCandidates, ordinaryCandidates);

@@ -233,6 +233,21 @@ class GameResearchWorkMapperTest {
     }
 
     @Test
+    void rejectsAQueueSnapshotThatExceedsItsBoundedAuditSurface() {
+        ResearchConjectureSpecification candidate = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "bounded-candidate", "math", "BOUND",
+                "lhs", "rhs", null, 1.0, 0.0, 0.0, 1, 0.1, null,
+                ResearchConjectureSpecification.PROMOTED_ANOMALY);
+
+        assertThatThrownBy(() -> new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0,
+                java.util.Collections.nCopies(ResearchConjectureQueueSnapshot.MAX_CANDIDATES_PER_PRIORITY + 1,
+                        candidate), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("bounded snapshot limit");
+    }
+
+    @Test
     void preservesTheOrdinaryQueueMissDrawBeforeCatalogTopicSelection() {
         UUID subjectId = UUID.randomUUID();
         ResearchDraftSelectionInput input = new ResearchDraftSelectionInput("legacy-standard-catalog-v1", 71L,

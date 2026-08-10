@@ -89,13 +89,18 @@ public class FrozenResearchDraftPlanner {
     }
 
     private ResearchConjectureQueueSelection conjectureSelection(ResearchDraftSelectionInput input) {
-        if (ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
-            return new ResearchConjectureQueueSelection(read(input.executionIntent().payload(),
+        ResearchConjectureQueueSelection recorded = ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY
+                .equals(input.executionIntent().kind())
+                ? new ResearchConjectureQueueSelection(read(input.executionIntent().payload(),
                     ResearchConjectureSpecification.class, "conjecture specification"),
-                    input.preTopicRandomDoubleDraws());
-        }
-        return input.preTopicRandomDoubleDraws() == 0 ? null
+                    input.preTopicRandomDoubleDraws())
+                : input.preTopicRandomDoubleDraws() == 0 ? null
                 : new ResearchConjectureQueueSelection(null, input.preTopicRandomDoubleDraws());
+        if (input.conjectureQueueSnapshot() != null) {
+            FrozenResearchCyclePlanner.verifyConjectureQueueObservation(input,
+                    recorded == null ? new ResearchConjectureQueueSelection(null, 0) : recorded);
+        }
+        return recorded;
     }
 
     private PlanningSelection selectionFor(ResearchDraftSelectionInput input,

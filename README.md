@@ -65,8 +65,11 @@ research deterministically selects and records the subject, domain, topic, selec
 input fingerprint without reading game tables. Parameterized and follow-up branches are mapped to
 versioned, game-free study/parameter payloads and canonically prepared without computation, rather
 than being misrouted as standard work. Conjecture and history-dependent branches remain outside
-this first parity slice: a conjecture has a frozen preparation schema, but live queue selection is
-not routed until its ordering and consumption semantics have parity coverage. Topic history is also
+this first parity slice: a conjecture has a frozen preparation schema, and a bounded promoted-first /
+probability-gated queue observation now travels with `draftSelection` so research independently
+replays and verifies the selected branch (or probability miss). This remains audit-only: live queue
+selection and consumption are not routed. Its display-only planning result includes compact replay
+provenance (snapshot version, tier counts, and random-draw cadence). Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is
 covered. With matching

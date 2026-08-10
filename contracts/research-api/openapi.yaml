@@ -160,6 +160,8 @@ components:
           $ref: '#/components/schemas/ResearchTopicHistorySnapshot'
         topicReselectionPolicy:
           $ref: '#/components/schemas/ResearchTopicReselectionPolicy'
+        conjectureQueueSnapshot:
+          $ref: '#/components/schemas/ResearchConjectureQueueSnapshot'
         preTopicRandomDoubleDraws:
           type: integer
           minimum: 0
@@ -223,6 +225,27 @@ components:
         maximumSlack: { type: number, format: double }
         captureWindowStart: { type: integer, format: int64, minimum: 0 }
         selectionReason: { type: string, enum: [QUEUE_CANDIDATE, PROMOTED_ANOMALY] }
+    ResearchConjectureQueueSnapshot:
+      type: object
+      description: |
+        Bounded, immutable queue observation used only to replay and audit promoted-first,
+        probability-gated selection. It does not authorize queue consumption, computation,
+        verification, publication, or gameplay effects.
+      required: [snapshotVersion, domain, ordinarySelectionProbability, promotedCandidates, ordinaryCandidates]
+      properties:
+        snapshotVersion: { type: string, minLength: 1 }
+        domain: { type: string, minLength: 1 }
+        ordinarySelectionProbability: { type: number, format: double, minimum: 0, maximum: 1 }
+        promotedCandidates:
+          type: array
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/ResearchConjectureSpecification'
+        ordinaryCandidates:
+          type: array
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/ResearchConjectureSpecification'
     ResearchTopicHistorySnapshot:
       type: object
       description: Frozen input for a future deterministic topic-reselection replay.

@@ -25,16 +25,28 @@ public final class FrozenResearchCyclePlanner {
      */
     public static FrozenResearchQueueObservation observeConjectureQueue(ResearchDraftSelectionInput input,
                                                                           ResearchConjectureQueueSnapshot snapshot) {
-        if (ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY.equals(input.executionIntent().kind())) {
-            throw new IllegalArgumentException("A frozen conjecture input must not be selected again");
+        if (ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY.equals(input.executionIntent().kind())) {
+            throw new IllegalArgumentException("A parameterized study must not observe a conjecture queue");
         }
         Random random = new Random(input.selectionSeed());
         ResearchDraftCandidate author = StandardResearchDraftSelector.selectCandidate(input, random);
-        ResearchConjectureQueueSelection selection = ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY
-                .equals(input.executionIntent().kind())
-                ? new ResearchConjectureQueueSelection(null, 0)
-                : StandardResearchConjectureQueueSelector.select(snapshot, random);
+        ResearchConjectureQueueSelection selection = StandardResearchConjectureQueueSelector.select(snapshot, random);
         return new FrozenResearchQueueObservation(author, selection);
+    }
+
+    /**
+     * Fails closed if the terminal branch stored in a work request is not the one reproduced from
+     * its immutable queue observation. This validates ordering, priority, and random-draw cadence
+     * without accessing or consuming a live queue.
+     */
+    public static void verifyConjectureQueueObservation(ResearchDraftSelectionInput input,
+                                                         ResearchConjectureQueueSelection recordedSelection) {
+        ResearchConjectureQueueSnapshot snapshot = input.conjectureQueueSnapshot();
+        if (snapshot == null) return;
+        ResearchConjectureQueueSelection expected = observeConjectureQueue(input, snapshot).conjectureSelection();
+        if (!expected.equals(recordedSelection)) {
+            throw new IllegalArgumentException("Frozen conjecture queue observation does not match its recorded selection");
+        }
     }
 
     private static ResearchDraftSelectionInput withBranch(ResearchDraftSelectionInput input,

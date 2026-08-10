@@ -66,7 +66,7 @@ class FrozenResearchWorkSubmissionCoordinatorTest {
     }
 
     @Test
-    void relaysASelectionReplayedFromAnImmutableQueueSnapshotWithoutQueueAccess() {
+    void relaysASelectionReplayedFromAnImmutableQueueSnapshotWithoutQueueAccess() throws Exception {
         ResearchWorkOutboxService outbox = mock(ResearchWorkOutboxService.class);
         ObjectMapper mapper = new ObjectMapper();
         GameResearchWorkMapper gameMapper = new GameResearchWorkMapper(mapper, false);
@@ -87,9 +87,12 @@ class FrozenResearchWorkSubmissionCoordinatorTest {
         new FrozenResearchWorkSubmissionCoordinator(gameMapper, outbox)
                 .submitFrozenQueueSnapshot(request, snapshot);
 
-        verify(outbox).enqueueReserved(org.mockito.ArgumentMatchers.argThat(
-                        frozen -> frozen.requestId().equals(request.requestId())),
+        ArgumentCaptor<ResearchWorkRequest> frozen = ArgumentCaptor.forClass(ResearchWorkRequest.class);
+        verify(outbox).enqueueReserved(frozen.capture(),
                 org.mockito.ArgumentMatchers.argThat(reservation -> reservation.sourceId().equals("c-8")));
+        ResearchDraftSelectionInput input = mapper.treeToValue(
+                frozen.getValue().contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class);
+        assertThat(input.conjectureQueueSnapshot()).isEqualTo(snapshot);
     }
 
     @Test

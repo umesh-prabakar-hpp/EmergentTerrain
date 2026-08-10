@@ -46,6 +46,7 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         findings.set("draftExecutionPayload", draft.executionPayload());
         findings.put("draftExecutionStatus", branch.status());
         if (branch.canonicalPayload() != null) findings.set("draftExecutionCanonicalPayload", branch.canonicalPayload());
+        appendQueueObservationProvenance(request, findings);
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())
                 .getBytes(StandardCharsets.UTF_8));
         boolean standardCatalog = "STANDARD_CATALOG".equals(draft.executionKind());
@@ -57,5 +58,19 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         return new ResearchResult(resultId, request.requestId(), request.workspaceId(),
                 standardCatalog ? "DRAFT_CANDIDATE_PLANNED" : "DRAFT_BRANCH_PREPARED",
                 summary, findings, Instant.now());
+    }
+
+    /** Exposes compact immutable selection provenance; it never reads or consumes a live queue. */
+    private static void appendQueueObservationProvenance(ResearchWorkRequest request, ObjectNode findings) {
+        var selection = request.contextSnapshot().path("draftSelection");
+        var snapshot = selection.path("conjectureQueueSnapshot");
+        if (!snapshot.isObject()) return;
+        ObjectNode provenance = findings.putObject("draftQueueObservation");
+        provenance.put("replayed", true);
+        provenance.put("snapshotVersion", snapshot.path("snapshotVersion").asText());
+        provenance.put("domain", snapshot.path("domain").asText());
+        provenance.put("promotedCandidateCount", snapshot.path("promotedCandidates").size());
+        provenance.put("ordinaryCandidateCount", snapshot.path("ordinaryCandidates").size());
+        provenance.put("preTopicRandomDoubleDraws", selection.path("preTopicRandomDoubleDraws").asInt());
     }
 }

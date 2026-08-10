@@ -7,6 +7,7 @@ import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
@@ -196,6 +197,53 @@ class FrozenResearchDraftPlannerTest {
         assertThat(followUpPlan.subjectId()).isEqualTo(expectedFollowUp.subjectId());
         assertThat(followUpPlan.topic()).isEqualTo(expectedFollowUp.topic());
         assertThat(followUpPlan.executionKind()).isEqualTo(ResearchDraftExecutionIntent.DEFERRED_FOLLOW_UP_STUDY);
+    }
+
+    @Test
+    void independentlyReplaysTheFrozenQueueObservationAcrossTheWorkRequestJsonBoundary() throws Exception {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "conjecture-queue-7", "math", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.PROMOTED_ANOMALY);
+        ResearchConjectureQueueSnapshot snapshot = new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0, List.of(conjecture), List.of());
+        ResearchDraftSelectionInput observed = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(),
+                new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                        mapper.valueToTree(conjecture)), standard.topicHistory(), standard.topicReselectionPolicy(),
+                snapshot, 0);
+
+        ResearchDraftPlan plan = planAfterJsonRoundTrip(observed, subjectId);
+
+        assertThat(plan.topic()).isEqualTo("conjecture/conjecture-queue-7");
+        assertThat(plan.executionKind()).isEqualTo(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY);
+    }
+
+    @Test
+    void rejectsATamperedSelectionThatDoesNotMatchItsFrozenQueueObservation() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchConjectureSpecification selected = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "queue-selected", "math", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.PROMOTED_ANOMALY);
+        ResearchConjectureSpecification tampered = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "queue-tampered", "math", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.PROMOTED_ANOMALY);
+        ResearchConjectureQueueSnapshot snapshot = new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0, List.of(selected), List.of());
+        ResearchDraftSelectionInput observed = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(),
+                new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                        mapper.valueToTree(tampered)), standard.topicHistory(), standard.topicReselectionPolicy(),
+                snapshot, 0);
+
+        assertThatThrownBy(() -> plan(observed, subjectId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not match its recorded selection");
     }
 
     @Test

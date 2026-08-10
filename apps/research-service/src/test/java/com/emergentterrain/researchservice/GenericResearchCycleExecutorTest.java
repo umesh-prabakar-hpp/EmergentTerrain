@@ -4,6 +4,7 @@ import com.emergentterrain.researchcontract.ResearchResult;
 import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
+import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchSubject;
@@ -117,5 +118,37 @@ class GenericResearchCycleExecutorTest {
         assertThat(result.findings().path("draftTopic").asText())
                 .isEqualTo("conjecture/" + conjecture.sourceId());
         assertThat(result.summary()).contains("without computation");
+    }
+
+    @Test
+    void reportsCompactReplayProvenanceForAFrozenQueueObservation() {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput standard = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchConjectureSpecification conjecture = new ResearchConjectureSpecification(
+                ResearchConjectureSpecification.LEGACY_CONJECTURE_V1, "queue-audit-7", "math", "BOUND",
+                "left_metric", "right_metric", null, 1.0, 0.0, 0.25, 4, 0.05, 100L,
+                ResearchConjectureSpecification.PROMOTED_ANOMALY);
+        ResearchConjectureQueueSnapshot snapshot = new ResearchConjectureQueueSnapshot(
+                ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1, "math", 1.0, List.of(conjecture), List.of());
+        ResearchDraftSelectionInput observed = new ResearchDraftSelectionInput(standard.selectorVersion(),
+                standard.selectionSeed(), standard.topicSelectionMode(), standard.candidates(),
+                new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
+                        mapper.valueToTree(conjecture)), standard.topicHistory(), standard.topicReselectionPolicy(),
+                snapshot, 0);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(observed));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 11,
+                Instant.parse("2026-08-06T12:03:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        ResearchResult result = new GenericResearchCycleExecutor(mapper,
+                new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                new FrozenResearchBranchPreparer(mapper)).execute(request);
+
+        assertThat(result.findings().path("draftQueueObservation").path("replayed").asBoolean()).isTrue();
+        assertThat(result.findings().path("draftQueueObservation").path("snapshotVersion").asText())
+                .isEqualTo(ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1);
+        assertThat(result.findings().path("draftQueueObservation").path("promotedCandidateCount").asInt()).isEqualTo(1);
+        assertThat(result.findings().path("draftQueueObservation").path("ordinaryCandidateCount").asInt()).isZero();
     }
 }

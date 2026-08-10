@@ -202,6 +202,10 @@ public class GameResearchWorkMapper {
      */
     FrozenResearchWorkSubmission frozenConjectureSubmissionFromSnapshot(ResearchWorkRequest request,
                                                                           ResearchConjectureQueueSnapshot snapshot) {
+        if (ResearchDraftExecutionIntent.DEFERRED_PARAMETERIZED_STUDY
+                .equals(draftSelectionInput(request).executionIntent().kind())) {
+            throw new IllegalArgumentException("Frozen queue observation did not select a conjecture");
+        }
         FrozenResearchQueueSnapshotPreparation preparation = frozenQueueSnapshotPreparation(request, snapshot);
         return new FrozenResearchWorkSubmission(preparation.request(), preparation.sourceReservation()
                 .orElseThrow(() -> new IllegalArgumentException("Frozen queue observation did not select a conjecture")));
@@ -217,7 +221,8 @@ public class GameResearchWorkMapper {
         ResearchConjectureQueueSelection selection = FrozenResearchCyclePlanner
                 .observeConjectureQueue(input, snapshot).conjectureSelection();
         ObjectNode context = request.contextSnapshot().deepCopy();
-        context.set("draftSelection", objectMapper.valueToTree(withConjectureQueueSelection(input, selection)));
+        context.set("draftSelection", objectMapper.valueToTree(
+                withConjectureQueueSelection(input, selection, snapshot)));
         return new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
                 request.sourceRevision(), request.requestedAt(), request.subjects(), context);
     }
@@ -250,12 +255,19 @@ public class GameResearchWorkMapper {
     /** Applies an already-observed, read-only queue decision without consuming game queue state. */
     ResearchDraftSelectionInput withConjectureQueueSelection(ResearchDraftSelectionInput input,
                                                               ResearchConjectureQueueSelection selection) {
+        return withConjectureQueueSelection(input, selection, null);
+    }
+
+    /** Retains the bounded queue observation so research can audit the terminal selection independently. */
+    ResearchDraftSelectionInput withConjectureQueueSelection(ResearchDraftSelectionInput input,
+                                                              ResearchConjectureQueueSelection selection,
+                                                              ResearchConjectureQueueSnapshot snapshot) {
         ResearchDraftExecutionIntent intent = selection.specification() == null ? input.executionIntent()
                 : new ResearchDraftExecutionIntent(ResearchDraftExecutionIntent.DEFERRED_CONJECTURE_STUDY,
                         objectMapper.valueToTree(selection.specification()));
         return new ResearchDraftSelectionInput(input.selectorVersion(), input.selectionSeed(),
                 input.topicSelectionMode(), input.candidates(), intent, input.topicHistory(),
-                input.topicReselectionPolicy(), selection.preTopicRandomDoubleDraws());
+                input.topicReselectionPolicy(), snapshot, selection.preTopicRandomDoubleDraws());
     }
 
     private ResearchConjectureSpecification frozenConjectureSpecification(Conjecture conjecture, String selectionReason) {

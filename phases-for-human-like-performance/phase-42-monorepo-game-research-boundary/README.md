@@ -72,6 +72,13 @@
   game-owned, display-only projection authenticated separately by `RESEARCH_RESULT_API_KEY`; the
   projection cannot apply gameplay effects. This is execution-lifecycle proof, not paper-engine
   equivalence.
+- Frozen conjecture queue observations are now bounded and retained in `draftSelection` alongside
+  the terminal selected conjecture (or probability-gated miss). The research-owned planner
+  independently replays that immutable promoted-first/probability-gated observation and rejects a
+  mismatched selection before persisting a draft plan. This is audit hardening only: it neither
+  reads nor consumes a live game queue, and conjecture routing remains disabled pending complete
+  queue-consumption parity. The display-only planning result reports only compact replay provenance
+  (version, priority-tier counts, and random-draw cadence) for later parity audits.
 
 ## Live standalone validation — 2026-08-04
 
