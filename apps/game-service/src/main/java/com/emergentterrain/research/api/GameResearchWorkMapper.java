@@ -5,6 +5,7 @@ import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.conjecture.Conjecture;
+import com.emergentterrain.research.conjecture.ConjectureTopicProvider;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
@@ -250,6 +251,14 @@ public class GameResearchWorkMapper {
                         frozenConjectureSpecification(conjecture, ResearchConjectureSpecification.PROMOTED_ANOMALY)).toList(),
                 ordinary == null ? List.of() : ordinary.stream().map(conjecture ->
                         frozenConjectureSpecification(conjecture, ResearchConjectureSpecification.QUEUE_CANDIDATE)).toList());
+    }
+
+    /** Maps an already-read-only legacy queue observation without selecting, reserving, or consuming it. */
+    ResearchConjectureQueueSnapshot frozenConjectureQueueSnapshot(
+            ConjectureTopicProvider.QueueObservation observation) {
+        if (observation == null) throw new IllegalArgumentException("A queue observation is required");
+        return frozenConjectureQueueSnapshot(observation.substrate(), observation.ordinarySelectionProbability(),
+                observation.promotedCandidates(), observation.ordinaryCandidates());
     }
 
     /** Applies an already-observed, read-only queue decision without consuming game queue state. */

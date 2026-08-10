@@ -78,7 +78,10 @@ consumed or route live work. A probability-gated queue miss carries its pre-topi
 the frozen selection input so catalog topic parity is preserved. The display-only planning result
 may expose only compact replay provenance (version, candidate counts, and draw cadence), never a
 live queue action or gameplay recommendation. The research planner accepts only
-`legacy-conjecture-queue-v1`; unknown snapshot versions fail closed. After author election,
+`legacy-conjecture-queue-v1`; unknown snapshot versions fail closed. The game-side
+`ConjectureTopicProvider.observeQueue` captures only the bounded promoted head and ordered ordinary
+candidates for audit; `GameResearchWorkMapper` may map that observation to the generic snapshot,
+but neither seam may call `markInvestigated` or enable routing. After author election,
 `ResearchDraftBranchResolver` locks parameterized-study then conjecture precedence; otherwise it
 still selects a catalog topic and applies a follow-up only as the later parameter override. It does
 not consume a queue item. `FrozenResearchCyclePlanner` composes that decision with one frozen

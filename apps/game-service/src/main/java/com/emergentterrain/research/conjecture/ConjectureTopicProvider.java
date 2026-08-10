@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -38,6 +39,8 @@ import java.util.stream.Collectors;
 public class ConjectureTopicProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ConjectureTopicProvider.class);
+    /** Mirrors the generic frozen queue contract's bounded audit surface. */
+    public static final int MAX_QUEUE_OBSERVATION_CANDIDATES = 64;
 
     private final Optional<ConjectureQueue> queue;
     private final double paperShare;
@@ -118,6 +121,34 @@ public class ConjectureTopicProvider {
     }
 
     /**
+     * Captures the legacy promoted-first / ordinary queue inputs without rolling, selecting, or
+     * consuming them. This is an audit seam for Phase 42; callers must still leave live routing
+     * disabled until selection and consumption are atomically parity-proven.
+     */
+    public Optional<QueueObservation> observeQueue(String domain, int candidateLimit) {
+        if (candidateLimit < 1 || candidateLimit > MAX_QUEUE_OBSERVATION_CANDIDATES) {
+            throw new IllegalArgumentException("candidateLimit must be between 1 and "
+                    + MAX_QUEUE_OBSERVATION_CANDIDATES);
+        }
+        if (queue.isEmpty()) return Optional.empty();
+        String substrate = conjectureDomainKey(domain);
+        if (!allowedSubstrates.contains(substrate)) return Optional.empty();
+        Optional<Conjecture> promoted = queue.get().nextPromotedAnomaly(substrate);
+        List<Conjecture> ordinary = queue.get().nextN(substrate, candidateLimit);
+        if (promoted.isPresent()) {
+            String promotedId = sourceId(promoted.get());
+            ordinary = ordinary.stream().filter(candidate -> !promotedId.equals(sourceId(candidate))).toList();
+        }
+        return Optional.of(new QueueObservation(substrate, paperShare,
+                promoted.map(List::of).orElseGet(List::of), ordinary));
+    }
+
+    private static String sourceId(Conjecture conjecture) {
+        return conjecture.id() == null ? "transient:" + System.identityHashCode(conjecture)
+                : conjecture.id().toString();
+    }
+
+    /**
      * 2026-05-29 — bridge the engine domain (e.g. "MATHEMATICS", as carried by
      * Researcher.getDomain() and passed in by ResearchCycleService) to the
      * conjecture-store domain key (e.g. "math", ConjectureMinerService.DOMAIN).
@@ -146,5 +177,14 @@ public class ConjectureTopicProvider {
     /** The allow-substrate gate set (lowercase substrate keys). */
     public Set<String> allowedSubstrates() {
         return allowedSubstrates;
+    }
+
+    /** Immutable, game-local queue observation. It is not a queue reservation or consumption record. */
+    public record QueueObservation(String substrate, double ordinarySelectionProbability,
+                                   List<Conjecture> promotedCandidates, List<Conjecture> ordinaryCandidates) {
+        public QueueObservation {
+            promotedCandidates = promotedCandidates == null ? List.of() : List.copyOf(promotedCandidates);
+            ordinaryCandidates = ordinaryCandidates == null ? List.of() : List.copyOf(ordinaryCandidates);
+        }
     }
 }

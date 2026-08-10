@@ -9,6 +9,7 @@ import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.TopicCloneBackoff;
 import com.emergentterrain.research.conjecture.Conjecture;
+import com.emergentterrain.research.conjecture.ConjectureTopicProvider;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
@@ -187,6 +188,24 @@ class GameResearchWorkMapperTest {
         assertThat(selected.specification().leftExpression()).isEqualTo("promoted_lhs");
         assertThat(selected.preTopicRandomDoubleDraws()).isZero();
         assertThat(snapshot.ordinaryCandidates()).hasSize(1);
+    }
+
+    @Test
+    void mapsAnAlreadyReadOnlyLegacyQueueObservationWithoutSelectingOrConsumingIt() {
+        Conjecture promoted = conjecture(UUID.randomUUID(), "promoted_lhs");
+        Conjecture ordinary = conjecture(UUID.randomUUID(), "ordinary_lhs");
+        ConjectureTopicProvider.QueueObservation observation = new ConjectureTopicProvider.QueueObservation(
+                "math", 0.4, List.of(promoted), List.of(ordinary));
+
+        ResearchConjectureQueueSnapshot snapshot = new GameResearchWorkMapper(mapper, false)
+                .frozenConjectureQueueSnapshot(observation);
+
+        assertThat(snapshot.domain()).isEqualTo("math");
+        assertThat(snapshot.ordinarySelectionProbability()).isEqualTo(0.4);
+        assertThat(snapshot.promotedCandidates()).singleElement()
+                .extracting(ResearchConjectureSpecification::leftExpression).isEqualTo("promoted_lhs");
+        assertThat(snapshot.ordinaryCandidates()).singleElement()
+                .extracting(ResearchConjectureSpecification::leftExpression).isEqualTo("ordinary_lhs");
     }
 
     @Test

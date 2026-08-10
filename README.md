@@ -70,7 +70,9 @@ probability-gated queue observation now travels with `draftSelection` so researc
 replays and verifies the selected branch (or probability miss). This remains audit-only: live queue
 selection and consumption are not routed. Its display-only planning result includes compact replay
 provenance (snapshot version, tier counts, and random-draw cadence); unsupported queue-observation
-versions fail closed. Topic history is also
+versions fail closed. The game can now capture a bounded, read-only legacy queue observation for
+audit and map it to the generic frozen snapshot, but it neither reserves nor marks a candidate.
+Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is
 covered. With matching

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 import java.util.Random;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -99,6 +100,46 @@ class ConjectureTopicProviderTest {
         assertThrows(IllegalArgumentException.class, () -> build(mock(ConjectureQueue.class), 1.01));
     }
 
+    @Test
+    void capturesABoundedReadOnlyQueueObservationWithoutConsumption() {
+        Conjecture promoted = conjecture("promoted");
+        Conjecture ordinary = conjecture("ordinary");
+        ConjectureQueue queue = mock(ConjectureQueue.class);
+        when(queue.nextPromotedAnomaly("math")).thenReturn(Optional.of(promoted));
+        when(queue.nextN("math", 2)).thenReturn(List.of(promoted, ordinary));
+
+        var observation = build(queue, 0.35).observeQueue("MATHEMATICS", 2);
+
+        assertTrue(observation.isPresent());
+        assertEquals("math", observation.get().substrate());
+        assertEquals(0.35, observation.get().ordinarySelectionProbability());
+        assertEquals(List.of(promoted), observation.get().promotedCandidates());
+        assertEquals(List.of(ordinary), observation.get().ordinaryCandidates());
+        verify(queue).nextPromotedAnomaly("math");
+        verify(queue).nextN("math", 2);
+        verify(queue, never()).markInvestigated(any());
+    }
+
+    @Test
+    void doesNotObserveUnavailableOrDisallowedQueues() {
+        ConjectureQueue queue = mock(ConjectureQueue.class);
+
+        assertFalse(buildNoMiner(1.0).observeQueue("MATHEMATICS", 1).isPresent());
+        assertFalse(new ConjectureTopicProvider(Optional.of(queue), 1.0, "physics")
+                .observeQueue("MATHEMATICS", 1).isPresent());
+        verify(queue, never()).nextPromotedAnomaly(any());
+        verify(queue, never()).nextN(any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void rejectsAnObservationLimitOutsideTheBoundedContractSurface() {
+        ConjectureTopicProvider provider = build(mock(ConjectureQueue.class), 1.0);
+
+        assertThrows(IllegalArgumentException.class, () -> provider.observeQueue("MATHEMATICS", 0));
+        assertThrows(IllegalArgumentException.class, () -> provider.observeQueue("MATHEMATICS",
+                ConjectureTopicProvider.MAX_QUEUE_OBSERVATION_CANDIDATES + 1));
+    }
+
     // ---------- helpers ----------
 
     private static ConjectureTopicProvider build(ConjectureQueue queue, double share) {
@@ -107,5 +148,9 @@ class ConjectureTopicProviderTest {
 
     private static ConjectureTopicProvider buildNoMiner(double share) {
         return new ConjectureTopicProvider(Optional.empty(), share, "math");
+    }
+
+    private static Conjecture conjecture(String lhs) {
+        return new Conjecture("math", lhs, "rhs", 1.0, 0.0);
     }
 }

@@ -80,6 +80,10 @@
   queue-consumption parity. The display-only planning result reports only compact replay provenance
   (version, priority-tier counts, and random-draw cadence) for later parity audits; the planner
   accepts only the supported legacy queue-observation version and rejects unknown versions.
+- The game can now capture the promoted head and a bounded ordered ordinary candidate list through
+  the legacy queue's read-only surfaces, then map that observation to the generic frozen snapshot.
+  This is intentionally not wired to the outbox: the observation never reserves or marks a source,
+  and no live conjecture routing has been enabled.
 
 ## Live standalone validation — 2026-08-04
 
