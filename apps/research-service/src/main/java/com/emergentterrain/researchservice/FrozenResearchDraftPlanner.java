@@ -12,6 +12,7 @@ import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.emergentterrain.researchcontract.FrozenResearchParameterSampler;
 import com.emergentterrain.researchcontract.ResearchParameterSample;
+import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -55,11 +56,12 @@ public class FrozenResearchDraftPlanner {
                 parameterizedStudy(input), conjectureSelection(input), followUp(input));
         PlanningSelection selection = selectionFor(input, frozenCycle);
         requireSelectedSubject(request, selection.subjectId());
+        ResearchFormulationSpecification formulation = frozenFormulation(request, input, selection);
         UUID draftId = UUID.nameUUIDFromBytes(("draft-plan:" + request.requestId()).getBytes(StandardCharsets.UTF_8));
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
-                input.selectorVersion(), fingerprint(frozenInput), input.executionIntent().kind(),
-                input.executionIntent().payload(), fallbackParameterSample(input, selection), Instant.now());
+                input.selectorVersion(), fingerprint(fingerprintInput(frozenInput, formulation)), input.executionIntent().kind(),
+                input.executionIntent().payload(), fallbackParameterSample(input, selection), formulation, Instant.now());
         return plans.findById(draftId)
                 .map(existing -> reuseExistingPlan(existing, plan))
                 .orElseGet(() -> saveNewPlan(plan));
@@ -70,7 +72,9 @@ public class FrozenResearchDraftPlanner {
                 plan.subjectId(), plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(),
                 plan.inputFingerprint(), plan.executionKind(), objectMapper.valueToTree(plan.executionPayload()).toString(),
                 plan.fallbackParameterSample() == null ? null
-                        : objectMapper.valueToTree(plan.fallbackParameterSample()).toString(), plan.plannedAt()));
+                        : objectMapper.valueToTree(plan.fallbackParameterSample()).toString(),
+                plan.formulationSpecification() == null ? null
+                        : objectMapper.valueToTree(plan.formulationSpecification()).toString(), plan.plannedAt()));
         return plan;
     }
 
@@ -133,6 +137,30 @@ public class FrozenResearchDraftPlanner {
                 .filter(sample -> sample.subjectId().equals(selection.subjectId())
                         && sample.domain().equals(selection.domain()) && sample.topic().equals(selection.topic()))
                 .orElse(null);
+    }
+
+    private ResearchFormulationSpecification frozenFormulation(ResearchWorkRequest request,
+                                                                 ResearchDraftSelectionInput input,
+                                                                 PlanningSelection selection) {
+        JsonNode frozen = request.contextSnapshot().path("frozenFormulation");
+        if (frozen.isMissingNode() || frozen.isNull()) return null;
+        if (!ResearchDraftExecutionIntent.STANDARD_CATALOG.equals(input.executionIntent().kind())) {
+            throw new IllegalArgumentException("Only standard-catalog work may carry a frozen formulation");
+        }
+        ResearchFormulationSpecification formulation = read(frozen, ResearchFormulationSpecification.class,
+                "formulation specification");
+        if (!formulation.subjectId().equals(selection.subjectId()) || !formulation.domain().equals(selection.domain())
+                || !formulation.topic().equals(selection.topic())) {
+            throw new IllegalArgumentException("Frozen formulation target does not match the frozen draft selection");
+        }
+        return formulation;
+    }
+
+    private ObjectNode fingerprintInput(JsonNode frozenSelection, ResearchFormulationSpecification formulation) {
+        ObjectNode input = objectMapper.createObjectNode();
+        input.set("draftSelection", frozenSelection);
+        if (formulation != null) input.set("frozenFormulation", objectMapper.valueToTree(formulation));
+        return input;
     }
 
     private <T> T read(JsonNode payload, Class<T> type, String description) {

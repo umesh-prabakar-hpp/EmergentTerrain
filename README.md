@@ -82,6 +82,10 @@ until computation inputs are frozen, and prepared branches remain non-computing.
 For the no-formulation legacy fallback only, the game now freezes a generic bounded sampling
 profile and research replays the exact post-topic parameter draw into that readiness record. This
 is audit input—not permission to compute—and formulation-derived parameters still block execution.
+An already-produced, generic frozen formulation may now be attached separately to a work request.
+Research validates its selected subject/domain/topic and persists it as
+`FORMULATION_FROZEN_AWAITING_COMPUTATION`; this remains an unwired preparation seam and never
+calls an LLM, computation engine, narrator, or gameplay action.
 Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is

@@ -101,6 +101,12 @@
   author/topic and recorded queue-miss cadence, matching the legacy no-formulation path. Its
   `ResearchParameterSample` is persisted only as canonical readiness input; it never replaces a
   formulation result and does not permit computation.
+- `ResearchFormulationSpecification` is the separately frozen, generic formulation payload for a
+  standard draft. It binds the selected subject/domain/topic, bounded parameters, research question,
+  and pre-registration text before computation. The game mapper can attach an already-produced
+  instance but is not wired to invoke formulation; research rejects a target mismatch and records a
+  matching payload as `FORMULATION_FROZEN_AWAITING_COMPUTATION`. That state is still preparation
+  only and must not invoke computation, narration, publication, or gameplay effects.
 
 ## Live standalone validation — 2026-08-04
 

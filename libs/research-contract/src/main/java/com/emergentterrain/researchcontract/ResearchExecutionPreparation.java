@@ -17,6 +17,7 @@ public record ResearchExecutionPreparation(UUID preparationId, UUID draftId, UUI
                                            JsonNode canonicalInput, Instant preparedAt) {
     public static final String FROZEN_EXECUTION_PREPARATION_V1 = "frozen-execution-preparation-v1";
     public static final String AWAITING_COMPUTATION_INPUTS = "AWAITING_COMPUTATION_INPUTS";
+    public static final String FORMULATION_FROZEN_AWAITING_COMPUTATION = "FORMULATION_FROZEN_AWAITING_COMPUTATION";
     public static final String PREPARED_NO_COMPUTATION = "PREPARED_NO_COMPUTATION";
 
     public ResearchExecutionPreparation {
@@ -29,7 +30,9 @@ public record ResearchExecutionPreparation(UUID preparationId, UUID draftId, UUI
         if (executionKind == null || executionKind.isBlank() || inputFingerprint == null || inputFingerprint.isBlank()) {
             throw new IllegalArgumentException("executionKind and inputFingerprint are required");
         }
-        if (!AWAITING_COMPUTATION_INPUTS.equals(readiness) && !PREPARED_NO_COMPUTATION.equals(readiness)) {
+        if (!AWAITING_COMPUTATION_INPUTS.equals(readiness)
+                && !FORMULATION_FROZEN_AWAITING_COMPUTATION.equals(readiness)
+                && !PREPARED_NO_COMPUTATION.equals(readiness)) {
             throw new IllegalArgumentException("Unsupported execution preparation readiness: " + readiness);
         }
         canonicalInput = canonicalInput == null ? JsonNodeFactory.instance.objectNode() : canonicalInput;

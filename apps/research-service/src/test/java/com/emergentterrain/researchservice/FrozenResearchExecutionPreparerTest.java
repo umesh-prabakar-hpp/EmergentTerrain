@@ -4,6 +4,7 @@ import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftPlan;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchExecutionPreparation;
+import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -48,6 +49,28 @@ class FrozenResearchExecutionPreparerTest {
 
         assertThat(preparation.readiness()).isEqualTo(ResearchExecutionPreparation.PREPARED_NO_COMPUTATION);
         assertThat(preparation.canonicalInput().path("executionPayload").path("parameterOne").asInt()).isEqualTo(42);
+    }
+
+    @Test
+    void recordsFrozenFormulationButStillDoesNotAuthorizeComputation() {
+        ResearchExecutionPreparationRepository repository = mock(ResearchExecutionPreparationRepository.class);
+        FrozenResearchExecutionPreparer preparer = new FrozenResearchExecutionPreparer(repository, mapper);
+        UUID subjectId = UUID.randomUUID();
+        ResearchFormulationSpecification formulation = new ResearchFormulationSpecification(
+                ResearchFormulationSpecification.LEGACY_FORMULATION_V1, subjectId, "MATHEMATICS", "topic",
+                42, 1.5, "Does the scan support the relation?", "The relation holds.", "A margin appears.",
+                "A counterexample falsifies it.", "");
+        ResearchDraftPlan draft = new ResearchDraftPlan(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), subjectId,
+                "MATHEMATICS", "topic", "CANDIDATE", "legacy-standard-catalog-v1", "draft-fingerprint",
+                ResearchDraftExecutionIntent.STANDARD_CATALOG, mapper.createObjectNode(), null, formulation,
+                Instant.parse("2026-08-10T00:00:00Z"));
+
+        ResearchExecutionPreparation preparation = preparer.prepare(draft,
+                FrozenResearchBranchPreparer.PreparedBranch.notApplicable());
+
+        assertThat(preparation.readiness())
+                .isEqualTo(ResearchExecutionPreparation.FORMULATION_FROZEN_AWAITING_COMPUTATION);
+        assertThat(preparation.canonicalInput().path("frozenFormulation").path("parameterOne").asInt()).isEqualTo(42);
     }
 
     private static ResearchDraftPlan draft(String executionKind, com.fasterxml.jackson.databind.JsonNode payload) {

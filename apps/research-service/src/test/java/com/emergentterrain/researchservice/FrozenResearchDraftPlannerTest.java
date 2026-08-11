@@ -10,6 +10,7 @@ import com.emergentterrain.researchcontract.ResearchConjectureQueueSelection;
 import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
+import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
@@ -77,6 +78,44 @@ class FrozenResearchDraftPlannerTest {
 
         assertThat(plan.topic()).isEqualTo(StandardResearchDraftSelector.select(input).topic());
         assertThat(plan.inputFingerprint()).isNotBlank();
+    }
+
+    @Test
+    void persistsOnlyAFormulationThatMatchesTheFrozenStandardDraftTarget() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchDraftSelection selected = StandardResearchDraftSelector.select(input);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        context.set("frozenFormulation", mapper.valueToTree(new ResearchFormulationSpecification(
+                ResearchFormulationSpecification.LEGACY_FORMULATION_V1, subjectId, selected.domain(), selected.topic(),
+                42, 1.5, "Does the scan support the relation?", "The relation holds.", "A stable margin appears.",
+                "A counterexample falsifies it.", "")));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-10T00:00:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        ResearchDraftPlan plan = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request);
+
+        assertThat(plan.formulationSpecification()).isNotNull();
+        assertThat(plan.formulationSpecification().parameterOne()).isEqualTo(42);
+    }
+
+    @Test
+    void rejectsAFormulationWhoseTargetDoesNotMatchTheFrozenDraft() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        context.set("frozenFormulation", mapper.valueToTree(new ResearchFormulationSpecification(
+                ResearchFormulationSpecification.LEGACY_FORMULATION_V1, subjectId, "MATHEMATICS", "other-topic",
+                42, 1.5, "Does the scan support the relation?", "The relation holds.", "A stable margin appears.",
+                "A counterexample falsifies it.", "")));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-10T00:00:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        assertThatThrownBy(() -> new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not match");
     }
 
     @Test

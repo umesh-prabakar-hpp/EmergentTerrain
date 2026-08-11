@@ -21,6 +21,7 @@ import com.emergentterrain.researchcontract.ResearchDraftExecutionIntent;
 import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
+import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
 import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
@@ -107,6 +108,27 @@ class GameResearchWorkMapperTest {
 
         assertThat(actual.eligibility()).isEqualTo("FALLBACK_CANDIDATE");
         assertThat(actual.topic()).isEqualTo(MathPhysicsEngine.topicName("PHYSICS", expectedIndex));
+    }
+
+    @Test
+    void attachesAnAlreadyFrozenGenericFormulationWithoutRunningAnyResearchStage() throws Exception {
+        UUID roomId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        BotLifecycleState state = qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1});
+        GameResearchWorkMapper workMapper = new GameResearchWorkMapper(mapper, false);
+        ResearchWorkRequest request = workMapper.fromTick(roomId, List.of(bot(subjectId, state)), 33L, null);
+        ResearchDraftSelection selection = StandardResearchDraftSelector.select(mapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class));
+        ResearchFormulationSpecification formulation = new ResearchFormulationSpecification(
+                ResearchFormulationSpecification.LEGACY_FORMULATION_V1, subjectId, selection.domain(), selection.topic(),
+                42, 1.5, "Does the bounded scan support the predicted relation?", "The relation holds.",
+                "The metric remains above baseline.", "A counterexample falsifies it.", "");
+
+        ResearchWorkRequest frozen = workMapper.frozenFormulationRequest(request, formulation);
+
+        assertThat(frozen.contextSnapshot().path("frozenFormulation").path("parameterOne").asInt()).isEqualTo(42);
+        assertThat(frozen.contextSnapshot().path("frozenFormulation").path("topic").asText())
+                .isEqualTo(selection.topic());
     }
 
     @Test

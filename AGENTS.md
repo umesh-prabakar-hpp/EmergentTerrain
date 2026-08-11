@@ -105,7 +105,10 @@ input only and is never a computation result or authorization. Standard catalog 
 branches remain `PREPARED_NO_COMPUTATION`. `ResearchParameterSamplingProfile` and the pure
 `FrozenResearchParameterSampler` freeze/replay only the legacy no-formulation fallback after the
 same author/topic/queue-miss draws; the resulting `ResearchParameterSample` is audit input and
-must never substitute for an LLM formulation result or authorize computation. The generic processor may emit only a `ResearchResult`
+must never substitute for an LLM formulation result or authorize computation. An already-produced
+`ResearchFormulationSpecification` may be attached separately, but only for a matching selected
+standard draft; `FORMULATION_FROZEN_AWAITING_COMPUTATION` remains a non-computing, unwired state.
+It must never call an LLM or authorize narration, publication, or gameplay effects. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.
