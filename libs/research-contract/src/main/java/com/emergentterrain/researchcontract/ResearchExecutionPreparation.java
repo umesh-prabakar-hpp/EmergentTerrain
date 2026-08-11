@@ -18,6 +18,7 @@ public record ResearchExecutionPreparation(UUID preparationId, UUID draftId, UUI
     public static final String FROZEN_EXECUTION_PREPARATION_V1 = "frozen-execution-preparation-v1";
     public static final String AWAITING_COMPUTATION_INPUTS = "AWAITING_COMPUTATION_INPUTS";
     public static final String FORMULATION_FROZEN_AWAITING_COMPUTATION = "FORMULATION_FROZEN_AWAITING_COMPUTATION";
+    public static final String COMPUTATION_FROZEN_AWAITING_EXECUTION = "COMPUTATION_FROZEN_AWAITING_EXECUTION";
     public static final String PREPARED_NO_COMPUTATION = "PREPARED_NO_COMPUTATION";
 
     public ResearchExecutionPreparation {
@@ -32,6 +33,7 @@ public record ResearchExecutionPreparation(UUID preparationId, UUID draftId, UUI
         }
         if (!AWAITING_COMPUTATION_INPUTS.equals(readiness)
                 && !FORMULATION_FROZEN_AWAITING_COMPUTATION.equals(readiness)
+                && !COMPUTATION_FROZEN_AWAITING_EXECUTION.equals(readiness)
                 && !PREPARED_NO_COMPUTATION.equals(readiness)) {
             throw new IllegalArgumentException("Unsupported execution preparation readiness: " + readiness);
         }

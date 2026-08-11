@@ -86,6 +86,10 @@ An already-produced, generic frozen formulation may now be attached separately t
 Research validates its selected subject/domain/topic and persists it as
 `FORMULATION_FROZEN_AWAITING_COMPUTATION`; this remains an unwired preparation seam and never
 calls an LLM, computation engine, narrator, or gameplay action.
+An already-produced `ResearchComputationSpecification` can now bind that exact formulation to
+bounded deterministic scan controls. Research rejects a missing formulation or any target/parameter
+mismatch and records a matching input as `COMPUTATION_FROZEN_AWAITING_EXECUTION`. This freezes
+replay input only: it still never calls a compute engine, narrator, publisher, or gameplay action.
 Topic history is also
 frozen with its reselection policy and can be replayed generically; outbox work captures the
 game-owned bounded history and current policy, but remains planning-only until whole-path parity is

@@ -11,6 +11,7 @@ import com.emergentterrain.researchcontract.ResearchConjectureQueueSnapshot;
 import com.emergentterrain.researchcontract.ResearchConjectureSpecification;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
+import com.emergentterrain.researchcontract.ResearchComputationSpecification;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
@@ -110,6 +111,42 @@ class FrozenResearchDraftPlannerTest {
                 ResearchFormulationSpecification.LEGACY_FORMULATION_V1, subjectId, "MATHEMATICS", "other-topic",
                 42, 1.5, "Does the scan support the relation?", "The relation holds.", "A stable margin appears.",
                 "A counterexample falsifies it.", "")));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-10T00:00:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        assertThatThrownBy(() -> new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not match");
+    }
+
+    @Test
+    void persistsOnlyComputationInputBoundToTheFrozenFormulationAndDraftTarget() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchDraftSelection selected = StandardResearchDraftSelector.select(input);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        context.set("frozenFormulation", mapper.valueToTree(formulation(subjectId, selected.domain(), selected.topic(), 42, 1.5)));
+        context.set("frozenComputation", mapper.valueToTree(computation(subjectId, selected.domain(), selected.topic(), 42, 1.5)));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
+                Instant.parse("2026-08-10T00:00:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+
+        ResearchDraftPlan plan = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper).plan(request);
+
+        assertThat(plan.computationSpecification()).isNotNull();
+        assertThat(plan.computationSpecification().candidateBreadth()).isEqualTo(40);
+        assertThat(plan.inputFingerprint()).isNotBlank();
+    }
+
+    @Test
+    void rejectsComputationInputWhoseParametersDoNotMatchTheFrozenFormulation() {
+        UUID subjectId = UUID.randomUUID();
+        ResearchDraftSelectionInput input = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchDraftSelection selected = StandardResearchDraftSelector.select(input);
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(input));
+        context.set("frozenFormulation", mapper.valueToTree(formulation(subjectId, selected.domain(), selected.topic(), 42, 1.5)));
+        context.set("frozenComputation", mapper.valueToTree(computation(subjectId, selected.domain(), selected.topic(), 43, 1.5)));
         ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 17,
                 Instant.parse("2026-08-10T00:00:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
 
@@ -324,8 +361,14 @@ class FrozenResearchDraftPlannerTest {
     @Test
     void exactReplayReturnsTheDurablyFrozenPlanInsteadOfReplanningIt() {
         UUID subjectId = UUID.randomUUID();
-        ResearchWorkRequest request = request(FrozenDraftSelectionFixtures.primaryInput(subjectId), subjectId,
-                UUID.randomUUID());
+        ResearchDraftSelectionInput input = FrozenDraftSelectionFixtures.primaryInput(subjectId);
+        ResearchDraftSelection selected = StandardResearchDraftSelector.select(input);
+        ResearchWorkRequest original = request(input, subjectId, UUID.randomUUID());
+        ObjectNode context = original.contextSnapshot().deepCopy();
+        context.set("frozenFormulation", mapper.valueToTree(formulation(subjectId, selected.domain(), selected.topic(), 42, 1.5)));
+        context.set("frozenComputation", mapper.valueToTree(computation(subjectId, selected.domain(), selected.topic(), 42, 1.5)));
+        ResearchWorkRequest request = new ResearchWorkRequest(original.requestId(), original.workspaceId(), original.workType(),
+                original.sourceRevision(), original.requestedAt(), original.subjects(), context);
         ResearchDraftPlan expected = new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper)
                 .plan(request);
         ResearchDraftPlanRecord stored = recordFor(expected);
@@ -380,7 +423,24 @@ class FrozenResearchDraftPlannerTest {
     private ResearchDraftPlanRecord recordFor(ResearchDraftPlan plan) {
         return new ResearchDraftPlanRecord(plan.draftId(), plan.requestId(), plan.workspaceId(), plan.subjectId(),
                 plan.domain(), plan.topic(), plan.eligibility(), plan.selectorVersion(), plan.inputFingerprint(),
-                plan.executionKind(), mapper.valueToTree(plan.executionPayload()).toString(), plan.plannedAt());
+                plan.executionKind(), mapper.valueToTree(plan.executionPayload()).toString(),
+                plan.fallbackParameterSample() == null ? null : mapper.valueToTree(plan.fallbackParameterSample()).toString(),
+                plan.formulationSpecification() == null ? null : mapper.valueToTree(plan.formulationSpecification()).toString(),
+                plan.computationSpecification() == null ? null : mapper.valueToTree(plan.computationSpecification()).toString(),
+                plan.plannedAt());
+    }
+
+    private static ResearchFormulationSpecification formulation(UUID subjectId, String domain, String topic,
+                                                                int parameterOne, double parameterTwo) {
+        return new ResearchFormulationSpecification(ResearchFormulationSpecification.LEGACY_FORMULATION_V1,
+                subjectId, domain, topic, parameterOne, parameterTwo, "Does the scan support the relation?",
+                "The relation holds.", "A stable margin appears.", "A counterexample falsifies it.", "");
+    }
+
+    private static ResearchComputationSpecification computation(UUID subjectId, String domain, String topic,
+                                                                 int parameterOne, double parameterTwo) {
+        return new ResearchComputationSpecification(ResearchComputationSpecification.LEGACY_COMPUTATION_INPUT_V1,
+                subjectId, domain, topic, parameterOne, parameterTwo, 0.5, 0.2, 40, 0.5, 0.0);
     }
 
     private ResearchDraftPlan plan(ResearchDraftSelectionInput input, UUID subjectId) {

@@ -17,6 +17,7 @@ import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchParameterSamplingProfile;
 import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
+import com.emergentterrain.researchcontract.ResearchComputationSpecification;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
@@ -240,6 +241,16 @@ public class GameResearchWorkMapper {
         if (formulation == null) throw new IllegalArgumentException("A frozen formulation is required");
         ObjectNode context = request.contextSnapshot().deepCopy();
         context.set("frozenFormulation", objectMapper.valueToTree(formulation));
+        return new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
+                request.sourceRevision(), request.requestedAt(), request.subjects(), context);
+    }
+
+    /** Attaches already-frozen generic computation input without invoking an executor or any later stage. */
+    ResearchWorkRequest frozenComputationRequest(ResearchWorkRequest request,
+                                                  ResearchComputationSpecification computation) {
+        if (computation == null) throw new IllegalArgumentException("A frozen computation input is required");
+        ObjectNode context = request.contextSnapshot().deepCopy();
+        context.set("frozenComputation", objectMapper.valueToTree(computation));
         return new ResearchWorkRequest(request.requestId(), request.workspaceId(), request.workType(),
                 request.sourceRevision(), request.requestedAt(), request.subjects(), context);
     }

@@ -11,7 +11,8 @@ public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, 
                                 String domain, String topic, String eligibility, String selectorVersion,
                                 String inputFingerprint, String executionKind, JsonNode executionPayload,
                                 ResearchParameterSample fallbackParameterSample,
-                                ResearchFormulationSpecification formulationSpecification, Instant plannedAt) {
+                                ResearchFormulationSpecification formulationSpecification,
+                                ResearchComputationSpecification computationSpecification, Instant plannedAt) {
     public ResearchDraftPlan {
         Objects.requireNonNull(draftId, "draftId");
         Objects.requireNonNull(requestId, "requestId");
@@ -30,9 +31,20 @@ public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, 
     public ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId,
                              String domain, String topic, String eligibility, String selectorVersion,
                              String inputFingerprint, String executionKind, JsonNode executionPayload,
+                             ResearchParameterSample fallbackParameterSample,
+                             ResearchFormulationSpecification formulationSpecification, Instant plannedAt) {
+        this(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility, selectorVersion,
+                inputFingerprint, executionKind, executionPayload, fallbackParameterSample, formulationSpecification,
+                null, plannedAt);
+    }
+
+    /** Compatibility constructor for plans persisted before frozen formulation parity was captured. */
+    public ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, UUID subjectId,
+                             String domain, String topic, String eligibility, String selectorVersion,
+                             String inputFingerprint, String executionKind, JsonNode executionPayload,
                              ResearchParameterSample fallbackParameterSample, Instant plannedAt) {
         this(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility, selectorVersion,
-                inputFingerprint, executionKind, executionPayload, fallbackParameterSample, null, plannedAt);
+                inputFingerprint, executionKind, executionPayload, fallbackParameterSample, null, null, plannedAt);
     }
 
     /** Compatibility constructor for plans persisted before fallback-sampling parity was captured. */
@@ -41,6 +53,6 @@ public record ResearchDraftPlan(UUID draftId, UUID requestId, UUID workspaceId, 
                              String inputFingerprint, String executionKind, JsonNode executionPayload,
                              Instant plannedAt) {
         this(draftId, requestId, workspaceId, subjectId, domain, topic, eligibility, selectorVersion,
-                inputFingerprint, executionKind, executionPayload, null, null, plannedAt);
+                inputFingerprint, executionKind, executionPayload, null, null, null, plannedAt);
     }
 }

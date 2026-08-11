@@ -49,9 +49,14 @@ public class FrozenResearchExecutionPreparer {
         if (draft.formulationSpecification() != null) {
             canonicalInput.set("frozenFormulation", objectMapper.valueToTree(draft.formulationSpecification()));
         }
+        if (draft.computationSpecification() != null) {
+            canonicalInput.set("frozenComputation", objectMapper.valueToTree(draft.computationSpecification()));
+        }
         String readiness = ResearchDraftExecutionIntent.STANDARD_CATALOG.equals(draft.executionKind())
                 ? draft.formulationSpecification() == null ? ResearchExecutionPreparation.AWAITING_COMPUTATION_INPUTS
-                        : ResearchExecutionPreparation.FORMULATION_FROZEN_AWAITING_COMPUTATION
+                        : draft.computationSpecification() == null
+                                ? ResearchExecutionPreparation.FORMULATION_FROZEN_AWAITING_COMPUTATION
+                                : ResearchExecutionPreparation.COMPUTATION_FROZEN_AWAITING_EXECUTION
                 : ResearchExecutionPreparation.PREPARED_NO_COMPUTATION;
         String inputJson = write(canonicalInput);
         ResearchExecutionPreparation calculated = new ResearchExecutionPreparation(

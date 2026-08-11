@@ -22,6 +22,7 @@ import com.emergentterrain.researchcontract.ResearchDraftSelection;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchParameterOverride;
 import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
+import com.emergentterrain.researchcontract.ResearchComputationSpecification;
 import com.emergentterrain.researchcontract.ResearchStudySpecification;
 import com.emergentterrain.researchcontract.ResearchTopicHistoryEntry;
 import com.emergentterrain.researchcontract.ResearchTopicHistorySnapshot;
@@ -128,6 +129,29 @@ class GameResearchWorkMapperTest {
 
         assertThat(frozen.contextSnapshot().path("frozenFormulation").path("parameterOne").asInt()).isEqualTo(42);
         assertThat(frozen.contextSnapshot().path("frozenFormulation").path("topic").asText())
+                .isEqualTo(selection.topic());
+    }
+
+    @Test
+    void attachesAlreadyFrozenGenericComputationInputWithoutStartingExecution() throws Exception {
+        UUID roomId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        BotLifecycleState state = qualifiedAdult("MATHEMATICS", new double[] {1, 1, 1, 1, 1});
+        GameResearchWorkMapper workMapper = new GameResearchWorkMapper(mapper, false);
+        ResearchWorkRequest request = workMapper.fromTick(roomId, List.of(bot(subjectId, state)), 34L, null);
+        ResearchDraftSelection selection = StandardResearchDraftSelector.select(mapper.treeToValue(
+                request.contextSnapshot().path("draftSelection"), ResearchDraftSelectionInput.class));
+        ResearchFormulationSpecification formulation = new ResearchFormulationSpecification(
+                ResearchFormulationSpecification.LEGACY_FORMULATION_V1, subjectId, selection.domain(), selection.topic(),
+                42, 1.5, "Does the bounded scan support the predicted relation?", "The relation holds.",
+                "The metric remains above baseline.", "A counterexample falsifies it.", "");
+        ResearchComputationSpecification computation = computation(subjectId, selection.domain(), selection.topic(), 42, 1.5);
+
+        ResearchWorkRequest frozen = workMapper.frozenComputationRequest(
+                workMapper.frozenFormulationRequest(request, formulation), computation);
+
+        assertThat(frozen.contextSnapshot().path("frozenComputation").path("candidateBreadth").asInt()).isEqualTo(40);
+        assertThat(frozen.contextSnapshot().path("frozenComputation").path("topic").asText())
                 .isEqualTo(selection.topic());
     }
 
@@ -570,5 +594,12 @@ class GameResearchWorkMapperTest {
         when(conjecture.confirmedRuns()).thenReturn(1);
         when(conjecture.p99Slack()).thenReturn(0.1);
         return conjecture;
+    }
+
+    private static ResearchComputationSpecification computation(UUID subjectId, String domain, String topic,
+                                                                 int parameterOne, double parameterTwo) {
+        return new ResearchComputationSpecification(
+                ResearchComputationSpecification.LEGACY_COMPUTATION_INPUT_V1, subjectId, domain, topic,
+                parameterOne, parameterTwo, 0.5, 0.2, 40, 0.5, 0.0);
     }
 }

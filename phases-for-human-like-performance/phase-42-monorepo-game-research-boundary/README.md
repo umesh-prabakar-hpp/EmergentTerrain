@@ -107,6 +107,11 @@
   instance but is not wired to invoke formulation; research rejects a target mismatch and records a
   matching payload as `FORMULATION_FROZEN_AWAITING_COMPUTATION`. That state is still preparation
   only and must not invoke computation, narration, publication, or gameplay effects.
+- `ResearchComputationSpecification` is the separately frozen generic deterministic-scan input.
+  It can be attached only after a matching standard formulation, and research validates its
+  selected subject/domain/topic and exact formulation parameters before persistence. A matching
+  input becomes `COMPUTATION_FROZEN_AWAITING_EXECUTION`; that status is still input-only and
+  unwired, so it cannot call the computation engine, narration, publication, or gameplay paths.
 
 ## Live standalone validation — 2026-08-04
 

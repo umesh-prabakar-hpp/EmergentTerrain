@@ -108,7 +108,10 @@ same author/topic/queue-miss draws; the resulting `ResearchParameterSample` is a
 must never substitute for an LLM formulation result or authorize computation. An already-produced
 `ResearchFormulationSpecification` may be attached separately, but only for a matching selected
 standard draft; `FORMULATION_FROZEN_AWAITING_COMPUTATION` remains a non-computing, unwired state.
-It must never call an LLM or authorize narration, publication, or gameplay effects. The generic processor may emit only a `ResearchResult`
+`ResearchComputationSpecification` may then freeze only matching target/parameters plus bounded
+generic scan controls; `COMPUTATION_FROZEN_AWAITING_EXECUTION` is still an input-only, unwired
+state. It must never call an LLM, computation engine, or authorize narration, publication, or
+gameplay effects. The generic processor may emit only a `ResearchResult`
 and the game result projection is
 display-only; do not add a gameplay mutation or effect recommendation without an explicit
 game-owned validation policy and contract test.

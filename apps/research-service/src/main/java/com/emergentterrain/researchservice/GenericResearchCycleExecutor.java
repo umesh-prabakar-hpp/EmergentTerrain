@@ -61,6 +61,9 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         if (draft.formulationSpecification() != null) {
             findings.set("draftFrozenFormulation", objectMapper.valueToTree(draft.formulationSpecification()));
         }
+        if (draft.computationSpecification() != null) {
+            findings.set("draftFrozenComputation", objectMapper.valueToTree(draft.computationSpecification()));
+        }
         appendQueueObservationProvenance(request, findings);
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())
                 .getBytes(StandardCharsets.UTF_8));

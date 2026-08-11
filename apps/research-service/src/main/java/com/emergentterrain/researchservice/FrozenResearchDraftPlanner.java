@@ -13,6 +13,7 @@ import com.emergentterrain.researchcontract.FrozenResearchCyclePlanner;
 import com.emergentterrain.researchcontract.FrozenResearchParameterSampler;
 import com.emergentterrain.researchcontract.ResearchParameterSample;
 import com.emergentterrain.researchcontract.ResearchFormulationSpecification;
+import com.emergentterrain.researchcontract.ResearchComputationSpecification;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -57,11 +58,12 @@ public class FrozenResearchDraftPlanner {
         PlanningSelection selection = selectionFor(input, frozenCycle);
         requireSelectedSubject(request, selection.subjectId());
         ResearchFormulationSpecification formulation = frozenFormulation(request, input, selection);
+        ResearchComputationSpecification computation = frozenComputation(request, input, selection, formulation);
         UUID draftId = UUID.nameUUIDFromBytes(("draft-plan:" + request.requestId()).getBytes(StandardCharsets.UTF_8));
         ResearchDraftPlan plan = new ResearchDraftPlan(draftId, request.requestId(), request.workspaceId(),
                 selection.subjectId(), selection.domain(), selection.topic(), selection.eligibility(),
-                input.selectorVersion(), fingerprint(fingerprintInput(frozenInput, formulation)), input.executionIntent().kind(),
-                input.executionIntent().payload(), fallbackParameterSample(input, selection), formulation, Instant.now());
+                input.selectorVersion(), fingerprint(fingerprintInput(frozenInput, formulation, computation)), input.executionIntent().kind(),
+                input.executionIntent().payload(), fallbackParameterSample(input, selection), formulation, computation, Instant.now());
         return plans.findById(draftId)
                 .map(existing -> reuseExistingPlan(existing, plan))
                 .orElseGet(() -> saveNewPlan(plan));
@@ -74,7 +76,9 @@ public class FrozenResearchDraftPlanner {
                 plan.fallbackParameterSample() == null ? null
                         : objectMapper.valueToTree(plan.fallbackParameterSample()).toString(),
                 plan.formulationSpecification() == null ? null
-                        : objectMapper.valueToTree(plan.formulationSpecification()).toString(), plan.plannedAt()));
+                        : objectMapper.valueToTree(plan.formulationSpecification()).toString(),
+                plan.computationSpecification() == null ? null
+                        : objectMapper.valueToTree(plan.computationSpecification()).toString(), plan.plannedAt()));
         return plan;
     }
 
@@ -156,10 +160,35 @@ public class FrozenResearchDraftPlanner {
         return formulation;
     }
 
-    private ObjectNode fingerprintInput(JsonNode frozenSelection, ResearchFormulationSpecification formulation) {
+    private ResearchComputationSpecification frozenComputation(ResearchWorkRequest request,
+                                                                 ResearchDraftSelectionInput input,
+                                                                 PlanningSelection selection,
+                                                                 ResearchFormulationSpecification formulation) {
+        JsonNode frozen = request.contextSnapshot().path("frozenComputation");
+        if (frozen.isMissingNode() || frozen.isNull()) return null;
+        if (!ResearchDraftExecutionIntent.STANDARD_CATALOG.equals(input.executionIntent().kind())) {
+            throw new IllegalArgumentException("Only standard-catalog work may carry frozen computation input");
+        }
+        if (formulation == null) {
+            throw new IllegalArgumentException("Frozen computation input requires a matching frozen formulation");
+        }
+        ResearchComputationSpecification computation = read(frozen, ResearchComputationSpecification.class,
+                "computation specification");
+        if (!computation.subjectId().equals(selection.subjectId()) || !computation.domain().equals(selection.domain())
+                || !computation.topic().equals(selection.topic())
+                || computation.parameterOne() != formulation.parameterOne()
+                || Double.compare(computation.parameterTwo(), formulation.parameterTwo()) != 0) {
+            throw new IllegalArgumentException("Frozen computation input does not match the frozen formulation and draft selection");
+        }
+        return computation;
+    }
+
+    private ObjectNode fingerprintInput(JsonNode frozenSelection, ResearchFormulationSpecification formulation,
+                                        ResearchComputationSpecification computation) {
         ObjectNode input = objectMapper.createObjectNode();
         input.set("draftSelection", frozenSelection);
         if (formulation != null) input.set("frozenFormulation", objectMapper.valueToTree(formulation));
+        if (computation != null) input.set("frozenComputation", objectMapper.valueToTree(computation));
         return input;
     }
 
