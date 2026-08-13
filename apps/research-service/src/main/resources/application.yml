@@ -33,6 +33,12 @@ app:
     computation-audit:
       # Controlled parity evidence only; never routes a result, narrates, publishes, or changes game state.
       enabled: ${RESEARCH_COMPUTATION_AUDIT_ENABLED:false}
+    direct-computation-audit:
+      # Default-off direct sidecar evidence for the first supported frozen target. It is separate
+      # from legacy-shadow observations and remains display-only until raw-output parity is proven.
+      enabled: ${RESEARCH_DIRECT_COMPUTATION_AUDIT_ENABLED:false}
+      base-url: ${RESEARCH_DIRECT_COMPUTATION_BASE_URL:http://127.0.0.1:8088}
+      timeout-ms: ${RESEARCH_DIRECT_COMPUTATION_TIMEOUT_MS:15000}
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}

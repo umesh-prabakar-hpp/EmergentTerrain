@@ -21,24 +21,27 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     private final FrozenResearchBranchPreparer branchPreparer;
     private final FrozenResearchExecutionPreparer executionPreparer;
     private final FrozenResearchComputationAuditor computationAuditor;
+    private final FrozenResearchComputationRunner computationRunner;
 
     @Autowired
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
                                         FrozenResearchBranchPreparer branchPreparer,
                                         FrozenResearchExecutionPreparer executionPreparer,
-                                        FrozenResearchComputationAuditor computationAuditor) {
+                                        FrozenResearchComputationAuditor computationAuditor,
+                                        FrozenResearchComputationRunner computationRunner) {
         this.objectMapper = objectMapper;
         this.draftPlanner = draftPlanner;
         this.branchPreparer = branchPreparer;
         this.executionPreparer = executionPreparer;
         this.computationAuditor = computationAuditor;
+        this.computationRunner = computationRunner;
     }
 
     /** Compatibility constructor for planning-only tests and callers. */
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
                                         FrozenResearchBranchPreparer branchPreparer,
                                         FrozenResearchExecutionPreparer executionPreparer) {
-        this(objectMapper, draftPlanner, branchPreparer, executionPreparer, null);
+        this(objectMapper, draftPlanner, branchPreparer, executionPreparer, null, null);
     }
 
     @Override public boolean supports(String workType) { return "RESEARCH_CYCLE".equals(workType); }
@@ -82,6 +85,14 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
                 provenance.put("auditId", audit.auditId().toString());
                 provenance.put("auditVersion", audit.auditVersion());
                 provenance.put("inputFingerprint", audit.inputFingerprint());
+            });
+        }
+        if (computationRunner != null) {
+            computationRunner.run(draft, executionPreparation).ifPresent(run -> {
+                ObjectNode provenance = findings.putObject("draftDirectComputationRun");
+                provenance.put("runId", run.runId().toString());
+                provenance.put("runnerVersion", run.runnerVersion());
+                provenance.put("inputFingerprint", run.inputFingerprint());
             });
         }
         appendQueueObservationProvenance(request, findings);

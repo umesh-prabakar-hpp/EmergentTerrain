@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GenericResearchCycleExecutorTest {
     @Test
@@ -153,6 +154,30 @@ class GenericResearchCycleExecutorTest {
                 .isEqualTo(ResearchConjectureQueueSnapshot.LEGACY_CONJECTURE_QUEUE_V1);
         assertThat(result.findings().path("draftQueueObservation").path("promotedCandidateCount").asInt()).isEqualTo(1);
         assertThat(result.findings().path("draftQueueObservation").path("ordinaryCandidateCount").asInt()).isZero();
+    }
+
+    @Test
+    void exposesDirectComputationProvenanceWithoutChangingThePlanningOutcome() {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID subjectId = UUID.randomUUID();
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(FrozenDraftSelectionFixtures.primaryInput(subjectId)));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 12,
+                Instant.parse("2026-08-06T12:04:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        FrozenResearchComputationRunner runner = mock(FrozenResearchComputationRunner.class);
+        when(runner.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of(new com.emergentterrain.researchcontract.ResearchComputationRun(
+                        UUID.randomUUID(), UUID.randomUUID(), request.requestId(),
+                        com.emergentterrain.researchcontract.ResearchComputationRun.DIRECT_SIDECAR_SCAN_V1,
+                        "direct-input", mapper.createObjectNode(), Instant.now())));
+
+        ResearchResult result = new GenericResearchCycleExecutor(mapper,
+                new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), null, runner).execute(request);
+
+        assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
+        assertThat(result.findings().path("draftDirectComputationRun").path("runnerVersion").asText())
+                .isEqualTo(com.emergentterrain.researchcontract.ResearchComputationRun.DIRECT_SIDECAR_SCAN_V1);
     }
 
     private static FrozenResearchExecutionPreparer executionPreparer(ObjectMapper mapper) {

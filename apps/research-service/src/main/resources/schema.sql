@@ -140,3 +140,15 @@ CREATE TABLE IF NOT EXISTS research_computation_audits (
     observed_output_json TEXT NOT NULL,
     observed_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+-- Direct sidecar observations are separate from legacy-delegate shadows so their raw outputs can
+-- be compared without granting an execution result any paper or game authority.
+CREATE TABLE IF NOT EXISTS research_computation_runs (
+    run_id UUID PRIMARY KEY,
+    draft_id UUID NOT NULL UNIQUE,
+    request_id UUID NOT NULL UNIQUE,
+    runner_version VARCHAR(128) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
+    observed_output_json TEXT NOT NULL,
+    observed_at TIMESTAMP WITH TIME ZONE NOT NULL
+);

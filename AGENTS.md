@@ -136,6 +136,11 @@ Phase 42 completion is conservatively accounted at 68%, not the former 97% readi
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.
+The default-off `RESEARCH_DIRECT_COMPUTATION_AUDIT_ENABLED` seam is the first narrow direct
+sidecar comparison target: it supports only frozen `MATHEMATICS` / `Prime Constellation Search`,
+stores a raw research-owned observation, and must not use `MathPhysicsEngineDelegate`, compose a
+paper-facing result, affect the planning outcome, or change game state. Treat its aligned numeric
+envelope as parity evidence until it matches the legacy shadow for the same frozen fingerprint.
 
 ## Required environment
 - Java 21

@@ -65,6 +65,15 @@ can be prepared, but must not be enqueued until game-side queue ordering and con
 captured. The generic topic-history replay and its policy are now available; outbox work carries the
 game-owned bounded history and active policy as planning input only until full game-path parity is proven.
 
+For a controlled computation migration audit, set
+`RESEARCH_DIRECT_COMPUTATION_AUDIT_ENABLED=true`. The default-off research-owned direct client
+currently supports only the fully frozen `MATHEMATICS` / `Prime Constellation Search` target and
+writes its raw sidecar response to `research_computation_runs`. It does not call
+`MathPhysicsEngineDelegate`, does not compose findings, and never changes the planning outcome,
+paper workflow, result-delivery authority, or game state. Keep it paired with the existing legacy
+shadow audit only to compare the aligned numeric envelope and controlled failures for the identical
+frozen fingerprint.
+
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
 game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before
 relay, so temporary research-service downtime does not discard work. This intake is the first

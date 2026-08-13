@@ -117,6 +117,11 @@ and sidecar shadow observations are evidence-gathering seams, not independent co
 paper-workflow parity. See the Phase 42 README for the weighted accounting and the remaining
 independent-computation, narration/review, queue-consumption, effect-policy, and two-process
 cutover gates.
+The first default-off direct computation audit is now available for one fully frozen standard
+target. It calls the sidecar's documented scan endpoint from the research service and saves a
+research-owned raw observation for comparison with the legacy shadow; it does not invoke the
+legacy delegate, narrate, publish, or alter the display-only planning result. Enable it only for a
+controlled audit with `RESEARCH_DIRECT_COMPUTATION_AUDIT_ENABLED=true`.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,
