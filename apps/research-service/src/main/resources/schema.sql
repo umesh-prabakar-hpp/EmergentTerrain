@@ -129,3 +129,14 @@ CREATE TABLE IF NOT EXISTS research_execution_preparations (
     canonical_input_json TEXT NOT NULL,
     prepared_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+-- Controlled sidecar observations are research-owned parity evidence, never papers or game effects.
+CREATE TABLE IF NOT EXISTS research_computation_audits (
+    audit_id UUID PRIMARY KEY,
+    draft_id UUID NOT NULL UNIQUE,
+    request_id UUID NOT NULL UNIQUE,
+    audit_version VARCHAR(128) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
+    observed_output_json TEXT NOT NULL,
+    observed_at TIMESTAMP WITH TIME ZONE NOT NULL
+);

@@ -108,6 +108,10 @@ a crashed worker's stale lease is reclaimable.
 `GET /api/v1/research/work/{requestId}` uses the existing work credential to expose only the
 research-owned durable lifecycle/delivery status for reconciliation. It never returns frozen
 context, result content, game entities, or effect authority.
+`RESEARCH_COMPUTATION_AUDIT_ENABLED=true` is a controlled, default-off sidecar shadow-audit mode:
+for a fully frozen standard input it stores one research-owned numeric observation for later parity
+comparison. It does not route a new result, invoke the university workflow, narrate, publish, or
+change game state.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

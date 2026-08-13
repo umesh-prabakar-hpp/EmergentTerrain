@@ -7,6 +7,7 @@ import com.emergentterrain.researchcontract.ResearchWorkRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -19,14 +20,25 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     private final FrozenResearchDraftPlanner draftPlanner;
     private final FrozenResearchBranchPreparer branchPreparer;
     private final FrozenResearchExecutionPreparer executionPreparer;
+    private final FrozenResearchComputationAuditor computationAuditor;
 
+    @Autowired
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
                                         FrozenResearchBranchPreparer branchPreparer,
-                                        FrozenResearchExecutionPreparer executionPreparer) {
+                                        FrozenResearchExecutionPreparer executionPreparer,
+                                        FrozenResearchComputationAuditor computationAuditor) {
         this.objectMapper = objectMapper;
         this.draftPlanner = draftPlanner;
         this.branchPreparer = branchPreparer;
         this.executionPreparer = executionPreparer;
+        this.computationAuditor = computationAuditor;
+    }
+
+    /** Compatibility constructor for planning-only tests and callers. */
+    public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
+                                        FrozenResearchBranchPreparer branchPreparer,
+                                        FrozenResearchExecutionPreparer executionPreparer) {
+        this(objectMapper, draftPlanner, branchPreparer, executionPreparer, null);
     }
 
     @Override public boolean supports(String workType) { return "RESEARCH_CYCLE".equals(workType); }
@@ -63,6 +75,14 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         }
         if (draft.computationSpecification() != null) {
             findings.set("draftFrozenComputation", objectMapper.valueToTree(draft.computationSpecification()));
+        }
+        if (computationAuditor != null) {
+            computationAuditor.audit(draft, executionPreparation).ifPresent(audit -> {
+                ObjectNode provenance = findings.putObject("draftComputationAudit");
+                provenance.put("auditId", audit.auditId().toString());
+                provenance.put("auditVersion", audit.auditVersion());
+                provenance.put("inputFingerprint", audit.inputFingerprint());
+            });
         }
         appendQueueObservationProvenance(request, findings);
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())

@@ -30,6 +30,9 @@ app:
       interval-ms: ${RESEARCH_RESULT_DELIVERY_INTERVAL_MS:1000}
       # Lease prevents concurrent workers from sending one result simultaneously; a stale lease is reclaimed.
       claim-lease-ms: ${RESEARCH_RESULT_DELIVERY_CLAIM_LEASE_MS:30000}
+    computation-audit:
+      # Controlled parity evidence only; never routes a result, narrates, publishes, or changes game state.
+      enabled: ${RESEARCH_COMPUTATION_AUDIT_ENABLED:false}
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}

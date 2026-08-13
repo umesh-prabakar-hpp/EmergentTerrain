@@ -127,6 +127,11 @@ after a crash, and game result-ID idempotency remains the final at-least-once sa
 `GET /api/v1/research/work/{requestId}` is the research-owned reconciliation read: it uses the
 work API key and returns only generic durable lifecycle/delivery metadata. It must not return the
 work payload, frozen game context, result content, game entities, or effects.
+`RESEARCH_COMPUTATION_AUDIT_ENABLED=true` enables the default-off controlled sidecar shadow audit
+for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes only
+`research_computation_audits` and compact provenance on the existing planning result; it must not
+invoke the university workflow, narration, publication, or game effects. This is parity evidence,
+not an independent computation implementation or a permission to claim a paper result.
 
 ## Required environment
 - Java 21
