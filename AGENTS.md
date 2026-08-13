@@ -124,6 +124,9 @@ the research service to modify game state or reinterpret the game policy.
 Delivery claims are atomic research-owned 30-second leases (`RESEARCH_RESULT_DELIVERY_CLAIM_LEASE_MS`);
 only the claimant can acknowledge, reject, or release its delivery. Expired claims may be reclaimed
 after a crash, and game result-ID idempotency remains the final at-least-once safeguard.
+`GET /api/v1/research/work/{requestId}` is the research-owned reconciliation read: it uses the
+work API key and returns only generic durable lifecycle/delivery metadata. It must not return the
+work payload, frozen game context, result content, game entities, or effects.
 
 ## Required environment
 - Java 21

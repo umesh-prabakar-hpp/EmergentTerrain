@@ -3,6 +3,7 @@ package com.emergentterrain.researchservice;
 import com.emergentterrain.researchcontract.ResearchSubject;
 import com.emergentterrain.researchcontract.ResearchWorkReceipt;
 import com.emergentterrain.researchcontract.ResearchWorkRequest;
+import com.emergentterrain.researchcontract.ResearchWorkStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,8 @@ class ResearchWorkApiContractTest {
                 Instant.parse("2026-08-06T12:00:00Z"));
         when(inbox.accept(request)).thenReturn(receipt);
 
-        var response = new ResearchWorkController(inbox, "work-key").submit("work-key", request);
+        var response = new ResearchWorkController(inbox, mock(ResearchWorkStatusService.class), "work-key")
+                .submit("work-key", request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isEqualTo(receipt);
@@ -50,7 +52,8 @@ class ResearchWorkApiContractTest {
     void rejectsAWorkRequestWithoutThePublishedCredential() {
         ResearchWorkInboxService inbox = mock(ResearchWorkInboxService.class);
 
-        assertThatThrownBy(() -> new ResearchWorkController(inbox, "work-key").submit(null, request()))
+        assertThatThrownBy(() -> new ResearchWorkController(inbox, mock(ResearchWorkStatusService.class), "work-key")
+                .submit(null, request()))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED));
     }
@@ -61,7 +64,8 @@ class ResearchWorkApiContractTest {
         ResearchWorkRequest request = request();
         when(inbox.accept(request)).thenThrow(new ResearchWorkReplayConflictException());
 
-        assertThatThrownBy(() -> new ResearchWorkController(inbox, "work-key").submit("work-key", request))
+        assertThatThrownBy(() -> new ResearchWorkController(inbox, mock(ResearchWorkStatusService.class), "work-key")
+                .submit("work-key", request))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
         verify(inbox).accept(request);
@@ -76,8 +80,37 @@ class ResearchWorkApiContractTest {
                 "ResearchDraftExecutionIntent:", "ResearchStudySpecification:", "ResearchParameterOverride:",
                 "ResearchConjectureSpecification:", "ResearchConjectureQueueSnapshot:",
                 "ResearchTopicHistorySnapshot:", "ResearchTopicHistoryEntry:",
-                "ResearchTopicReselectionPolicy:",
+                "ResearchTopicReselectionPolicy:", "ResearchWorkStatus:",
                 "name: X-Research-Work-Key");
+    }
+
+    @Test
+    void returnsReadOnlyDurableStatusWithTheSameWorkCredential() {
+        ResearchWorkInboxService inbox = mock(ResearchWorkInboxService.class);
+        ResearchWorkStatusService statuses = mock(ResearchWorkStatusService.class);
+        UUID requestId = UUID.randomUUID();
+        ResearchWorkStatus expected = new ResearchWorkStatus(requestId, "COMPLETED", 1,
+                Instant.parse("2026-08-13T12:00:00Z"), Instant.parse("2026-08-13T12:01:00Z"), null, null, "");
+        when(statuses.status(requestId)).thenReturn(java.util.Optional.of(expected));
+
+        var response = new ResearchWorkController(inbox, statuses, "work-key").status("work-key", requestId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(expected);
+        verify(statuses).status(requestId);
+    }
+
+    @Test
+    void reportsMissingDurableStatusWithoutExposingWorkPayload() {
+        ResearchWorkStatusService statuses = mock(ResearchWorkStatusService.class);
+        UUID requestId = UUID.randomUUID();
+        when(statuses.status(requestId)).thenReturn(java.util.Optional.empty());
+
+        var response = new ResearchWorkController(mock(ResearchWorkInboxService.class), statuses, "work-key")
+                .status("work-key", requestId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNull();
     }
 
     private static ResearchWorkRequest request() {

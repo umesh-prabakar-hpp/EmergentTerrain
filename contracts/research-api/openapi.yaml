@@ -82,6 +82,32 @@ paths:
                 $ref: '#/components/schemas/ResearchWorkReceipt'
         '401':
           description: Missing or invalid research-work credential.
+  /api/v1/research/work/{requestId}:
+    get:
+      operationId: getResearchWorkStatus
+      description: |
+        Returns read-only, research-owned lifecycle and delivery status for reconciliation. It never
+        returns request context, research result content, gameplay commands, or effect authority.
+      security:
+        - researchWorkKey: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Durable work lifecycle status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchWorkStatus'
+        '401':
+          description: Missing or invalid research-work credential.
+        '404':
+          description: No work item exists for the request id.
   /api/v1/game/research-results:
     post:
       operationId: projectResearchResult
@@ -312,6 +338,18 @@ components:
         requestId: { type: string, format: uuid }
         state: { type: string, minLength: 1 }
         acceptedAt: { type: string, format: date-time }
+    ResearchWorkStatus:
+      type: object
+      required: [requestId, state, attempts, acceptedAt]
+      properties:
+        requestId: { type: string, format: uuid }
+        state: { type: string, minLength: 1 }
+        attempts: { type: integer, format: int32, minimum: 0 }
+        acceptedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        resultPublishedAt: { type: string, format: date-time }
+        resultDeliveryRejectedAt: { type: string, format: date-time }
+        resultDeliveryRejection: { type: string }
     ResearchResult:
       type: object
       required: [resultId, requestId, workspaceId, outcome, summary, findings, completedAt]

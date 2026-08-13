@@ -105,6 +105,9 @@ result for audit while excluding it from retry. Transport failures remain eligib
 at-least-once retry, relying on the game projection's result-ID idempotency. Delivery uses a
 research-owned, 30-second bounded lease so concurrent workers do not send a fresh result together;
 a crashed worker's stale lease is reclaimable.
+`GET /api/v1/research/work/{requestId}` uses the existing work credential to expose only the
+research-owned durable lifecycle/delivery status for reconciliation. It never returns frozen
+context, result content, game entities, or effect authority.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,
