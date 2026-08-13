@@ -310,7 +310,7 @@ They have not. The conservative weighted accounting below is the current plannin
 |---|---:|---:|---|
 | 1–3. Monorepo and tooling | 15% | 15% | Active monorepo layout and repository-relative tooling are complete. |
 | 4–6. Generic contract and durable delivery | 20% | 20% | Versioned contract, outbox, idempotent intake, result delivery, and status reconciliation are present. |
-| 7a. Frozen selection and branch preparation | 20% | 18% | Standard/branch parity and queue observations are frozen; whole live queue-consumption parity is still not captured or enabled. |
+| 7a. Frozen selection and branch preparation | 30% | 28% | Standard/branch parity and queue observations are frozen; whole live queue-consumption parity is still not captured or enabled. |
 | 7b. Computation, narration, review, publication | 25% | 13% | One default-off direct sidecar raw-observation target is research-owned and excludes the legacy delegate; raw-output/failure parity, research-owned composition, and the paper workflow remain. |
 | 8. Game-effect boundary | 5% | 4% | The negative display-only policy is enforced; no separately versioned, game-owned positive-effect policy exists. |
 | 9. Cutover and dependency removal | 5% | 3% | Delivery leases, rejection audit, and status reconciliation exist; two-process recovery evidence and game dependency removal remain. |

@@ -132,7 +132,7 @@ for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes
 `research_computation_audits` and compact provenance on the existing planning result; it must not
 invoke the university workflow, narration, publication, or game effects. This is parity evidence,
 not an independent computation implementation or a permission to claim a paper result.
-Phase 42 completion is conservatively accounted at 68%, not the former 97% readiness-based
+Phase 42 completion is conservatively accounted at 73%, not the former 97% readiness-based
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.

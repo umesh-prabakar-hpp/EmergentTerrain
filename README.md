@@ -112,7 +112,7 @@ context, result content, game entities, or effect authority.
 for a fully frozen standard input it stores one research-owned numeric observation for later parity
 comparison. It does not route a new result, invoke the university workflow, narrate, publish, or
 change game state.
-Phase 42 is conservatively **68% complete** after review. Frozen inputs, display-only delivery,
+Phase 42 is conservatively **73% complete** after review and the direct-computation increment. Frozen inputs, display-only delivery,
 and sidecar shadow observations are evidence-gathering seams, not independent computation or
 paper-workflow parity. See the Phase 42 README for the weighted accounting and the remaining
 independent-computation, narration/review, queue-consumption, effect-policy, and two-process
