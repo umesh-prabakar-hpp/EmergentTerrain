@@ -51,6 +51,21 @@ class ResearchResultProjectionServiceTest {
     }
 
     @Test
+    void rejectsEffectFieldsRegardlessOfCommonJsonNamingStyle() {
+        ResearchResultProjectionRepository repository = mock(ResearchResultProjectionRepository.class);
+        ResearchResultProjectionService service = new ResearchResultProjectionService(repository, mapper);
+        ResearchResult result = result("DRAFT_CANDIDATE_PLANNED", mapper.createObjectNode()
+                .putObject("nested").put("gameplay_action", "mutate-world"));
+
+        assertThatThrownBy(() -> service.apply(result))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("may not carry gameplay effects");
+
+        verify(repository, never()).existsById(result.resultId());
+        verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void rejectsAnOutcomeThatHasNotBeenApprovedForDisplayProjection() {
         ResearchResultProjectionRepository repository = mock(ResearchResultProjectionRepository.class);
         ResearchResultProjectionService service = new ResearchResultProjectionService(repository, mapper);

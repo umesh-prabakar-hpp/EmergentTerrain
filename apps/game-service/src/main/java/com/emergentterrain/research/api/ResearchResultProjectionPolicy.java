@@ -39,7 +39,7 @@ final class ResearchResultProjectionPolicy {
     private static void rejectEffectFields(JsonNode node) {
         if (node.isObject()) {
             node.fields().forEachRemaining(entry -> {
-                if (FORBIDDEN_FINDING_FIELDS.contains(entry.getKey().toLowerCase(Locale.ROOT))) {
+                if (FORBIDDEN_FINDING_FIELDS.contains(normalizeFieldName(entry.getKey()))) {
                     throw new IllegalArgumentException("Research results may not carry gameplay effects or recommendations");
                 }
                 rejectEffectFields(entry.getValue());
@@ -47,5 +47,9 @@ final class ResearchResultProjectionPolicy {
         } else if (node.isArray()) {
             node.forEach(ResearchResultProjectionPolicy::rejectEffectFields);
         }
+    }
+
+    private static String normalizeFieldName(String fieldName) {
+        return fieldName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 }

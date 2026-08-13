@@ -12,6 +12,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -63,9 +65,29 @@ class ResearchResultProjectionApiContractTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication().getName()).isEqualTo("research-service");
     }
 
+    @Test
+    void openApiConstrainsDisplayOutcomesWithoutRestrictingTopicHistoryOutcomes() throws Exception {
+        String spec = Files.readString(openApi());
+        int topicHistoryStart = spec.indexOf("    ResearchTopicHistoryEntry:\n");
+        int researchResultStart = spec.indexOf("    ResearchResult:\n");
+
+        assertThat(topicHistoryStart).isGreaterThanOrEqualTo(0);
+        assertThat(researchResultStart).isGreaterThan(topicHistoryStart);
+        assertThat(spec.substring(topicHistoryStart, researchResultStart))
+                .contains("outcome: { type: string, minLength: 1 }")
+                .doesNotContain("enum: [DRAFT_CANDIDATE_PLANNED, DRAFT_BRANCH_PREPARED]");
+        assertThat(spec.substring(researchResultStart))
+                .contains("enum: [DRAFT_CANDIDATE_PLANNED, DRAFT_BRANCH_PREPARED]");
+    }
+
     private static ResearchResult result() {
         return new ResearchResult(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "DRAFT_CANDIDATE_PLANNED",
                 "A display-safe result.", new ObjectMapper().createObjectNode().put("draftEligibility", "CANDIDATE"),
                 Instant.parse("2026-08-06T12:00:00Z"));
+    }
+
+    private static Path openApi() {
+        Path root = Path.of("contracts", "research-api", "openapi.yaml");
+        return Files.isRegularFile(root) ? root : Path.of("..", "..", "contracts", "research-api", "openapi.yaml");
     }
 }

@@ -264,9 +264,7 @@ components:
       properties:
         domain: { type: string, minLength: 1 }
         topic: { type: string, minLength: 1 }
-        outcome:
-          type: string
-          enum: [DRAFT_CANDIDATE_PLANNED, DRAFT_BRANCH_PREPARED]
+        outcome: { type: string, minLength: 1 }
         peerScore: { type: number, format: double }
     ResearchTopicReselectionPolicy:
       type: object
@@ -321,7 +319,9 @@ components:
         resultId: { type: string, format: uuid }
         requestId: { type: string, format: uuid }
         workspaceId: { type: string, format: uuid }
-        outcome: { type: string, minLength: 1 }
+        outcome:
+          type: string
+          enum: [DRAFT_CANDIDATE_PLANNED, DRAFT_BRANCH_PREPARED]
         summary: { type: string, minLength: 1 }
         findings:
           type: object
