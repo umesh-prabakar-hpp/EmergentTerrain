@@ -121,6 +121,9 @@ separately versioned contract, an explicit game-owned validation policy, and con
 research-owned work item and excludes them from future delivery attempts; it leaves transport and
 server failures unpublished for retry. A rejection is audit/recovery state only—it does not permit
 the research service to modify game state or reinterpret the game policy.
+Delivery claims are atomic research-owned 30-second leases (`RESEARCH_RESULT_DELIVERY_CLAIM_LEASE_MS`);
+only the claimant can acknowledge, reject, or release its delivery. Expired claims may be reclaimed
+after a crash, and game result-ID idempotency remains the final at-least-once safeguard.
 
 ## Required environment
 - Java 21

@@ -10,11 +10,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 class ResearchResultDeliveryServiceTest {
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
@@ -23,48 +24,42 @@ class ResearchResultDeliveryServiceTest {
     void recordsSuccessfulDisplayProjectionAcknowledgement() throws Exception {
         ResearchWorkItem item = completedItem();
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
-        when(repository.findTop20ByStateAndResultPublishedAtIsNullAndResultDeliveryRejectedAtIsNullOrderByCompletedAtAsc(
-                "COMPLETED")).thenReturn(List.of(item));
+        candidates(repository, item);
         ResearchResultDeliveryService service = new ResearchResultDeliveryService(repository, mapper, "result-key",
                 result -> { });
 
         service.deliverCompleted();
 
-        assertThat(item.getResultPublishedAt()).isNotNull();
-        assertThat(item.getResultDeliveryRejectedAt()).isNull();
-        verify(repository).save(item);
+        verify(repository).claimResultDelivery(eq(item.getRequestId()), any(), any());
+        verify(repository).acknowledgeResultDelivery(eq(item.getRequestId()), any(), any());
+        verify(repository, never()).save(item);
     }
 
     @Test
     void recordsAClientPolicyRejectionAndDoesNotRetryIt() throws Exception {
         ResearchWorkItem item = completedItem();
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
-        when(repository.findTop20ByStateAndResultPublishedAtIsNullAndResultDeliveryRejectedAtIsNullOrderByCompletedAtAsc(
-                "COMPLETED")).thenReturn(List.of(item));
+        candidates(repository, item);
         ResearchResultDeliveryService service = new ResearchResultDeliveryService(repository, mapper, "result-key",
                 result -> { throw new HttpClientErrorException(HttpStatus.BAD_REQUEST); });
 
         service.deliverCompleted();
 
-        assertThat(item.getResultPublishedAt()).isNull();
-        assertThat(item.getResultDeliveryRejectedAt()).isNotNull();
-        assertThat(item.getResultDeliveryRejection()).isEqualTo("HTTP_400");
-        verify(repository).save(item);
+        verify(repository).rejectResultDelivery(eq(item.getRequestId()), any(), any(), eq("HTTP_400"));
+        verify(repository, never()).save(item);
     }
 
     @Test
     void leavesTransientFailureEligibleForTheNextRetry() throws Exception {
         ResearchWorkItem item = completedItem();
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
-        when(repository.findTop20ByStateAndResultPublishedAtIsNullAndResultDeliveryRejectedAtIsNullOrderByCompletedAtAsc(
-                "COMPLETED")).thenReturn(List.of(item));
+        candidates(repository, item);
         ResearchResultDeliveryService service = new ResearchResultDeliveryService(repository, mapper, "result-key",
                 result -> { throw new IllegalStateException("connection lost"); });
 
         service.deliverCompleted();
 
-        assertThat(item.getResultPublishedAt()).isNull();
-        assertThat(item.getResultDeliveryRejectedAt()).isNull();
+        verify(repository).releaseResultDeliveryClaim(eq(item.getRequestId()), any());
         verify(repository, never()).save(item);
     }
 
@@ -72,15 +67,13 @@ class ResearchResultDeliveryServiceTest {
     void leavesAnAuthenticationFailureEligibleForRetryAfterCredentialsAreCorrected() throws Exception {
         ResearchWorkItem item = completedItem();
         ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
-        when(repository.findTop20ByStateAndResultPublishedAtIsNullAndResultDeliveryRejectedAtIsNullOrderByCompletedAtAsc(
-                "COMPLETED")).thenReturn(List.of(item));
+        candidates(repository, item);
         ResearchResultDeliveryService service = new ResearchResultDeliveryService(repository, mapper, "stale-key",
                 result -> { throw new HttpClientErrorException(HttpStatus.UNAUTHORIZED); });
 
         service.deliverCompleted();
 
-        assertThat(item.getResultPublishedAt()).isNull();
-        assertThat(item.getResultDeliveryRejectedAt()).isNull();
+        verify(repository).releaseResultDeliveryClaim(eq(item.getRequestId()), any());
         verify(repository, never()).save(item);
     }
 
@@ -92,8 +85,27 @@ class ResearchResultDeliveryServiceTest {
 
         service.deliverCompleted();
 
-        verify(repository, never())
-                .findTop20ByStateAndResultPublishedAtIsNullAndResultDeliveryRejectedAtIsNullOrderByCompletedAtAsc("COMPLETED");
+        verify(repository, never()).findResultDeliveryCandidates(eq("COMPLETED"), any(), any());
+    }
+
+    @Test
+    void skipsAResultDeliveryAlreadyClaimedByAnotherWorker() throws Exception {
+        ResearchWorkItem item = completedItem();
+        ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
+        when(repository.findResultDeliveryCandidates(eq("COMPLETED"), any(), any())).thenReturn(List.of(item));
+        when(repository.claimResultDelivery(eq(item.getRequestId()), any(), any())).thenReturn(0);
+        ResearchResultDeliveryService service = new ResearchResultDeliveryService(repository, mapper, "result-key",
+                result -> { throw new AssertionError("the lost claimant must not send"); });
+
+        service.deliverCompleted();
+
+        verify(repository, never()).acknowledgeResultDelivery(eq(item.getRequestId()), any(), any());
+        verify(repository, never()).releaseResultDeliveryClaim(eq(item.getRequestId()), any());
+    }
+
+    private static void candidates(ResearchWorkItemRepository repository, ResearchWorkItem item) {
+        when(repository.findResultDeliveryCandidates(eq("COMPLETED"), any(), any())).thenReturn(List.of(item));
+        when(repository.claimResultDelivery(eq(item.getRequestId()), any(), any())).thenReturn(1);
     }
 
     private ResearchWorkItem completedItem() throws Exception {

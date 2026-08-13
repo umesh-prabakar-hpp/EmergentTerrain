@@ -84,6 +84,7 @@ ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NU
 ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_published_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_delivery_claimed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_delivery_rejected_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_delivery_rejection VARCHAR(64);
 ALTER TABLE research_work_items ADD COLUMN IF NOT EXISTS result_json TEXT;

@@ -102,7 +102,9 @@ commands before the projection is queried or saved. Any future consequence needs
 versioned contract plus game-owned validation and tests.
 Research records a game `400` result-projection policy rejection as terminal delivery state, preserving the
 result for audit while excluding it from retry. Transport failures remain eligible for bounded
-at-least-once retry, relying on the game projection's result-ID idempotency.
+at-least-once retry, relying on the game projection's result-ID idempotency. Delivery uses a
+research-owned, 30-second bounded lease so concurrent workers do not send a fresh result together;
+a crashed worker's stale lease is reclaimable.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

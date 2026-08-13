@@ -39,6 +39,7 @@ public class ResearchWorkItem {
     private Instant claimedAt;
     private Instant completedAt;
     private Instant resultPublishedAt;
+    private Instant resultDeliveryClaimedAt;
     private Instant resultDeliveryRejectedAt;
 
     @Column(length = 64)
@@ -74,6 +75,7 @@ public class ResearchWorkItem {
     public int getAttempts() { return attempts; }
     public Instant getCompletedAt() { return completedAt; }
     public Instant getResultPublishedAt() { return resultPublishedAt; }
+    public Instant getResultDeliveryClaimedAt() { return resultDeliveryClaimedAt; }
     public Instant getResultDeliveryRejectedAt() { return resultDeliveryRejectedAt; }
     public String getResultDeliveryRejection() { return resultDeliveryRejection; }
     public String getResultJson() { return resultJson; }
@@ -99,18 +101,6 @@ public class ResearchWorkItem {
     public void markFailed(String detail) {
         state = "FAILED";
         failureDetail = detail;
-    }
-
-    public void markResultPublished() {
-        resultPublishedAt = Instant.now();
-        resultDeliveryRejectedAt = null;
-        resultDeliveryRejection = null;
-    }
-
-    /** Records a game-owned policy rejection so a malformed result cannot retry indefinitely. */
-    public void markResultDeliveryRejected(String rejection) {
-        resultDeliveryRejectedAt = Instant.now();
-        resultDeliveryRejection = rejection == null || rejection.isBlank() ? "HTTP_4XX" : rejection;
     }
 
     @PrePersist
