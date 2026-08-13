@@ -15,7 +15,11 @@ public class ResearchResultProjectionController {
     private final ResearchResultProjectionService projections;
     public ResearchResultProjectionController(ResearchResultProjectionService projections) { this.projections = projections; }
     @PostMapping public ResponseEntity<Void> receive(@RequestBody ResearchResult result) {
-        projections.apply(result);
-        return ResponseEntity.accepted().build();
+        try {
+            projections.apply(result);
+            return ResponseEntity.accepted().build();
+        } catch (IllegalArgumentException invalidDisplayResult) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 }

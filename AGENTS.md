@@ -113,8 +113,10 @@ generic scan controls; `COMPUTATION_FROZEN_AWAITING_EXECUTION` is still an input
 state. It must never call an LLM, computation engine, or authorize narration, publication, or
 gameplay effects. The generic processor may emit only a `ResearchResult`
 and the game result projection is
-display-only; do not add a gameplay mutation or effect recommendation without an explicit
-game-owned validation policy and contract test.
+display-only. Its current negative validation policy admits only `DRAFT_CANDIDATE_PLANNED` and
+`DRAFT_BRANCH_PREPARED`, and rejects nested effect recommendations, gameplay actions, mutations,
+or commands before persistence. Do not add a gameplay mutation or effect recommendation without a
+separately versioned contract, an explicit game-owned validation policy, and contract tests.
 
 ## Required environment
 - Java 21

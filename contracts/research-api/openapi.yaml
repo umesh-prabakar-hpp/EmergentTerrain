@@ -86,8 +86,8 @@ paths:
     post:
       operationId: projectResearchResult
       description: |
-        Accepts a research result for the game's idempotent display-only projection. This endpoint
-        cannot apply gameplay effects or recommendations.
+        Accepts only approved planning outcomes for the game's idempotent display-only projection.
+        This endpoint rejects effect recommendations, gameplay mutations, and unapproved outcomes.
       security:
         - researchResultKey: []
       requestBody:
@@ -101,6 +101,8 @@ paths:
           description: Result was accepted for idempotent display projection.
         '401':
           description: Missing or invalid research-result credential.
+        '400':
+          description: Result is outside the display-only projection policy.
 components:
   securitySchemes:
     researchContextKey:
@@ -262,7 +264,9 @@ components:
       properties:
         domain: { type: string, minLength: 1 }
         topic: { type: string, minLength: 1 }
-        outcome: { type: string, minLength: 1 }
+        outcome:
+          type: string
+          enum: [DRAFT_CANDIDATE_PLANNED, DRAFT_BRANCH_PREPARED]
         peerScore: { type: number, format: double }
     ResearchTopicReselectionPolicy:
       type: object

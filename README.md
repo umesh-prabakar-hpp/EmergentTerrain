@@ -96,6 +96,10 @@ game-owned bounded history and current policy, but remains planning-only until w
 covered. With matching
 `RESEARCH_RESULT_API_KEY` values, it retries delivery of the display-only result projection; this
 endpoint cannot apply gameplay effects.
+The game now enforces that display-only boundary as a negative policy: it accepts only the current
+planning outcomes and rejects nested effect recommendations, gameplay actions, mutations, or
+commands before the projection is queried or saved. Any future consequence needs a separately
+versioned contract plus game-owned validation and tests.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

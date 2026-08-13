@@ -40,6 +40,18 @@ class ResearchResultProjectionApiContractTest {
     }
 
     @Test
+    void rejectsAProjectionThatViolatesTheGameOwnedDisplayPolicy() {
+        ResearchResultProjectionService projections = mock(ResearchResultProjectionService.class);
+        ResearchResult result = result();
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("not approved"))
+                .when(projections).apply(result);
+
+        var response = new ResearchResultProjectionController(projections).receive(result);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
     void authenticatesOnlyThePublishedResultEndpointAndHeader() throws Exception {
         ResearchContextApiKeyFilter filter = new ResearchContextApiKeyFilter("context-key", "result-key");
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/game/research-results");

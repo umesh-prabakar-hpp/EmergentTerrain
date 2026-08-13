@@ -18,6 +18,7 @@ public class ResearchResultProjectionService {
     }
     @Transactional
     public void apply(ResearchResult result) {
+        ResearchResultProjectionPolicy.validate(result);
         if (projections.existsById(result.resultId())) return;
         try {
             projections.save(new ResearchResultProjection(result.resultId(), result.requestId(), result.workspaceId(),
