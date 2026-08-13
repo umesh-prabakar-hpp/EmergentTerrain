@@ -117,6 +117,10 @@ display-only. Its current negative validation policy admits only `DRAFT_CANDIDAT
 `DRAFT_BRANCH_PREPARED`, and rejects nested effect recommendations, gameplay actions, mutations,
 or commands before persistence. Do not add a gameplay mutation or effect recommendation without a
 separately versioned contract, an explicit game-owned validation policy, and contract tests.
+`ResearchResultDeliveryService` records game `400` result-projection policy rejections on the
+research-owned work item and excludes them from future delivery attempts; it leaves transport and
+server failures unpublished for retry. A rejection is audit/recovery state only—it does not permit
+the research service to modify game state or reinterpret the game policy.
 
 ## Required environment
 - Java 21

@@ -100,6 +100,9 @@ The game now enforces that display-only boundary as a negative policy: it accept
 planning outcomes and rejects nested effect recommendations, gameplay actions, mutations, or
 commands before the projection is queried or saved. Any future consequence needs a separately
 versioned contract plus game-owned validation and tests.
+Research records a game `400` result-projection policy rejection as terminal delivery state, preserving the
+result for audit while excluding it from retry. Transport failures remain eligible for bounded
+at-least-once retry, relying on the game projection's result-ID idempotency.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

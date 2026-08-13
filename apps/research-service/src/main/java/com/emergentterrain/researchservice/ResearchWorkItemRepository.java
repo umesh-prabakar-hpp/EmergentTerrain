@@ -13,7 +13,7 @@ interface ResearchWorkItemRepository extends JpaRepository<ResearchWorkItem, UUI
 
     List<ResearchWorkItem> findTop20ByStateOrderByAcceptedAtAsc(String state);
 
-    List<ResearchWorkItem> findTop20ByStateAndResultPublishedAtIsNullOrderByCompletedAtAsc(String state);
+    List<ResearchWorkItem> findTop20ByStateAndResultPublishedAtIsNullAndResultDeliveryRejectedAtIsNullOrderByCompletedAtAsc(String state);
 
     @Modifying
     @Query(value = """
