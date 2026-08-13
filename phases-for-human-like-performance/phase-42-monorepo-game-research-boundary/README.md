@@ -300,6 +300,45 @@ Browser → game service → research API → research service
 | 8. Authorized gameplay consequences | **IN PROGRESS (negative validation policy)** | The game now admits only the two planning outcomes for display projection and rejects nested effect recommendations, gameplay actions, mutations, and commands before persistence. It still has no positive effect contract or authority; any such contract requires separately versioned game-owned validation and tests. |
 | 9. Remove game dependency and cut over | **IN PROGRESS (result-delivery recovery and reconciliation)** | Result delivery now durably distinguishes a game `400` policy rejection from retryable authentication, transport, and server failures; rejected records stay auditable but are excluded from redelivery. A bounded research-owned delivery lease atomically elects one sender and permits stale-lease recovery after a crash; game result-ID idempotency remains the final at-least-once safeguard. The authenticated generic work-status read now exposes lifecycle/delivery metadata for restart reconciliation without leaking request context or result content. Still requires paper-output parity, independent recovery tests, and removal of game-model/database reads. |
 
+## Reviewed completion accounting — 2026-08-13
+
+The earlier 97% estimate overstated completion by treating frozen inputs and a dependent sidecar
+shadow audit as if the independent computation, narration/review, and cutover gates had passed.
+They have not. The conservative weighted accounting below is the current planning estimate:
+
+| Boundary | Weight | Credited | Reason |
+|---|---:|---:|---|
+| 1–3. Monorepo and tooling | 15% | 15% | Active monorepo layout and repository-relative tooling are complete. |
+| 4–6. Generic contract and durable delivery | 20% | 20% | Versioned contract, outbox, idempotent intake, result delivery, and status reconciliation are present. |
+| 7a. Frozen selection and branch preparation | 20% | 18% | Standard/branch parity and queue observations are frozen; whole live queue-consumption parity is still not captured or enabled. |
+| 7b. Computation, narration, review, publication | 25% | 8% | Inputs and default-off sidecar observations are durable, but the shadow still depends on the legacy delegate and no independently executable computation or paper workflow parity exists. |
+| 8. Game-effect boundary | 5% | 4% | The negative display-only policy is enforced; no separately versioned, game-owned positive-effect policy exists. |
+| 9. Cutover and dependency removal | 5% | 3% | Delivery leases, rejection audit, and status reconciliation exist; two-process recovery evidence and game dependency removal remain. |
+| **Total** | **100%** | **68%** | This percentage counts demonstrated ownership/parity, not scaffolding alone. |
+
+### Remaining gates
+
+1. **Independent computation parity (7b).** Implement a generic computation runner for a bounded
+   supported target that does not delegate to `MathPhysicsEngineDelegate` or the university
+   workflow. Compare its numeric values, structured findings, and failure semantics against the
+   frozen sidecar audit for identical input fingerprints. Keep the first comparison output
+   research-owned and non-publishing.
+2. **Narration, review, and publication parity (7b).** Extract stages one at a time after the
+   preceding computation comparison passes. Preserve deterministic result classification,
+   pre-registration ordering, trace grounding, and publication-label gates; do not emit a paper
+   or reader-facing claim until that whole preceding path has parity evidence.
+3. **Whole queue-consumption parity (7a).** Capture the remaining live queue-consumption cadence,
+   including retries and restart behavior, before wiring a selected conjecture or a queue mark to
+   the normal tick path.
+4. **Effect decision (8).** Retain the current negative policy unless a product requirement calls
+   for a gameplay consequence. If one is required, introduce a separately versioned effect
+   contract, a game-owned validator, and negative/positive contract tests; research must never
+   apply it directly.
+5. **Two-process cutover proof (9).** Run controlled game/research restart and recovery tests with
+   PostgreSQL and the sidecar available, use work-status reconciliation to verify every request,
+   then remove remaining game-model/repository reads and the transition-period `game-service`
+   artifact dependency only after the independent parity gates pass.
+
 1. **Establish a baseline.** Record current build, test, GPU smoke, and sidecar/proxy startup
    results before moving files.
 2. **Create the monorepo without changing behavior.** Import `EmergentTerrainGPUEngine` under
