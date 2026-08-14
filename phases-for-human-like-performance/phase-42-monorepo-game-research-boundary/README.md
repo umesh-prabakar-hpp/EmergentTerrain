@@ -300,6 +300,14 @@ Browser → game service → research API → research service
 | 8. Authorized gameplay consequences | **IN PROGRESS (negative validation policy)** | The game now admits only the two planning outcomes for display projection and rejects nested effect recommendations, gameplay actions, mutations, and commands before persistence. It still has no positive effect contract or authority; any such contract requires separately versioned game-owned validation and tests. |
 | 9. Remove game dependency and cut over | **IN PROGRESS (deterministic delivery recovery and reconciliation)** | Result delivery now durably distinguishes a game `400` policy rejection from retryable authentication, transport, and server failures; rejected records stay auditable but are excluded from redelivery. A bounded research-owned delivery lease atomically elects one sender and permits stale-lease recovery after a crash; game result-ID idempotency remains the final at-least-once safeguard. The authenticated generic work-status read exposes lifecycle/delivery metadata, including an active non-content lease timestamp, for restart reconciliation without leaking request context or result content. A default-off game observer now reads that status only for delivered outbox IDs and records idempotent game-owned observations without changing outbox state or research work. A clock-controlled harness proves a simulated process stop after a lease claim is reclaimable only after expiry. Still requires paper-output parity, live independent two-process recovery tests, and removal of game-model/database reads. |
 
+### Runtime-boundary regression guard — 2026-08-14
+
+The controlled shadow-only research process now has a focused Spring condition test that turns on
+both ordinary legacy scheduler flags and proves neither `UniversityService` nor
+`ConjectureMinerService` is instantiated. The future-composition eligibility read also treats
+malformed persisted parity evidence as an explicit ineligible state; it cannot become an implicit
+pass. These guards do not advance any live-parity, composition, or cutover gate.
+
 ## Reviewed completion accounting — 2026-08-13
 
 The earlier 97% estimate overstated completion by treating frozen inputs and a dependent sidecar

@@ -27,21 +27,25 @@ public class FrozenResearchCompositionEligibilityService {
     }
 
     public Eligibility assess(UUID draftId, UUID requestId, String inputFingerprint) {
-        ResearchComputationParity numeric = numericParities.findById(numericId(draftId))
-                .map(record -> record.toParity(objectMapper))
-                .orElse(null);
-        if (numeric == null) return Eligibility.NO_NUMERIC_PARITY;
-        if (!sameFrozenInput(numeric.draftId(), numeric.requestId(), numeric.inputFingerprint(),
-                draftId, requestId, inputFingerprint)) return Eligibility.FROZEN_INPUT_MISMATCH;
-        if (!ResearchComputationParity.MATCHED.equals(numeric.status())) return Eligibility.NUMERIC_MISMATCH;
+        try {
+            ResearchComputationParity numeric = numericParities.findById(numericId(draftId))
+                    .map(record -> record.toParity(objectMapper))
+                    .orElse(null);
+            if (numeric == null) return Eligibility.NO_NUMERIC_PARITY;
+            if (!sameFrozenInput(numeric.draftId(), numeric.requestId(), numeric.inputFingerprint(),
+                    draftId, requestId, inputFingerprint)) return Eligibility.FROZEN_INPUT_MISMATCH;
+            if (!ResearchComputationParity.MATCHED.equals(numeric.status())) return Eligibility.NUMERIC_MISMATCH;
 
-        ResearchComputationFailureParity failure = failureParities.findById(failureId(draftId))
-                .map(ResearchComputationFailureParityRecord::toParity).orElse(null);
-        if (failure == null) return Eligibility.ELIGIBLE;
-        if (!sameFrozenInput(failure.draftId(), failure.requestId(), failure.inputFingerprint(),
-                draftId, requestId, inputFingerprint)) return Eligibility.FROZEN_INPUT_MISMATCH;
-        return ResearchComputationFailureParity.MATCHED.equals(failure.status())
-                ? Eligibility.ELIGIBLE : Eligibility.FAILURE_MISMATCH;
+            ResearchComputationFailureParity failure = failureParities.findById(failureId(draftId))
+                    .map(ResearchComputationFailureParityRecord::toParity).orElse(null);
+            if (failure == null) return Eligibility.ELIGIBLE;
+            if (!sameFrozenInput(failure.draftId(), failure.requestId(), failure.inputFingerprint(),
+                    draftId, requestId, inputFingerprint)) return Eligibility.FROZEN_INPUT_MISMATCH;
+            return ResearchComputationFailureParity.MATCHED.equals(failure.status())
+                    ? Eligibility.ELIGIBLE : Eligibility.FAILURE_MISMATCH;
+        } catch (RuntimeException malformedEvidence) {
+            return Eligibility.INVALID_EVIDENCE;
+        }
     }
 
     private static boolean sameFrozenInput(UUID observedDraftId, UUID observedRequestId, String observedFingerprint,
@@ -64,6 +68,7 @@ public class FrozenResearchCompositionEligibilityService {
         NO_NUMERIC_PARITY,
         FROZEN_INPUT_MISMATCH,
         NUMERIC_MISMATCH,
-        FAILURE_MISMATCH
+        FAILURE_MISMATCH,
+        INVALID_EVIDENCE
     }
 }

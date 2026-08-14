@@ -57,6 +57,22 @@ class FrozenResearchCompositionEligibilityServiceTest {
                 .isEqualTo(FrozenResearchCompositionEligibilityService.Eligibility.NUMERIC_MISMATCH);
     }
 
+    @Test
+    void failsClosedWhenPersistedParityEvidenceCannotBeRead() {
+        UUID draftId = UUID.randomUUID();
+        ResearchComputationParityRepository numeric = mock(ResearchComputationParityRepository.class);
+        ResearchComputationFailureParityRepository failures = mock(ResearchComputationFailureParityRepository.class);
+        ResearchComputationParity parity = new ResearchComputationParity(numericId(draftId), draftId,
+                UUID.randomUUID(), ResearchComputationParity.NUMERIC_ENVELOPE_PARITY_V1, "frozen-input",
+                ResearchComputationParity.MATCHED, mapper.createObjectNode(), Instant.EPOCH);
+        when(numeric.findById(numericId(draftId))).thenReturn(Optional.of(new ResearchComputationParityRecord(parity,
+                "not-valid-json")));
+
+        assertThat(new FrozenResearchCompositionEligibilityService(numeric, failures, mapper)
+                .assess(draftId, parity.requestId(), "frozen-input"))
+                .isEqualTo(FrozenResearchCompositionEligibilityService.Eligibility.INVALID_EVIDENCE);
+    }
+
     private static UUID numericId(UUID draftId) {
         return UUID.nameUUIDFromBytes(("research-computation-parity:" + draftId).getBytes(StandardCharsets.UTF_8));
     }
