@@ -7,6 +7,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.time.Instant;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,6 +18,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ResearchResultDeliveryServiceTest {
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
@@ -101,6 +105,35 @@ class ResearchResultDeliveryServiceTest {
 
         verify(repository, never()).acknowledgeResultDelivery(eq(item.getRequestId()), any(), any());
         verify(repository, never()).releaseResultDeliveryClaim(eq(item.getRequestId()), any());
+    }
+
+    @Test
+    void aNewWorkerReclaimsAStaleLeaseAfterThePreviousProcessStopsMidDelivery() throws Exception {
+        ResearchWorkItem item = completedItem();
+        ResearchWorkItemRepository repository = mock(ResearchWorkItemRepository.class);
+        when(repository.findResultDeliveryCandidates(eq("COMPLETED"), any(), any())).thenReturn(List.of(item));
+        when(repository.claimResultDelivery(eq(item.getRequestId()), any(), any())).thenReturn(1);
+        Instant firstStart = Instant.parse("2026-08-13T12:00:00Z");
+        ResearchResultDeliveryService stoppedWorker = new ResearchResultDeliveryService(repository, mapper, "result-key",
+                result -> { throw new AssertionError("simulated process stop after lease claim"); },
+                Duration.ofSeconds(30), Clock.fixed(firstStart, java.time.ZoneOffset.UTC));
+
+        assertThatThrownBy(stoppedWorker::deliverCompleted).isInstanceOf(AssertionError.class);
+        verify(repository, never()).releaseResultDeliveryClaim(eq(item.getRequestId()), any());
+
+        ResearchResultDeliveryService recoveredWorker = new ResearchResultDeliveryService(repository, mapper, "result-key",
+                result -> { }, Duration.ofSeconds(30),
+                Clock.fixed(firstStart.plusSeconds(31), java.time.ZoneOffset.UTC));
+        recoveredWorker.deliverCompleted();
+
+        verify(repository, org.mockito.Mockito.times(2)).claimResultDelivery(eq(item.getRequestId()), any(), any());
+        var staleBefore = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(repository, org.mockito.Mockito.times(2)).findResultDeliveryCandidates(eq("COMPLETED"),
+                staleBefore.capture(), any());
+        assertThat(staleBefore.getAllValues()).containsExactly(firstStart.minusSeconds(30),
+                firstStart.plusSeconds(1));
+        verify(repository).acknowledgeResultDelivery(eq(item.getRequestId()),
+                eq(firstStart.plusSeconds(31)), eq(firstStart.plusSeconds(31)));
     }
 
     private static void candidates(ResearchWorkItemRepository repository, ResearchWorkItem item) {

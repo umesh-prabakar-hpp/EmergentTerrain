@@ -18,6 +18,7 @@ public class ResearchWorkStatusService {
     public Optional<ResearchWorkStatus> status(UUID requestId) {
         return workItems.findById(requestId).map(item -> new ResearchWorkStatus(item.getRequestId(), item.getState(),
                 item.getAttempts(), item.getAcceptedAt(), item.getCompletedAt(), item.getResultPublishedAt(),
-                item.getResultDeliveryRejectedAt(), item.getResultDeliveryRejection()));
+                item.getResultDeliveryClaimedAt(), item.getResultDeliveryRejectedAt(),
+                item.getResultDeliveryRejection()));
     }
 }

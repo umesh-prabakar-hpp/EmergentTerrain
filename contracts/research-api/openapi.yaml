@@ -348,6 +348,10 @@ components:
         acceptedAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time }
         resultPublishedAt: { type: string, format: date-time }
+        resultDeliveryClaimedAt:
+          type: string
+          format: date-time
+          description: Read-only timestamp of an active bounded result-delivery lease, when present.
         resultDeliveryRejectedAt: { type: string, format: date-time }
         resultDeliveryRejection: { type: string }
     ResearchResult:

@@ -136,12 +136,16 @@ after a crash, and game result-ID idempotency remains the final at-least-once sa
 `GET /api/v1/research/work/{requestId}` is the research-owned reconciliation read: it uses the
 work API key and returns only generic durable lifecycle/delivery metadata. It must not return the
 work payload, frozen game context, result content, game entities, or effects.
+Its delivery metadata may include the timestamp of an active bounded delivery lease, but never a
+result body. The deterministic clock-controlled recovery harness proves a post-claim process stop
+is reclaimable only after lease expiry; it is not a substitute for the required live two-process
+recovery test or game-dependency removal.
 `RESEARCH_COMPUTATION_AUDIT_ENABLED=true` enables the default-off controlled sidecar shadow audit
 for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes only
 `research_computation_audits` and compact provenance on the existing planning result; it must not
 invoke the university workflow, narration, publication, or game effects. This is parity evidence,
 not an independent computation implementation or a permission to claim a paper result.
-Phase 42 completion is conservatively accounted at 95%, not the former 97% readiness-based
+Phase 42 completion is conservatively accounted at 96%, not the former 97% readiness-based
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.
