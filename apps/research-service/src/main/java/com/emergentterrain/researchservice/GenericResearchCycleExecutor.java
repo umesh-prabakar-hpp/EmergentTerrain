@@ -24,6 +24,7 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     private final FrozenResearchComputationAuditor computationAuditor;
     private final FrozenResearchComputationRunner computationRunner;
     private final FrozenResearchComputationParityAuditor computationParityAuditor;
+    private final FrozenResearchComputationFailureParityAuditor computationFailureParityAuditor;
 
     @Autowired
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
@@ -31,7 +32,8 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
                                         FrozenResearchExecutionPreparer executionPreparer,
                                         FrozenResearchComputationAuditor computationAuditor,
                                         FrozenResearchComputationRunner computationRunner,
-                                        FrozenResearchComputationParityAuditor computationParityAuditor) {
+                                        FrozenResearchComputationParityAuditor computationParityAuditor,
+                                        FrozenResearchComputationFailureParityAuditor computationFailureParityAuditor) {
         this.objectMapper = objectMapper;
         this.draftPlanner = draftPlanner;
         this.branchPreparer = branchPreparer;
@@ -39,13 +41,14 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         this.computationAuditor = computationAuditor;
         this.computationRunner = computationRunner;
         this.computationParityAuditor = computationParityAuditor;
+        this.computationFailureParityAuditor = computationFailureParityAuditor;
     }
 
     /** Compatibility constructor for planning-only tests and callers. */
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
                                         FrozenResearchBranchPreparer branchPreparer,
                                         FrozenResearchExecutionPreparer executionPreparer) {
-        this(objectMapper, draftPlanner, branchPreparer, executionPreparer, null, null, null);
+        this(objectMapper, draftPlanner, branchPreparer, executionPreparer, null, null, null, null);
     }
 
     @Override public boolean supports(String workType) { return "RESEARCH_CYCLE".equals(workType); }
@@ -83,16 +86,30 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         if (draft.computationSpecification() != null) {
             findings.set("draftFrozenComputation", objectMapper.valueToTree(draft.computationSpecification()));
         }
-        Optional<com.emergentterrain.researchcontract.ResearchComputationAudit> legacyAudit = computationAuditor == null
-                ? Optional.empty() : computationAuditor.audit(draft, executionPreparation);
+        Optional<com.emergentterrain.researchcontract.ResearchComputationAudit> legacyAudit;
+        Optional<com.emergentterrain.researchcontract.ResearchComputationRun> directRun;
+        if (failureParityActive()) {
+            Attempt<com.emergentterrain.researchcontract.ResearchComputationAudit> legacyAttempt = attempt(
+                    () -> computationAuditor.audit(draft, executionPreparation));
+            Attempt<com.emergentterrain.researchcontract.ResearchComputationRun> directAttempt = attempt(
+                    () -> computationRunner.run(draft, executionPreparation));
+            if (legacyAttempt.failure() != null || directAttempt.failure() != null) {
+                computationFailureParityAuditor.compare(draft, executionPreparation, legacyAttempt.failure(), directAttempt.failure())
+                        .ifPresent(parity -> appendFailureParityProvenance(findings, parity));
+                rethrow(legacyAttempt.failure() != null ? legacyAttempt.failure() : directAttempt.failure());
+            }
+            legacyAudit = legacyAttempt.result();
+            directRun = directAttempt.result();
+        } else {
+            legacyAudit = computationAuditor == null ? Optional.empty() : computationAuditor.audit(draft, executionPreparation);
+            directRun = computationRunner == null ? Optional.empty() : computationRunner.run(draft, executionPreparation);
+        }
         legacyAudit.ifPresent(audit -> {
                 ObjectNode provenance = findings.putObject("draftComputationAudit");
                 provenance.put("auditId", audit.auditId().toString());
                 provenance.put("auditVersion", audit.auditVersion());
                 provenance.put("inputFingerprint", audit.inputFingerprint());
             });
-        Optional<com.emergentterrain.researchcontract.ResearchComputationRun> directRun = computationRunner == null
-                ? Optional.empty() : computationRunner.run(draft, executionPreparation);
         directRun.ifPresent(run -> {
                 ObjectNode provenance = findings.putObject("draftDirectComputationRun");
                 provenance.put("runId", run.runId().toString());
@@ -121,6 +138,42 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
                 standardCatalog ? "DRAFT_CANDIDATE_PLANNED" : "DRAFT_BRANCH_PREPARED",
                 summary, findings, Instant.now());
     }
+
+    private boolean failureParityActive() {
+        return computationFailureParityAuditor != null && computationFailureParityAuditor.enabled()
+                && computationAuditor != null && computationAuditor.enabled()
+                && computationRunner != null && computationRunner.enabled();
+    }
+
+    private static void appendFailureParityProvenance(ObjectNode findings,
+                                                      com.emergentterrain.researchcontract.ResearchComputationFailureParity parity) {
+        ObjectNode provenance = findings.putObject("draftComputationFailureParity");
+        provenance.put("comparisonId", parity.comparisonId().toString());
+        provenance.put("comparisonVersion", parity.comparisonVersion());
+        provenance.put("inputFingerprint", parity.inputFingerprint());
+        provenance.put("status", parity.status());
+    }
+
+    private static <T> Attempt<T> attempt(AttemptedWork<T> work) {
+        try {
+            return new Attempt<>(work.run(), null);
+        } catch (Throwable failure) {
+            return new Attempt<>(Optional.empty(), failure);
+        }
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
+        throw new IllegalStateException("Controlled computation audit failed", failure);
+    }
+
+    @FunctionalInterface
+    private interface AttemptedWork<T> {
+        Optional<T> run() throws Exception;
+    }
+
+    private record Attempt<T>(Optional<T> result, Throwable failure) { }
 
     /** Exposes compact immutable selection provenance; it never reads or consumes a live queue. */
     private static void appendQueueObservationProvenance(ResearchWorkRequest request, ObjectNode findings) {

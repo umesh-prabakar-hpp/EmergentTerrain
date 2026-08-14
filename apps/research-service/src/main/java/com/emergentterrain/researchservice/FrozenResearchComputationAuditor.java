@@ -48,6 +48,10 @@ public class FrozenResearchComputationAuditor {
         this.enabled = enabled;
     }
 
+    public boolean enabled() {
+        return enabled;
+    }
+
     public Optional<ResearchComputationAudit> audit(ResearchDraftPlan draft, ResearchExecutionPreparation preparation) {
         if (!enabled || !ResearchExecutionPreparation.COMPUTATION_FROZEN_AWAITING_EXECUTION.equals(preparation.readiness())
                 || !ResearchDraftExecutionIntent.STANDARD_CATALOG.equals(draft.executionKind())

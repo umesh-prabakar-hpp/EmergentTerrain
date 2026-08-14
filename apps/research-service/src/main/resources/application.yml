@@ -42,6 +42,9 @@ app:
     computation-parity-audit:
       # Enables an immutable numeric-envelope comparison only when both controlled observations exist.
       enabled: ${RESEARCH_COMPUTATION_PARITY_AUDIT_ENABLED:false}
+    computation-failure-parity-audit:
+      # Requires both controlled observations; records only classified outcomes, then preserves the original retry behavior.
+      enabled: ${RESEARCH_COMPUTATION_FAILURE_PARITY_AUDIT_ENABLED:false}
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}

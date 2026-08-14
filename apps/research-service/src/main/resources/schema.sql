@@ -165,3 +165,16 @@ CREATE TABLE IF NOT EXISTS research_computation_parities (
     compared_envelope_json TEXT NOT NULL,
     compared_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+-- Controlled failure comparisons retain canonical categories only, then let normal work retry semantics proceed.
+CREATE TABLE IF NOT EXISTS research_computation_failure_parities (
+    comparison_id UUID PRIMARY KEY,
+    draft_id UUID NOT NULL UNIQUE,
+    request_id UUID NOT NULL UNIQUE,
+    comparison_version VARCHAR(128) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    legacy_outcome VARCHAR(64) NOT NULL,
+    direct_outcome VARCHAR(64) NOT NULL,
+    compared_at TIMESTAMP WITH TIME ZONE NOT NULL
+);

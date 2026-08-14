@@ -173,7 +173,7 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), null, runner, null).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), null, runner, null, null).execute(request);
 
         assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
         assertThat(result.findings().path("draftDirectComputationRun").path("runnerVersion").asText())
@@ -210,11 +210,40 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), legacy, direct, parity).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), legacy, direct, parity, null).execute(request);
 
         assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
         assertThat(result.findings().path("draftComputationParity").path("status").asText())
                 .isEqualTo(com.emergentterrain.researchcontract.ResearchComputationParity.MATCHED);
+    }
+
+    @Test
+    void recordsControlledFailureParityThenPreservesTheOriginalFailureForExistingRetryHandling() {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID subjectId = UUID.randomUUID();
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(FrozenDraftSelectionFixtures.primaryInput(subjectId)));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 14,
+                Instant.parse("2026-08-06T12:06:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        FrozenResearchComputationAuditor legacy = mock(FrozenResearchComputationAuditor.class);
+        FrozenResearchComputationRunner direct = mock(FrozenResearchComputationRunner.class);
+        FrozenResearchComputationFailureParityAuditor failureParity = mock(FrozenResearchComputationFailureParityAuditor.class);
+        IllegalStateException original = new IllegalStateException("sidecar unavailable");
+        when(legacy.enabled()).thenReturn(true);
+        when(direct.enabled()).thenReturn(true);
+        when(failureParity.enabled()).thenReturn(true);
+        when(legacy.audit(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenThrow(original);
+        when(direct.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.empty());
+        when(failureParity.compare(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.same(original), org.mockito.ArgumentMatchers.isNull())).thenReturn(java.util.Optional.empty());
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> new GenericResearchCycleExecutor(mapper,
+                new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), legacy, direct, null, failureParity)
+                .execute(request))).isSameAs(original);
+        org.mockito.Mockito.verify(direct).run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(failureParity).compare(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.same(original), org.mockito.ArgumentMatchers.isNull());
     }
 
     private static FrozenResearchExecutionPreparer executionPreparer(ObjectMapper mapper) {

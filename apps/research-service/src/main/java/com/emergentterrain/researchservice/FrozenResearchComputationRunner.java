@@ -33,6 +33,10 @@ public class FrozenResearchComputationRunner {
         this.enabled = enabled;
     }
 
+    public boolean enabled() {
+        return enabled;
+    }
+
     public Optional<ResearchComputationRun> run(ResearchDraftPlan draft, ResearchExecutionPreparation preparation) {
         if (!enabled || !ResearchExecutionPreparation.COMPUTATION_FROZEN_AWAITING_EXECUTION.equals(preparation.readiness())
                 || !ResearchDraftExecutionIntent.STANDARD_CATALOG.equals(draft.executionKind())
