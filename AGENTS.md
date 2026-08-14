@@ -48,6 +48,11 @@ The game context now carries a bounded, contiguous lifecycle-event window with a
 sequence range. Research replays every unseen event; if its saved sequence falls outside the window
 or the epoch changes, it must remain inconclusive and require a fresh baseline rather than skip or
 invent transitions.
+When the default-off conjecture-consumption audit is enabled, that same context carries a separate
+bounded post-consumption audit window with its own process epoch and sequence range. It contains
+only legacy conjectures already marked investigated, never a live queue snapshot. An epoch change,
+empty window, or sequence gap is inconclusive evidence for the controlled audit and must never
+select, consume, route, or recreate a queue transition.
 `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and
@@ -132,7 +137,7 @@ for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes
 `research_computation_audits` and compact provenance on the existing planning result; it must not
 invoke the university workflow, narration, publication, or game effects. This is parity evidence,
 not an independent computation implementation or a permission to claim a paper result.
-Phase 42 completion is conservatively accounted at 88%, not the former 97% readiness-based
+Phase 42 completion is conservatively accounted at 93%, not the former 97% readiness-based
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.
@@ -152,8 +157,10 @@ authorize composition, alter delivery, or change game state.
 The game-owned `app.research.conjecture-consumption-audit.enabled` journal is default-off. It may
 record an event only after the legacy cycle has marked the exact conjecture investigated, using a
 restart-idempotent file under `simulation-history/research-queue-consumption/`. It must never
-select, route, expose, or let research mutate the live queue; use its events solely to capture
-remaining consumption/restart cadence before any cutover decision.
+select, route, expose, or let research mutate the live queue. While enabled, the game context may
+publish only its bounded post-consumption audit window; epoch changes or unavailable sequences are
+inconclusive, so use its events solely to capture remaining consumption/restart cadence before any
+cutover decision.
 
 ## Required environment
 - Java 21

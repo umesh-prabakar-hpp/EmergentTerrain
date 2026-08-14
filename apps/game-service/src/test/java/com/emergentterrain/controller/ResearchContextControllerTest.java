@@ -7,6 +7,8 @@ import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.repo.RoomStateRepository;
 import com.emergentterrain.research.ResearchLifecycleExecutionRegistry;
+import com.emergentterrain.research.LegacyConjectureConsumptionAuditService;
+import com.emergentterrain.researchcontract.ResearchConjectureConsumptionWindow;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -41,7 +43,10 @@ class ResearchContextControllerTest {
 
         ResearchLifecycleExecutionRegistry lifecycleExecutions = new ResearchLifecycleExecutionRegistry();
         lifecycleExecutions.advanced(roomId, 27L, 1200L);
-        var response = new ResearchContextController(rooms, bots, states, new ObjectMapper(), lifecycleExecutions)
+        LegacyConjectureConsumptionAuditService consumptionAudits = mock(LegacyConjectureConsumptionAuditService.class);
+        when(consumptionAudits.windowForRoom(roomId)).thenReturn(null);
+        var response = new ResearchContextController(rooms, bots, states, new ObjectMapper(), lifecycleExecutions,
+                consumptionAudits)
                 .researchContext(roomId);
 
         assertTrue(response.getStatusCode().is2xxSuccessful());
@@ -54,5 +59,30 @@ class ResearchContextControllerTest {
         assertNotNull(response.getBody().lifecycleExecution());
         assertTrue(response.getBody().lifecycleExecution().advanced());
         assertEquals(1200L, response.getBody().lifecycleExecution().adultToElder());
+        assertEquals(null, response.getBody().conjectureConsumptionWindow());
+    }
+
+    @Test
+    void exposesOnlyTheBoundedPostConsumptionAuditWindow() {
+        RoomRepository rooms = mock(RoomRepository.class);
+        RoomBotRepository bots = mock(RoomBotRepository.class);
+        RoomStateRepository states = mock(RoomStateRepository.class);
+        Room room = mock(Room.class);
+        UUID roomId = UUID.randomUUID();
+        when(rooms.findById(roomId)).thenReturn(Optional.of(room));
+        when(states.findByRoom(room)).thenReturn(Optional.empty());
+        when(bots.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE)).thenReturn(java.util.List.of());
+
+        var event = new com.emergentterrain.researchcontract.ResearchConjectureConsumptionEvent(UUID.randomUUID(),
+                roomId, 7L, 27L, "author-1", "MATHEMATICS", "source-1", "ORDINARY_QUEUE",
+                java.time.Instant.parse("2026-08-13T00:00:00Z"));
+        var window = new ResearchConjectureConsumptionWindow("process-a", 7L, 7L, java.util.List.of(event));
+        LegacyConjectureConsumptionAuditService consumptionAudits = mock(LegacyConjectureConsumptionAuditService.class);
+        when(consumptionAudits.windowForRoom(roomId)).thenReturn(window);
+
+        var response = new ResearchContextController(rooms, bots, states, new ObjectMapper(),
+                new ResearchLifecycleExecutionRegistry(), consumptionAudits).researchContext(roomId);
+
+        assertEquals(window, response.getBody().conjectureConsumptionWindow());
     }
 }

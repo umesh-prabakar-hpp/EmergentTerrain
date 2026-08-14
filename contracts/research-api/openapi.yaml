@@ -414,6 +414,11 @@ components:
           description: Active game-owned bots selected for the research cycle at this snapshot.
           items:
             $ref: '#/components/schemas/ResearchBotSnapshot'
+        conjectureConsumptionWindow:
+          $ref: '#/components/schemas/ResearchConjectureConsumptionWindow'
+          description: >
+            Default-off, bounded post-consumption audit evidence. It is never a live queue
+            snapshot and grants no selection, routing, or mutation authority.
     ResearchBotSnapshot:
       type: object
       required: [botId, type]
@@ -423,3 +428,32 @@ components:
         lifecycleJson:
           type: string
           description: Opaque bot research lifecycle payload; the game remains its source of truth during migration.
+    ResearchConjectureConsumptionWindow:
+      type: object
+      description: >
+        Bounded, contiguous observations of conjectures that the legacy game cycle has already
+        marked investigated. An epoch change or a missing sequence is audit-inconclusive and must
+        not be treated as a queue transition.
+      required: [epoch, firstSequence, latestSequence, events]
+      properties:
+        epoch: { type: string, minLength: 1 }
+        firstSequence: { type: integer, format: int64, minimum: 0 }
+        latestSequence: { type: integer, format: int64, minimum: 0 }
+        events:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/ResearchConjectureConsumptionEvent'
+    ResearchConjectureConsumptionEvent:
+      type: object
+      required: [eventId, roomId, sequence, gameTick, authorBotId, domain, sourceId, selectionKind, observedAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        roomId: { type: string, format: uuid }
+        sequence: { type: integer, format: int64, minimum: 1 }
+        gameTick: { type: integer, format: int64, minimum: 0 }
+        authorBotId: { type: string, minLength: 1 }
+        domain: { type: string, minLength: 1 }
+        sourceId: { type: string, minLength: 1 }
+        selectionKind: { type: string, enum: [PROMOTED_ANOMALY, ORDINARY_QUEUE] }
+        observedAt: { type: string, format: date-time }

@@ -6,7 +6,9 @@ import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.repo.RoomStateRepository;
 import com.emergentterrain.research.ResearchLifecycleExecutionRegistry;
+import com.emergentterrain.research.LegacyConjectureConsumptionAuditService;
 import com.emergentterrain.researchcontract.ResearchBotSnapshot;
+import com.emergentterrain.researchcontract.ResearchConjectureConsumptionWindow;
 import com.emergentterrain.researchcontract.ResearchExecutionContext;
 import com.emergentterrain.researchcontract.ResearchLifecycleExecutionWindow;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,15 +31,18 @@ public class ResearchContextController {
     private final RoomStateRepository states;
     private final ObjectMapper objectMapper;
     private final ResearchLifecycleExecutionRegistry lifecycleExecutions;
+    private final LegacyConjectureConsumptionAuditService conjectureConsumptionAudits;
 
     public ResearchContextController(RoomRepository rooms, RoomBotRepository bots, RoomStateRepository states,
                                      ObjectMapper objectMapper,
-                                     ResearchLifecycleExecutionRegistry lifecycleExecutions) {
+                                     ResearchLifecycleExecutionRegistry lifecycleExecutions,
+                                     LegacyConjectureConsumptionAuditService conjectureConsumptionAudits) {
         this.rooms = rooms;
         this.bots = bots;
         this.states = states;
         this.objectMapper = objectMapper;
         this.lifecycleExecutions = lifecycleExecutions;
+        this.conjectureConsumptionAudits = conjectureConsumptionAudits;
     }
 
     @GetMapping("/api/v1/game/rooms/{roomId}/research-context")
@@ -56,8 +61,10 @@ public class ResearchContextController {
         long gameTick = government.path("tick").asLong(0L);
         ResearchLifecycleExecutionWindow lifecycleWindow = lifecycleExecutions
                 .windowForGameTick(roomId, gameTick).orElse(null);
+        ResearchConjectureConsumptionWindow consumptionWindow = conjectureConsumptionAudits.windowForRoom(roomId);
         return ResponseEntity.ok(new ResearchExecutionContext(roomId, gameTick, Instant.now(), government,
-                activeBots, lifecycleWindow == null ? null : lifecycleWindow.events().getLast(), lifecycleWindow));
+                activeBots, lifecycleWindow == null ? null : lifecycleWindow.events().getLast(), lifecycleWindow,
+                consumptionWindow));
     }
 
     private JsonNode parseGovernment(String json) {

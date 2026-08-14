@@ -14,7 +14,8 @@ public record ResearchExecutionContext(
         JsonNode governmentState,
         List<ResearchBotSnapshot> activeBots,
         ResearchLifecycleExecution lifecycleExecution,
-        ResearchLifecycleExecutionWindow lifecycleExecutionWindow) {
+        ResearchLifecycleExecutionWindow lifecycleExecutionWindow,
+        ResearchConjectureConsumptionWindow conjectureConsumptionWindow) {
 
     public ResearchExecutionContext {
         activeBots = activeBots == null ? List.of() : List.copyOf(activeBots);
@@ -23,12 +24,20 @@ public record ResearchExecutionContext(
     /** Source-compatible convenience constructor for callers that do not yet publish execution metadata. */
     public ResearchExecutionContext(UUID roomId, long gameTick, Instant capturedAt, JsonNode governmentState,
                                     List<ResearchBotSnapshot> activeBots) {
-        this(roomId, gameTick, capturedAt, governmentState, activeBots, null, null);
+        this(roomId, gameTick, capturedAt, governmentState, activeBots, null, null, null);
     }
 
     public ResearchExecutionContext(UUID roomId, long gameTick, Instant capturedAt, JsonNode governmentState,
                                     List<ResearchBotSnapshot> activeBots,
                                     ResearchLifecycleExecution lifecycleExecution) {
-        this(roomId, gameTick, capturedAt, governmentState, activeBots, lifecycleExecution, null);
+        this(roomId, gameTick, capturedAt, governmentState, activeBots, lifecycleExecution, null, null);
+    }
+
+    public ResearchExecutionContext(UUID roomId, long gameTick, Instant capturedAt, JsonNode governmentState,
+                                    List<ResearchBotSnapshot> activeBots,
+                                    ResearchLifecycleExecution lifecycleExecution,
+                                    ResearchLifecycleExecutionWindow lifecycleExecutionWindow) {
+        this(roomId, gameTick, capturedAt, governmentState, activeBots, lifecycleExecution,
+                lifecycleExecutionWindow, null);
     }
 }

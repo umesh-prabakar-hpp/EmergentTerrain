@@ -39,6 +39,12 @@ class LegacyConjectureConsumptionAuditServiceTest {
         assertThat(json.path("gameTick").asLong()).isEqualTo(44L);
         assertThat(json.path("sourceId").asText()).isEqualTo(sourceId.toString());
         assertThat(json.path("selectionKind").asText()).isEqualTo("ORDINARY_QUEUE");
+        assertThat(json.path("sequence").asLong()).isEqualTo(1L);
+        var window = service.windowForRoom(roomId);
+        assertThat(window.epoch()).isNotBlank();
+        assertThat(window.firstSequence()).isEqualTo(1L);
+        assertThat(window.latestSequence()).isEqualTo(1L);
+        assertThat(window.events()).hasSize(1);
     }
 
     @Test
@@ -49,11 +55,41 @@ class LegacyConjectureConsumptionAuditServiceTest {
         service.record(UUID.randomUUID(), 44L, author(), conjecture(UUID.randomUUID()), "PROMOTED_ANOMALY");
 
         assertThat(Files.exists(temporaryDirectory)).isTrue();
+        assertThat(service.windowForRoom(UUID.randomUUID())).isNull();
         try (var entries = Files.list(temporaryDirectory)) {
             assertThat(entries.toList()).isEmpty();
         } catch (Exception failure) {
             throw new AssertionError(failure);
         }
+    }
+
+    @Test
+    void boundsTheContextWindowAndMakesARestartRequireANewAuditBaseline() {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        LegacyConjectureConsumptionAuditService service = new LegacyConjectureConsumptionAuditService(mapper, true,
+                temporaryDirectory);
+        UUID roomId = UUID.randomUUID();
+        Researcher author = author();
+        Conjecture conjecture = conjecture(UUID.randomUUID());
+
+        for (long gameTick = 1L; gameTick <= 129L; gameTick++) {
+            service.record(roomId, gameTick, author, conjecture, "ORDINARY_QUEUE");
+        }
+
+        var window = service.windowForRoom(roomId);
+        assertThat(window.events()).hasSize(128);
+        assertThat(window.firstSequence()).isEqualTo(2L);
+        assertThat(window.latestSequence()).isEqualTo(129L);
+        assertThat(window.events()).extracting(event -> event.sequence()).containsExactlyElementsOf(
+                java.util.stream.LongStream.rangeClosed(2L, 129L).boxed().toList());
+
+        LegacyConjectureConsumptionAuditService restarted = new LegacyConjectureConsumptionAuditService(mapper, true,
+                temporaryDirectory);
+        var afterRestart = restarted.windowForRoom(roomId);
+        assertThat(afterRestart.epoch()).isNotEqualTo(window.epoch());
+        assertThat(afterRestart.events()).isEmpty();
+        restarted.record(roomId, 129L, author, conjecture, "ORDINARY_QUEUE");
+        assertThat(restarted.windowForRoom(roomId).events()).isEmpty();
     }
 
     private static Researcher author() {
