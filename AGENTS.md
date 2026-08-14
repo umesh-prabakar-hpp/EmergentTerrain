@@ -57,8 +57,9 @@ select, consume, route, or recreate a queue transition.
 consumer for that window. It persists only completed-event observations and epoch-change or
 sequence-gap incidents in research-owned tables; it must not replay, select, consume, or route a
 conjecture. Enable it only alongside the game audit during controlled two-process evidence capture.
-`RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
-importing snapshots and checkpointing, which is the supported live migration-audit mode. The
+`RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally avoids instantiating the legacy university and
+conjecture-miner scheduler while still importing snapshots and checkpointing, which is the
+supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and
 `spring.jpa.hibernate.ddl-auto=none`; it must never contend with the game runtime for shared
 database schema updates. Its ownership worker has a dedicated scheduler, so long-running discovery

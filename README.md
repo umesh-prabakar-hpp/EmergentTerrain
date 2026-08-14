@@ -153,7 +153,8 @@ route a conjecture. Live promoted/ordinary and restart evidence is still require
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,
-checkpoint, and lifecycle-parity path without executing the legacy university cycle. The launcher
+checkpoint, and lifecycle-parity path without instantiating the legacy university cycle or its
+conjecture-miner schedule. The launcher
 uses an absolute game-config path and disables Hibernate DDL for this shared-database transition;
 the research-owned schema script performs the compatible idempotent upgrades required by its own
 replica, state, checkpoint, and audit tables. The migration worker has a dedicated scheduler so

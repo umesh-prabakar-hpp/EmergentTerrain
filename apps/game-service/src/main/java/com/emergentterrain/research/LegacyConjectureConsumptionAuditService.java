@@ -6,6 +6,7 @@ import com.emergentterrain.researchcontract.ResearchConjectureConsumptionWindow;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +36,7 @@ public class LegacyConjectureConsumptionAuditService {
     private final Path journalRoot;
     private final ConcurrentHashMap<UUID, RoomJournal> journals = new ConcurrentHashMap<>();
 
+    @Autowired
     public LegacyConjectureConsumptionAuditService(ObjectMapper objectMapper,
                                                    @Value("${app.research.conjecture-consumption-audit.enabled:false}") boolean enabled,
                                                    @Value("${app.research.conjecture-consumption-audit.journal-root:simulation-history/research-queue-consumption}") String journalRoot) {

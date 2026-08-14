@@ -32,7 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Proves the frozen conjecture handoff uses one durable game-owned reservation/outbox pair. */
-@SpringBootTest(classes = EmergentTerrainApplication.class)
+@SpringBootTest(classes = EmergentTerrainApplication.class,
+        properties = "app.research-api.reconciliation.enabled=true")
 @ActiveProfiles("test")
 class FrozenResearchWorkSubmissionPersistenceTest {
     @Autowired private GameResearchWorkMapper mapper;

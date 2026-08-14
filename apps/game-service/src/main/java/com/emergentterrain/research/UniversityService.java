@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @ConditionalOnProperty(name = "app.university.enabled", havingValue = "true", matchIfMissing = false)
+@ConditionalOnExpression("${app.research-service.lifecycle-shadow.shadow-only:false} == false")
 public class UniversityService {
 
     private static final Logger log = LoggerFactory.getLogger(UniversityService.class);

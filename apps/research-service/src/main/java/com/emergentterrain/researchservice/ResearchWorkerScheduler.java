@@ -8,6 +8,7 @@ import com.emergentterrain.research.UniversityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -53,6 +54,7 @@ public class ResearchWorkerScheduler {
                                    ResearchLifecycleProjectionService lifecycleProjector,
                                    ResearchConjectureConsumptionAuditService conjectureConsumptionAudit,
                                    ResearchWorkerCheckpointRepository checkpoints,
+                                   @Autowired(required = false)
                                    UniversityService university,
                                    @Value("${app.research-service.lifecycle-shadow.shadow-only:false}")
                                    boolean lifecycleShadowOnly,
@@ -112,6 +114,9 @@ public class ResearchWorkerScheduler {
                 if (lifecycleShadowOnly) {
                     checkpoints.save(new ResearchWorkerCheckpoint(room.getId(), tick));
                     continue;
+                }
+                if (university == null) {
+                    throw new IllegalStateException("Legacy university executor is unavailable outside shadow-only mode");
                 }
                 List<RoomBot> active = activeBotsFor(room, context);
                 if (active.isEmpty()) {

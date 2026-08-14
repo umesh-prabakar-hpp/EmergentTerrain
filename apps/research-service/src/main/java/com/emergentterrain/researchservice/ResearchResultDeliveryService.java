@@ -2,6 +2,7 @@ package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +25,7 @@ public class ResearchResultDeliveryService {
     private final Duration claimLease;
     private final Clock clock;
 
+    @Autowired
     public ResearchResultDeliveryService(ResearchWorkItemRepository workItems, ObjectMapper objectMapper,
                                          RestClient.Builder builder,
                                          @Value("${app.research-service.result-delivery.base-url}") String baseUrl,

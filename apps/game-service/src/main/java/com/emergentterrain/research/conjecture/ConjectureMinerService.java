@@ -3,6 +3,7 @@ package com.emergentterrain.research.conjecture;
 import com.emergentterrain.repo.ConjectureRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ import java.util.Optional;
  */
 @Service
 @ConditionalOnProperty(name = "app.research.conjectureMiner.enabled", havingValue = "true")
+@ConditionalOnExpression("${app.research-service.lifecycle-shadow.shadow-only:false} == false")
 public class ConjectureMinerService implements ConjectureQueue {
 
     private static final Logger log = LoggerFactory.getLogger(ConjectureMinerService.class);

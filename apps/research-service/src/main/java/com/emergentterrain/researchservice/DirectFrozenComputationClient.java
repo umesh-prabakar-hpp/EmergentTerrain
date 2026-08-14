@@ -3,6 +3,7 @@ package com.emergentterrain.researchservice;
 import com.emergentterrain.researchcontract.ResearchComputationSpecification;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ public class DirectFrozenComputationClient {
     private final URI endpoint;
     private final Duration timeout;
 
+    @Autowired
     public DirectFrozenComputationClient(ObjectMapper mapper,
                                          @Value("${app.research-service.direct-computation-audit.base-url:http://127.0.0.1:8088}") String baseUrl,
                                          @Value("${app.research-service.direct-computation-audit.timeout-ms:15000}") long timeoutMs) {
