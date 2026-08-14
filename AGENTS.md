@@ -173,7 +173,9 @@ authorize composition, alter delivery, or change game state.
 future composition extraction. It requires matched numeric parity for the exact frozen
 draft/request/fingerprint and, when a controlled failure-parity record exists, a matching failure
 outcome. It is deliberately not wired to compose, publish, deliver, or change game state until live
-controlled evidence passes.
+controlled evidence passes. When a controlled computation observation is present, its planning
+result may expose only this eligibility status as display-safe provenance; that must not invoke
+composition, narration, publication, delivery changes, or any game authority.
 The game-owned `app.research.conjecture-consumption-audit.enabled` journal is default-off. It may
 record an event only after the legacy cycle has marked the exact conjecture investigated, using a
 restart-idempotent file under `simulation-history/research-queue-consumption/`. It must never

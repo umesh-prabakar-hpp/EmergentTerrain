@@ -25,6 +25,7 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
     private final FrozenResearchComputationRunner computationRunner;
     private final FrozenResearchComputationParityAuditor computationParityAuditor;
     private final FrozenResearchComputationFailureParityAuditor computationFailureParityAuditor;
+    private final FrozenResearchCompositionEligibilityService compositionEligibility;
 
     @Autowired
     public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
@@ -33,7 +34,8 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
                                         FrozenResearchComputationAuditor computationAuditor,
                                         FrozenResearchComputationRunner computationRunner,
                                         FrozenResearchComputationParityAuditor computationParityAuditor,
-                                        FrozenResearchComputationFailureParityAuditor computationFailureParityAuditor) {
+                                        FrozenResearchComputationFailureParityAuditor computationFailureParityAuditor,
+                                        FrozenResearchCompositionEligibilityService compositionEligibility) {
         this.objectMapper = objectMapper;
         this.draftPlanner = draftPlanner;
         this.branchPreparer = branchPreparer;
@@ -42,6 +44,19 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
         this.computationRunner = computationRunner;
         this.computationParityAuditor = computationParityAuditor;
         this.computationFailureParityAuditor = computationFailureParityAuditor;
+        this.compositionEligibility = compositionEligibility;
+    }
+
+    /** Compatibility constructor for audit tests that do not inspect composition eligibility. */
+    public GenericResearchCycleExecutor(ObjectMapper objectMapper, FrozenResearchDraftPlanner draftPlanner,
+                                        FrozenResearchBranchPreparer branchPreparer,
+                                        FrozenResearchExecutionPreparer executionPreparer,
+                                        FrozenResearchComputationAuditor computationAuditor,
+                                        FrozenResearchComputationRunner computationRunner,
+                                        FrozenResearchComputationParityAuditor computationParityAuditor,
+                                        FrozenResearchComputationFailureParityAuditor computationFailureParityAuditor) {
+        this(objectMapper, draftPlanner, branchPreparer, executionPreparer, computationAuditor, computationRunner,
+                computationParityAuditor, computationFailureParityAuditor, null);
     }
 
     /** Compatibility constructor for planning-only tests and callers. */
@@ -124,6 +139,11 @@ public class GenericResearchCycleExecutor implements ResearchWorkExecutor {
                 provenance.put("inputFingerprint", parity.inputFingerprint());
                 provenance.put("status", parity.status());
             });
+        }
+        if (compositionEligibility != null && (legacyAudit.isPresent() || directRun.isPresent())) {
+            ObjectNode provenance = findings.putObject("draftCompositionEligibility");
+            provenance.put("status", compositionEligibility.assess(draft.draftId(), draft.requestId(),
+                    executionPreparation.inputFingerprint()).name());
         }
         appendQueueObservationProvenance(request, findings);
         UUID resultId = UUID.nameUUIDFromBytes(("research-result:" + request.requestId())

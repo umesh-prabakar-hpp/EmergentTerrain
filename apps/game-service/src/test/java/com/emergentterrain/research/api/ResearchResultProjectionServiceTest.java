@@ -36,6 +36,19 @@ class ResearchResultProjectionServiceTest {
     }
 
     @Test
+    void storesCompositionEligibilityOnlyAsDisplaySafePlanningProvenance() {
+        ResearchResultProjectionRepository repository = mock(ResearchResultProjectionRepository.class);
+        ResearchResultProjectionService service = new ResearchResultProjectionService(repository, mapper);
+        ResearchResult result = result("DRAFT_CANDIDATE_PLANNED", mapper.createObjectNode()
+                .putObject("draftCompositionEligibility").put("status", "ELIGIBLE"));
+        when(repository.existsById(result.resultId())).thenReturn(false);
+
+        service.apply(result);
+
+        verify(repository).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void rejectsAnEffectRecommendationBeforeItCanBeProjected() {
         ResearchResultProjectionRepository repository = mock(ResearchResultProjectionRepository.class);
         ResearchResultProjectionService service = new ResearchResultProjectionService(repository, mapper);

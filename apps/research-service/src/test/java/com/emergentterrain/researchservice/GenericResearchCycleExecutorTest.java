@@ -218,6 +218,37 @@ class GenericResearchCycleExecutorTest {
     }
 
     @Test
+    void exposesCompositionEligibilityOnlyAsDisplaySafeAuditProvenance() {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID subjectId = UUID.randomUUID();
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(FrozenDraftSelectionFixtures.primaryInput(subjectId)));
+        ResearchWorkRequest request = new ResearchWorkRequest(UUID.randomUUID(), UUID.randomUUID(), "RESEARCH_CYCLE", 14,
+                Instant.parse("2026-08-06T12:06:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        FrozenResearchComputationRunner direct = mock(FrozenResearchComputationRunner.class);
+        FrozenResearchCompositionEligibilityService eligibility = mock(FrozenResearchCompositionEligibilityService.class);
+        when(direct.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of(new com.emergentterrain.researchcontract.ResearchComputationRun(
+                        UUID.randomUUID(), UUID.randomUUID(), request.requestId(),
+                        com.emergentterrain.researchcontract.ResearchComputationRun.DIRECT_SIDECAR_SCAN_V1,
+                        "direct-input", mapper.createObjectNode(), Instant.now())));
+        when(eligibility.assess(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(request.requestId()),
+                org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(FrozenResearchCompositionEligibilityService.Eligibility.ELIGIBLE);
+
+        ResearchResult result = new GenericResearchCycleExecutor(mapper,
+                new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), null, direct, null, null,
+                eligibility).execute(request);
+
+        assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
+        assertThat(result.findings().path("draftCompositionEligibility").path("status").asText())
+                .isEqualTo("ELIGIBLE");
+        org.mockito.Mockito.verify(eligibility).assess(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(request.requestId()), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
     void recordsControlledFailureParityThenPreservesTheOriginalFailureForExistingRetryHandling() {
         ObjectMapper mapper = new ObjectMapper();
         UUID subjectId = UUID.randomUUID();

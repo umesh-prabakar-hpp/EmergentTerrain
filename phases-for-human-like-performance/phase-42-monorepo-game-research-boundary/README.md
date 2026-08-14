@@ -306,7 +306,9 @@ The controlled shadow-only research process now has a focused Spring condition t
 both ordinary legacy scheduler flags and proves neither `UniversityService` nor
 `ConjectureMinerService` is instantiated. The future-composition eligibility read also treats
 malformed persisted parity evidence as an explicit ineligible state; it cannot become an implicit
-pass. These guards do not advance any live-parity, composition, or cutover gate.
+pass. When a controlled computation observation is present, the planning result exposes that
+eligibility only as display-safe audit provenance; it does not compose a finding. These guards do
+not advance any live-parity, composition, or cutover gate.
 
 ## Reviewed completion accounting — 2026-08-13
 

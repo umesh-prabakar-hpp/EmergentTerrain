@@ -160,6 +160,9 @@ uses an absolute game-config path and disables Hibernate DDL for this shared-dat
 the research-owned schema script performs the compatible idempotent upgrades required by its own
 replica, state, checkpoint, and audit tables. The migration worker has a dedicated scheduler so
 long-running discovery work cannot starve its audit ticks.
+When a controlled direct or legacy computation audit has run, its planning-only result also exposes
+the fail-closed research-owned composition-eligibility status as display-safe provenance. This is
+an audit read, not composition, narration, publication, or a gameplay consequence.
 
 ## Features
 - User registration + login (session-based)
