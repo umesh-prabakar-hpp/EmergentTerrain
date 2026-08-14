@@ -7,6 +7,7 @@ import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.MathPhysicsEngineDelegate;
+import com.emergentterrain.research.LegacyConjectureConsumptionAuditService;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PopulationEcologyService;
@@ -42,6 +43,7 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** Pins legacy conjecture branches against the frozen generic planner. */
@@ -288,6 +290,8 @@ class FrozenResearchCycleLegacyParityTest {
         AtomicInteger investigated = new AtomicInteger();
         ResearchCycleService cycle = new ResearchCycleService();
         cycle.setConjectureTopicProvider(provider(legacyConjecture, investigated, promoted));
+        LegacyConjectureConsumptionAuditService consumptionAudit = mock(LegacyConjectureConsumptionAuditService.class);
+        cycle.setConjectureConsumptionAuditService(consumptionAudit);
         AtomicReference<PaperDraft> legacyDraft = new AtomicReference<>();
         cycle.runCycle(roomId, List.of(
                         new Researcher(firstId.toString(), first),
@@ -302,6 +306,9 @@ class FrozenResearchCycleLegacyParityTest {
         assertThat(frozen.catalogSelection()).isNull();
         assertThat(frozen.branch().conjectureSelection()).isEqualTo(frozenConjecture);
         assertThat(investigated).hasValue(1);
+        verify(consumptionAudit).record(org.mockito.ArgumentMatchers.eq(roomId), org.mockito.ArgumentMatchers.eq(gameTick), org.mockito.ArgumentMatchers.any(Researcher.class),
+                org.mockito.ArgumentMatchers.same(legacyConjecture),
+                org.mockito.ArgumentMatchers.eq(promoted ? "PROMOTED_ANOMALY" : "ORDINARY_QUEUE"));
     }
 
     private List<ResearchPaper> cooledHistory(String status, double peerScore) {

@@ -132,7 +132,7 @@ for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes
 `research_computation_audits` and compact provenance on the existing planning result; it must not
 invoke the university workflow, narration, publication, or game effects. This is parity evidence,
 not an independent computation implementation or a permission to claim a paper result.
-Phase 42 completion is conservatively accounted at 83%, not the former 97% readiness-based
+Phase 42 completion is conservatively accounted at 88%, not the former 97% readiness-based
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.
@@ -149,6 +149,11 @@ composition, paper workflow progression, result delivery, or game effects.
 audits. It records only canonical paired attempt categories, then rethrows the original failure so
 the existing work-item deferral and retry behavior is unchanged. It must not retain exception text,
 authorize composition, alter delivery, or change game state.
+The game-owned `app.research.conjecture-consumption-audit.enabled` journal is default-off. It may
+record an event only after the legacy cycle has marked the exact conjecture investigated, using a
+restart-idempotent file under `simulation-history/research-queue-consumption/`. It must never
+select, route, expose, or let research mutate the live queue; use its events solely to capture
+remaining consumption/restart cadence before any cutover decision.
 
 ## Required environment
 - Java 21

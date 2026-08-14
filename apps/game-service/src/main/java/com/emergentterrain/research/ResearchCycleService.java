@@ -211,10 +211,18 @@ public class ResearchCycleService {
      */
     private volatile com.emergentterrain.research.conjecture.ConjectureTopicProvider conjectureTopicProvider;
 
+    private volatile LegacyConjectureConsumptionAuditService conjectureConsumptionAuditService;
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setConjectureTopicProvider(
             com.emergentterrain.research.conjecture.ConjectureTopicProvider provider) {
         this.conjectureTopicProvider = provider;
+    }
+
+    /** Default-off observation seam; it receives only an already-successfully-consumed source. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setConjectureConsumptionAuditService(LegacyConjectureConsumptionAuditService service) {
+        this.conjectureConsumptionAuditService = service;
     }
 
     /**
@@ -517,6 +525,7 @@ public class ResearchCycleService {
                     conjectureTopicProvider.selectPromotedAnomaly(domain);
             if (promoted.isPresent()) {
                 conjectureTopicProvider.markInvestigated(promoted.get());
+                recordConjectureConsumption(roomId, gameTick, author, promoted.get(), "PROMOTED_ANOMALY");
                 publishAnomalyPromotion(roomId, author, promoted.get(), gameTick, ctx);
                 return;
             }
@@ -526,6 +535,7 @@ public class ResearchCycleService {
                 // Phase 30 Wave 0 — record consumption so the queue rotates away
                 // from this conjecture next cycle (no-op unless rotation flag on).
                 conjectureTopicProvider.markInvestigated(conjecture.get());
+                recordConjectureConsumption(roomId, gameTick, author, conjecture.get(), "ORDINARY_QUEUE");
                 publishConjectureInvestigation(roomId, author, conjecture.get(), gameTick, ctx);
                 return;
             }
@@ -732,6 +742,13 @@ public class ResearchCycleService {
             pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
                 .ifPresent(r -> r.recordPublished(0.1));
         }
+    }
+
+    private void recordConjectureConsumption(UUID roomId, long gameTick, Researcher author,
+                                             com.emergentterrain.research.conjecture.Conjecture conjecture,
+                                             String selectionKind) {
+        LegacyConjectureConsumptionAuditService audit = conjectureConsumptionAuditService;
+        if (audit != null) audit.record(roomId, gameTick, author, conjecture, selectionKind);
     }
 
     // ---- Conjecture investigation cycle (Phase 23.4b) ----
