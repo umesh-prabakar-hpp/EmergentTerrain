@@ -171,8 +171,8 @@ the existing work-item deferral and retry behavior is unchanged. It must not ret
 authorize composition, alter delivery, or change game state.
 `FrozenResearchCompositionEligibilityService` is the fail-closed research-owned precondition for a
 future composition extraction. It requires matched numeric parity for the exact frozen
-draft/request/fingerprint and, when a controlled failure-parity record exists, a matching failure
-outcome. It is deliberately not wired to compose, publish, deliver, or change game state until live
+draft/request/fingerprint, every scalar/exact field in the supported numeric envelope to be present
+and equal, and, when a controlled failure-parity record exists, a matching failure outcome. It is deliberately not wired to compose, publish, deliver, or change game state until live
 controlled evidence passes. When a controlled computation observation is present, its planning
 result may expose only this eligibility status as display-safe provenance; that must not invoke
 composition, narration, publication, delivery changes, or any game authority.

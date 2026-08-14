@@ -2,6 +2,7 @@ package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchComputationFailureParity;
 import com.emergentterrain.researchcontract.ResearchComputationParity;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +15,8 @@ import java.util.UUID;
  */
 @Service
 public class FrozenResearchCompositionEligibilityService {
+    private static final String[] SCALAR_FIELDS = {"primaryValue", "secondaryValue", "tertiaryValue", "reviewValue"};
+    private static final String[] EXACT_FIELDS = {"claimStatus", "theoryConsistent"};
     private final ResearchComputationParityRepository numericParities;
     private final ResearchComputationFailureParityRepository failureParities;
     private final ObjectMapper objectMapper;
@@ -35,6 +38,9 @@ public class FrozenResearchCompositionEligibilityService {
             if (!sameFrozenInput(numeric.draftId(), numeric.requestId(), numeric.inputFingerprint(),
                     draftId, requestId, inputFingerprint)) return Eligibility.FROZEN_INPUT_MISMATCH;
             if (!ResearchComputationParity.MATCHED.equals(numeric.status())) return Eligibility.NUMERIC_MISMATCH;
+            if (!completeMatchingNumericEnvelope(numeric.comparedEnvelope())) {
+                return Eligibility.NUMERIC_ENVELOPE_INCOMPLETE;
+            }
 
             ResearchComputationFailureParity failure = failureParities.findById(failureId(draftId))
                     .map(ResearchComputationFailureParityRecord::toParity).orElse(null);
@@ -54,6 +60,30 @@ public class FrozenResearchCompositionEligibilityService {
                 && observedFingerprint.equals(inputFingerprint);
     }
 
+    private static boolean completeMatchingNumericEnvelope(JsonNode envelope) {
+        if (envelope == null || !envelope.isObject()) return false;
+        for (String field : SCALAR_FIELDS) {
+            JsonNode comparison = envelope.path(field);
+            JsonNode legacy = comparison.path("legacy");
+            JsonNode direct = comparison.path("direct");
+            if (!comparison.isObject() || !comparison.path("matched").asBoolean(false)
+                    || !legacy.isNumber() || !direct.isNumber()
+                    || Double.doubleToLongBits(legacy.asDouble()) != Double.doubleToLongBits(direct.asDouble())) {
+                return false;
+            }
+        }
+        for (String field : EXACT_FIELDS) {
+            JsonNode comparison = envelope.path(field);
+            JsonNode legacy = comparison.path("legacy");
+            JsonNode direct = comparison.path("direct");
+            if (!comparison.isObject() || !comparison.path("matched").asBoolean(false)
+                    || legacy.isMissingNode() || direct.isMissingNode() || !legacy.equals(direct)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static UUID numericId(UUID draftId) {
         return UUID.nameUUIDFromBytes(("research-computation-parity:" + draftId).getBytes(StandardCharsets.UTF_8));
     }
@@ -68,6 +98,7 @@ public class FrozenResearchCompositionEligibilityService {
         NO_NUMERIC_PARITY,
         FROZEN_INPUT_MISMATCH,
         NUMERIC_MISMATCH,
+        NUMERIC_ENVELOPE_INCOMPLETE,
         FAILURE_MISMATCH,
         INVALID_EVIDENCE
     }
