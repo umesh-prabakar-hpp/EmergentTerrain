@@ -39,6 +39,9 @@ app:
       enabled: ${RESEARCH_DIRECT_COMPUTATION_AUDIT_ENABLED:false}
       base-url: ${RESEARCH_DIRECT_COMPUTATION_BASE_URL:http://127.0.0.1:8088}
       timeout-ms: ${RESEARCH_DIRECT_COMPUTATION_TIMEOUT_MS:15000}
+    computation-parity-audit:
+      # Enables an immutable numeric-envelope comparison only when both controlled observations exist.
+      enabled: ${RESEARCH_COMPUTATION_PARITY_AUDIT_ENABLED:false}
     game-context:
       # database preserves the current standalone mode; remote uses the game-owned v1 context API.
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}

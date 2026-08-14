@@ -112,7 +112,7 @@ context, result content, game entities, or effect authority.
 for a fully frozen standard input it stores one research-owned numeric observation for later parity
 comparison. It does not route a new result, invoke the university workflow, narrate, publish, or
 change game state.
-Phase 42 is conservatively **73% complete** after review and the direct-computation increment. Frozen inputs, display-only delivery,
+Phase 42 is conservatively **78% complete** after review and the direct-computation comparison increment. Frozen inputs, display-only delivery,
 and sidecar shadow observations are evidence-gathering seams, not independent computation or
 paper-workflow parity. See the Phase 42 README for the weighted accounting and the remaining
 independent-computation, narration/review, queue-consumption, effect-policy, and two-process
@@ -122,6 +122,10 @@ target. It calls the sidecar's documented scan endpoint from the research servic
 research-owned raw observation for comparison with the legacy shadow; it does not invoke the
 legacy delegate, narrate, publish, or alter the display-only planning result. Enable it only for a
 controlled audit with `RESEARCH_DIRECT_COMPUTATION_AUDIT_ENABLED=true`.
+With the legacy and direct audit flags both enabled, set
+`RESEARCH_COMPUTATION_PARITY_AUDIT_ENABLED=true` to retain a research-owned `MATCHED` or
+`MISMATCHED` comparison of their shared numeric envelope. This is still audit evidence, not a
+paper result or execution authorization.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

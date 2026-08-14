@@ -132,7 +132,7 @@ for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes
 `research_computation_audits` and compact provenance on the existing planning result; it must not
 invoke the university workflow, narration, publication, or game effects. This is parity evidence,
 not an independent computation implementation or a permission to claim a paper result.
-Phase 42 completion is conservatively accounted at 73%, not the former 97% readiness-based
+Phase 42 completion is conservatively accounted at 78%, not the former 97% readiness-based
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.
@@ -141,6 +141,10 @@ sidecar comparison target: it supports only frozen `MATHEMATICS` / `Prime Conste
 stores a raw research-owned observation, and must not use `MathPhysicsEngineDelegate`, compose a
 paper-facing result, affect the planning outcome, or change game state. Treat its aligned numeric
 envelope as parity evidence until it matches the legacy shadow for the same frozen fingerprint.
+`RESEARCH_COMPUTATION_PARITY_AUDIT_ENABLED` is separately default-off and may compare only an
+already-persisted pair of matching-fingerprint legacy/direct observations. It records both values
+and a `MATCHED` or `MISMATCHED` status in research-owned storage; neither status authorizes
+composition, paper workflow progression, result delivery, or game effects.
 
 ## Required environment
 - Java 21

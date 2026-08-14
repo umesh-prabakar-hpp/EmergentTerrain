@@ -152,3 +152,16 @@ CREATE TABLE IF NOT EXISTS research_computation_runs (
     observed_output_json TEXT NOT NULL,
     observed_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+-- A parity record compares the shared numeric envelope of one legacy shadow and one direct run.
+-- It remains research-owned evidence and never authorizes a result, claim, publication, or effect.
+CREATE TABLE IF NOT EXISTS research_computation_parities (
+    comparison_id UUID PRIMARY KEY,
+    draft_id UUID NOT NULL UNIQUE,
+    request_id UUID NOT NULL UNIQUE,
+    comparison_version VARCHAR(128) NOT NULL,
+    input_fingerprint VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    compared_envelope_json TEXT NOT NULL,
+    compared_at TIMESTAMP WITH TIME ZONE NOT NULL
+);

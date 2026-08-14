@@ -173,11 +173,48 @@ class GenericResearchCycleExecutorTest {
 
         ResearchResult result = new GenericResearchCycleExecutor(mapper,
                 new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
-                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), null, runner).execute(request);
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), null, runner, null).execute(request);
 
         assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
         assertThat(result.findings().path("draftDirectComputationRun").path("runnerVersion").asText())
                 .isEqualTo(com.emergentterrain.researchcontract.ResearchComputationRun.DIRECT_SIDECAR_SCAN_V1);
+    }
+
+    @Test
+    void exposesMatchedParityOnlyAsPlanningProvenance() {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID subjectId = UUID.randomUUID();
+        UUID draftId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        ObjectNode context = mapper.createObjectNode();
+        context.set("draftSelection", mapper.valueToTree(FrozenDraftSelectionFixtures.primaryInput(subjectId)));
+        ResearchWorkRequest request = new ResearchWorkRequest(requestId, UUID.randomUUID(), "RESEARCH_CYCLE", 13,
+                Instant.parse("2026-08-06T12:05:00Z"), List.of(new ResearchSubject(subjectId, "AGENT", null)), context);
+        FrozenResearchComputationAuditor legacy = mock(FrozenResearchComputationAuditor.class);
+        FrozenResearchComputationRunner direct = mock(FrozenResearchComputationRunner.class);
+        FrozenResearchComputationParityAuditor parity = mock(FrozenResearchComputationParityAuditor.class);
+        var audit = new com.emergentterrain.researchcontract.ResearchComputationAudit(UUID.randomUUID(), draftId, requestId,
+                com.emergentterrain.researchcontract.ResearchComputationAudit.SIDECAR_SHADOW_AUDIT_V1, "parity-input",
+                mapper.createObjectNode(), Instant.now());
+        var run = new com.emergentterrain.researchcontract.ResearchComputationRun(UUID.randomUUID(), draftId, requestId,
+                com.emergentterrain.researchcontract.ResearchComputationRun.DIRECT_SIDECAR_SCAN_V1, "parity-input",
+                mapper.createObjectNode(), Instant.now());
+        var comparison = new com.emergentterrain.researchcontract.ResearchComputationParity(UUID.randomUUID(), draftId, requestId,
+                com.emergentterrain.researchcontract.ResearchComputationParity.NUMERIC_ENVELOPE_PARITY_V1, "parity-input",
+                com.emergentterrain.researchcontract.ResearchComputationParity.MATCHED, mapper.createObjectNode(), Instant.now());
+        when(legacy.audit(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of(audit));
+        when(direct.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of(run));
+        when(parity.compare(audit, run)).thenReturn(java.util.Optional.of(comparison));
+
+        ResearchResult result = new GenericResearchCycleExecutor(mapper,
+                new FrozenResearchDraftPlanner(mock(ResearchDraftPlanRepository.class), mapper),
+                new FrozenResearchBranchPreparer(mapper), executionPreparer(mapper), legacy, direct, parity).execute(request);
+
+        assertThat(result.outcome()).isEqualTo("DRAFT_CANDIDATE_PLANNED");
+        assertThat(result.findings().path("draftComputationParity").path("status").asText())
+                .isEqualTo(com.emergentterrain.researchcontract.ResearchComputationParity.MATCHED);
     }
 
     private static FrozenResearchExecutionPreparer executionPreparer(ObjectMapper mapper) {

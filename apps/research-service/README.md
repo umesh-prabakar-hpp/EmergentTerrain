@@ -73,6 +73,10 @@ writes its raw sidecar response to `research_computation_runs`. It does not call
 paper workflow, result-delivery authority, or game state. Keep it paired with the existing legacy
 shadow audit only to compare the aligned numeric envelope and controlled failures for the identical
 frozen fingerprint.
+Set `RESEARCH_COMPUTATION_PARITY_AUDIT_ENABLED=true` only with both preceding audit flags. It
+persists one immutable `MATCHED` or `MISMATCHED` numeric-envelope comparison in
+`research_computation_parities`; mismatches retain both values for review and cannot alter a
+planning result, publish a paper, or trigger game delivery.
 
 To exercise game delivery, start both processes with the same `RESEARCH_WORK_API_KEY` and set the
 game's `app.research-api.mode=outbox`. The game writes its own transactional outbox record before
