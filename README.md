@@ -112,11 +112,15 @@ That status now includes a non-content-bearing active delivery-lease timestamp w
 the bounded send attempt. The delivery service has a clock-controlled restart harness proving a
 post-claim process stop is eligible for reclaim only after its lease expires; this is not a live
 two-process cutover proof.
+With `app.research-api.mode=outbox`, `RESEARCH_WORK_RECONCILIATION_ENABLED=true` enables the
+separate game-owned observer for delivered request IDs. It reads the authenticated generic status
+endpoint and writes idempotent reconciliation observations, but never retries work, changes the
+outbox state, or controls research. Treat it as evidence wiring until a live two-process run passes.
 `RESEARCH_COMPUTATION_AUDIT_ENABLED=true` is a controlled, default-off sidecar shadow-audit mode:
 for a fully frozen standard input it stores one research-owned numeric observation for later parity
 comparison. It does not route a new result, invoke the university workflow, narrate, publish, or
 change game state.
-Phase 42 is conservatively **96% complete** after review and the deterministic result-delivery recovery increment. Frozen inputs, display-only delivery,
+Phase 42 remains conservatively **96% complete** after the game-side reconciliation observer increment. Frozen inputs, display-only delivery,
 and sidecar shadow observations are evidence-gathering seams, not independent computation or
 paper-workflow parity. See the Phase 42 README for the weighted accounting and the remaining
 independent-computation, narration/review, queue-consumption, effect-policy, and two-process

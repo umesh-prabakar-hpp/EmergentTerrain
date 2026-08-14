@@ -140,6 +140,11 @@ Its delivery metadata may include the timestamp of an active bounded delivery le
 result body. The deterministic clock-controlled recovery harness proves a post-claim process stop
 is reclaimable only after lease expiry; it is not a substitute for the required live two-process
 recovery test or game-dependency removal.
+When `app.research-api.mode=outbox`, the separately default-off
+`RESEARCH_WORK_RECONCILIATION_ENABLED` observer may read generic status only for already delivered
+outbox request IDs and write idempotent game-owned audit records. It must never retry work, change
+outbox state, mutate research, or act as cutover authorization; it is evidence wiring until a live
+two-process recovery run passes.
 `RESEARCH_COMPUTATION_AUDIT_ENABLED=true` enables the default-off controlled sidecar shadow audit
 for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes only
 `research_computation_audits` and compact provenance on the existing planning result; it must not
