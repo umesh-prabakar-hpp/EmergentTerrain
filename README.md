@@ -136,6 +136,9 @@ With the legacy and direct audit flags both enabled, set
 paper result or execution authorization.
 `RESEARCH_COMPUTATION_FAILURE_PARITY_AUDIT_ENABLED=true` additionally compares canonical failure
 categories for the two observations; it preserves the original error and ordinary retry behavior.
+The research-owned pre-composition eligibility query fails closed unless persisted numeric parity
+matches the same frozen draft/request/fingerprint; if controlled failure evidence exists, it must
+also match. The query is not wired to compose, publish, deliver, or alter a planning result.
 Set `app.research.conjecture-consumption-audit.enabled=true` only for a controlled legacy-cycle
 audit. After the existing legacy queue marks a conjecture investigated, the game writes one
 restart-idempotent, game-owned event under `simulation-history/research-queue-consumption/`. This
