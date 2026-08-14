@@ -39,6 +39,7 @@ public class ResearchWorkerScheduler {
     private final ResearchBotStateService botStates;
     private final ResearchLifecycleShadowService lifecycleShadow;
     private final ResearchLifecycleProjectionService lifecycleProjector;
+    private final ResearchConjectureConsumptionAuditService conjectureConsumptionAudit;
     private final ResearchWorkerCheckpointRepository checkpoints;
     private final UniversityService university;
     private final boolean lifecycleShadowOnly;
@@ -50,6 +51,7 @@ public class ResearchWorkerScheduler {
                                    ResearchBotStateService botStates,
                                    ResearchLifecycleShadowService lifecycleShadow,
                                    ResearchLifecycleProjectionService lifecycleProjector,
+                                   ResearchConjectureConsumptionAuditService conjectureConsumptionAudit,
                                    ResearchWorkerCheckpointRepository checkpoints,
                                    UniversityService university,
                                    @Value("${app.research-service.lifecycle-shadow.shadow-only:false}")
@@ -63,6 +65,7 @@ public class ResearchWorkerScheduler {
         this.botStates = botStates;
         this.lifecycleShadow = lifecycleShadow;
         this.lifecycleProjector = lifecycleProjector;
+        this.conjectureConsumptionAudit = conjectureConsumptionAudit;
         this.checkpoints = checkpoints;
         this.university = university;
         this.lifecycleShadowOnly = lifecycleShadowOnly;
@@ -83,6 +86,7 @@ public class ResearchWorkerScheduler {
                 ResearchGameContext context = gameContext.contextFor(room);
                 botReplicas.apply(room.getId(), context);
                 botStates.seedFromSnapshot(room.getId(), context);
+                conjectureConsumptionAudit.observe(room.getId(), context.conjectureConsumptionWindow());
                 if (context.activeBots().isEmpty()) {
                     continue;
                 }

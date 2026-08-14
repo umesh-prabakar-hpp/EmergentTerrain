@@ -29,6 +29,7 @@ class ResearchWorkerSchedulerTest {
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
         ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
         ResearchLifecycleProjectionService lifecycleProjector = mock(ResearchLifecycleProjectionService.class);
+        ResearchConjectureConsumptionAuditService consumptionAudit = mock(ResearchConjectureConsumptionAuditService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -45,12 +46,13 @@ class ResearchWorkerSchedulerTest {
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow, lifecycleProjector,
-                checkpoints, university, false, 1000L)
+                consumptionAudit, checkpoints, university, false, 1000L)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(1L), isNull());
         verify(botReplicas).apply(eq(roomId), org.mockito.ArgumentMatchers.any());
         verify(botStates).seedFromSnapshot(eq(roomId), org.mockito.ArgumentMatchers.any());
+        verify(consumptionAudit).observe(eq(roomId), isNull());
         verify(lifecycleShadow).compareAgainstGameSnapshot(eq(roomId), eq(0L),
                 eq(List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));
         verify(checkpoints).save(org.mockito.ArgumentMatchers.argThat(checkpoint ->
@@ -66,6 +68,7 @@ class ResearchWorkerSchedulerTest {
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
         ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
         ResearchLifecycleProjectionService lifecycleProjector = mock(ResearchLifecycleProjectionService.class);
+        ResearchConjectureConsumptionAuditService consumptionAudit = mock(ResearchConjectureConsumptionAuditService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -82,7 +85,7 @@ class ResearchWorkerSchedulerTest {
         when(checkpoints.findById(roomId)).thenReturn(Optional.of(new ResearchWorkerCheckpoint(roomId, 41L)));
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow, lifecycleProjector,
-                checkpoints, university, false, 1000L)
+                consumptionAudit, checkpoints, university, false, 1000L)
                 .runResearchTicks();
 
         verify(university).maybeTick(eq(roomId), eq(activeBots), eq(42L), isNull());
@@ -107,6 +110,7 @@ class ResearchWorkerSchedulerTest {
         ResearchBotStateService botStates = mock(ResearchBotStateService.class);
         ResearchLifecycleShadowService lifecycleShadow = mock(ResearchLifecycleShadowService.class);
         ResearchLifecycleProjectionService lifecycleProjector = mock(ResearchLifecycleProjectionService.class);
+        ResearchConjectureConsumptionAuditService consumptionAudit = mock(ResearchConjectureConsumptionAuditService.class);
         ResearchWorkerCheckpointRepository checkpoints = mock(ResearchWorkerCheckpointRepository.class);
         UniversityService university = mock(UniversityService.class);
         Room room = mock(Room.class);
@@ -120,7 +124,7 @@ class ResearchWorkerSchedulerTest {
         when(checkpoints.findById(roomId)).thenReturn(Optional.empty());
 
         new ResearchWorkerScheduler(rooms, bots, gameContext, botReplicas, botStates, lifecycleShadow, lifecycleProjector,
-                checkpoints, university, true, 1000L).runResearchTicks();
+                consumptionAudit, checkpoints, university, true, 1000L).runResearchTicks();
 
         verify(lifecycleShadow).compareAgainstGameSnapshot(eq(roomId), eq(0L),
                 eq(List.of(new ResearchBotSnapshot(botId, "scientist", "{}"))));

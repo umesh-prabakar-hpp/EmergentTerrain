@@ -63,6 +63,35 @@ CREATE INDEX IF NOT EXISTS research_bot_states_room_idx ON research_bot_states (
 CREATE INDEX IF NOT EXISTS research_lifecycle_shadow_records_room_observed_idx
     ON research_lifecycle_shadow_records (room_id, observed_at DESC);
 
+-- Default-off, research-owned evidence for the game context's completed-consumption window.
+CREATE TABLE IF NOT EXISTS research_conjecture_consumption_audit_cursors (
+    room_id UUID PRIMARY KEY,
+    epoch VARCHAR(255) NOT NULL,
+    latest_sequence BIGINT NOT NULL,
+    last_outcome VARCHAR(64) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS research_conjecture_consumption_audit_records (
+    id UUID PRIMARY KEY,
+    room_id UUID NOT NULL,
+    epoch VARCHAR(255) NOT NULL,
+    first_sequence BIGINT NOT NULL,
+    latest_sequence BIGINT NOT NULL,
+    outcome VARCHAR(64) NOT NULL,
+    source_event_id UUID,
+    game_tick BIGINT,
+    author_bot_id VARCHAR(255),
+    domain VARCHAR(255),
+    source_id VARCHAR(255),
+    selection_kind VARCHAR(64),
+    source_observed_at TIMESTAMP WITH TIME ZONE,
+    recorded_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS research_conjecture_consumption_audit_records_room_observed_idx
+    ON research_conjecture_consumption_audit_records (room_id, recorded_at DESC);
+
 -- Generic durable work intake. These identifiers and payloads deliberately have no game schema.
 CREATE TABLE IF NOT EXISTS research_work_items (
     request_id UUID PRIMARY KEY,

@@ -112,7 +112,7 @@ context, result content, game entities, or effect authority.
 for a fully frozen standard input it stores one research-owned numeric observation for later parity
 comparison. It does not route a new result, invoke the university workflow, narrate, publish, or
 change game state.
-Phase 42 is conservatively **93% complete** after review and the queue-consumption observation increment. Frozen inputs, display-only delivery,
+Phase 42 is conservatively **95% complete** after review and the research-owned queue-consumption audit increment. Frozen inputs, display-only delivery,
 and sidecar shadow observations are evidence-gathering seams, not independent computation or
 paper-workflow parity. See the Phase 42 README for the weighted accounting and the remaining
 independent-computation, narration/review, queue-consumption, effect-policy, and two-process
@@ -135,6 +135,10 @@ does not select, route, or expose the live queue to research. While the audit is
 authenticated research-context snapshot carries only a bounded, contiguous post-consumption event
 window with a process epoch and sequence range. A changed epoch or unavailable sequence is
 inconclusive audit evidence, never a transition or permission to replay the queue.
+Set `RESEARCH_CONJECTURE_CONSUMPTION_AUDIT_ENABLED=true` only alongside that game audit for a
+controlled two-process observation. The research service then persists its own completed-event
+evidence and durable epoch-change/sequence-gap incidents; it does not replay, select, consume, or
+route a conjecture. Live promoted/ordinary and restart evidence is still required before a cutover.
 Set `RESEARCH_LIFECYCLE_SHADOW_ENABLED=true` to record read-only lifecycle parity observations
 against the game API snapshot before extracting the university lifecycle transitions.
 Set `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` together with that flag to verify the durable snapshot,

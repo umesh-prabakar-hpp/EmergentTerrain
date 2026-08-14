@@ -50,6 +50,9 @@ app:
       mode: ${RESEARCH_GAME_CONTEXT_MODE:database}
       base-url: ${RESEARCH_GAME_API_BASE_URL:http://127.0.0.1:8081}
       api-key: ${RESEARCH_CONTEXT_API_KEY:}
+    conjecture-consumption-audit:
+      # Read-only Phase 42 evidence capture. Epoch changes and sequence gaps remain inconclusive.
+      enabled: ${RESEARCH_CONJECTURE_CONSUMPTION_AUDIT_ENABLED:false}
     lifecycle-shadow:
       # Read-only migration parity audit; enable before moving lifecycle transitions.
       enabled: ${RESEARCH_LIFECYCLE_SHADOW_ENABLED:false}

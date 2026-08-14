@@ -53,6 +53,10 @@ bounded post-consumption audit window with its own process epoch and sequence ra
 only legacy conjectures already marked investigated, never a live queue snapshot. An epoch change,
 empty window, or sequence gap is inconclusive evidence for the controlled audit and must never
 select, consume, route, or recreate a queue transition.
+`RESEARCH_CONJECTURE_CONSUMPTION_AUDIT_ENABLED=true` is the separately default-off research-owned
+consumer for that window. It persists only completed-event observations and epoch-change or
+sequence-gap incidents in research-owned tables; it must not replay, select, consume, or route a
+conjecture. Enable it only alongside the game audit during controlled two-process evidence capture.
 `RESEARCH_LIFECYCLE_SHADOW_ONLY=true` additionally skips the legacy university call while still
 importing snapshots and checkpointing, which is the supported live migration-audit mode. The
 research launcher supplies an absolute `GAME_CONFIG_PATH`, its dedicated port, and
@@ -137,7 +141,7 @@ for an already `COMPUTATION_FROZEN_AWAITING_EXECUTION` standard draft. It writes
 `research_computation_audits` and compact provenance on the existing planning result; it must not
 invoke the university workflow, narration, publication, or game effects. This is parity evidence,
 not an independent computation implementation or a permission to claim a paper result.
-Phase 42 completion is conservatively accounted at 93%, not the former 97% readiness-based
+Phase 42 completion is conservatively accounted at 95%, not the former 97% readiness-based
 estimate. The remaining gates are independent generic computation versus frozen sidecar audit,
 narration/review/publication parity, whole queue-consumption parity, any separately approved
 game-effect policy, and controlled two-process recovery followed by transition dependency removal.
@@ -160,7 +164,9 @@ restart-idempotent file under `simulation-history/research-queue-consumption/`. 
 select, route, expose, or let research mutate the live queue. While enabled, the game context may
 publish only its bounded post-consumption audit window; epoch changes or unavailable sequences are
 inconclusive, so use its events solely to capture remaining consumption/restart cadence before any
-cutover decision.
+cutover decision. The separately default-off research audit persists those observations and
+inconclusive incidents without replaying or mutating the queue; live two-process evidence remains
+the gate.
 
 ## Required environment
 - Java 21
