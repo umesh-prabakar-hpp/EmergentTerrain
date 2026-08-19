@@ -214,6 +214,10 @@ above scoped to the terminal preserves Java 21 for this project without changing
 machine-wide default. Follow the [official Adoptium Fedora RPM instructions](https://adoptium.net/installation/linux/)
 to add its signed repository, then install `temurin-21-jdk`.
 
+For the full monorepo runtime sequence—including the GPU engine, Julia sidecars, research-only
+worker, and verified status checks—use [`RUN.md`](RUN.md); [`RUN-MINIMAL.md`](RUN-MINIMAL.md) is
+the command-only version. Both use the in-repository `engines/` and `services/` paths.
+
 ### local-ai provider
 
 The enabled primary LLM provider is the local `local-ai-gateway` on

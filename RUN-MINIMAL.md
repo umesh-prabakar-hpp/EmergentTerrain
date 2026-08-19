@@ -4,6 +4,11 @@
 # 0. fresh checkout only (exec bits aren't git-tracked)
 chmod +x scripts/*.sh scripts/*.py
 
+# 0a. supported Java runtime and read-only service check
+export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
+export PATH="$JAVA_HOME/bin:$PATH"
+./scripts/status-related-apps.sh || true
+
 # 0b. one-time corpus assets (idempotent; APP MUST BE DOWN — scripts compile)
 OPENALEX_MAILTO=you@example.com ./scripts/build-nt-corpus.sh && python3 scripts/run-ground-probes.py
 OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-fulltext-cores.sh
@@ -29,25 +34,34 @@ python3 scripts/prepare-paper-review-screened-literature-index.py \
 stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
 
 # 1. GPU engine
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine && ./scripts/start.sh
 
 # 2. Julia math sidecar. Discovery is served on 8088, so its execution gate
 #    belongs on this process. It also proxies the isolated PyCall routes.
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && JULIA_NUM_THREADS=4 PY_SIDECAR_ENABLED=true ET_DISCOVER_EXEC=1 ./scripts/start.sh &
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar && JULIA_NUM_THREADS=4 PY_SIDECAR_ENABLED=true ET_DISCOVER_EXEC=1 ./scripts/start.sh &
 
 # 2b. Py-sidecar (PyCall routes + literature grounding). The recommended combined
 #     subject gate drops cross-domain near-misses and applies the anchored Number
 #     Theory MSC prefix (msc:11 matches 11N37, not topic-id "11"). Omit it to
 #     leave the gate dormant.
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh &
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh &
 
 # 3. Spring Boot app
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && ./scripts/start.sh
 
+# 3b. Research-only runtime (separate terminal; port 8082). The default database
+#     context is transitional compatibility mode. For the controlled remote audit,
+#     set the same nonempty RESEARCH_CONTEXT_API_KEY in both processes, then use:
+# ./scripts/start-research-service.sh
+#
+# RESEARCH_GAME_CONTEXT_MODE=remote RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081 \
+# RESEARCH_CONTEXT_API_KEY=... RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
+# RESEARCH_LIFECYCLE_SHADOW_ONLY=true ./scripts/start-research-service.sh
+
 # 4. Tail logs (per service)
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine/logs/gpu-engine.log
-tail -f /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/logs/sidecar.log
-tail -f /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/logs/py-sidecar.log
+tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine/logs/gpu-engine.log
+tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log
+tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/py-sidecar.log
 tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/et-app.log
 tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/maven-stdout.log
 
@@ -55,12 +69,14 @@ tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/maven-stdout.lo
 tail -F \
   /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/et-app.log \
   /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/maven-stdout.log \
-  /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/logs/sidecar.log \
-  /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/logs/py-sidecar.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine/logs/gpu-engine.log
+  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log \
+  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/py-sidecar.log \
+  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine/logs/gpu-engine.log
 ```
 
 Stop each: `./scripts/stop.sh` in its dir. App: http://localhost:8081.
+Use `./scripts/status-related-apps.sh` to verify the app, research service, proxies, PostgreSQL,
+sidecars, and GPU engine rather than ad-hoc process or port checks.
 
 Note (2026-07-04): the py-sidecar (2b) also builds the literature-grounding BM25
 index at startup when `~/.emergentterrain/corpus-nt/abstracts.jsonl` exists —

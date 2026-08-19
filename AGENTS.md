@@ -241,6 +241,10 @@ verification procedure, see `docs/subscription-providers.md`.
 
 If tests or runtime need a real DB, ensure PostgreSQL is running and the datasource properties are correct in `apps/game-service/src/main/resources/application.yml` or via env vars.
 
+`RUN.md` and `RUN-MINIMAL.md` are the monorepo operation guides: use their `engines/gpu-engine`,
+`services/julia-math-sidecar`, and `apps/research-service` paths, and use
+`./scripts/status-related-apps.sh` for runtime-state checks.
+
 ## Build
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
