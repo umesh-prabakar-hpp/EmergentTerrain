@@ -50,13 +50,27 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidec
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && ./scripts/start.sh
 
 # 3b. Research-only runtime (separate terminal; port 8082). The default database
-#     context is transitional compatibility mode. For the controlled remote audit,
-#     set the same nonempty RESEARCH_CONTEXT_API_KEY in both processes, then use:
-# ./scripts/start-research-service.sh
+#     context is transitional compatibility mode. A no-university shadow audit
+#     makes no LLM calls and does not need the game, proxies, GPU, or sidecars:
+APP_UNIVERSITY_ENABLED=false RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
+RESEARCH_LIFECYCLE_SHADOW_ONLY=true ./scripts/start-research-service.sh
+#
+#     For legacy university research, keep shadow-only off. It may call the
+#     configured LLM provider chain:
+APP_UNIVERSITY_ENABLED=true RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
+./scripts/start-research-service.sh
+#
+#     Optional local Codex provider for the legacy command (start in another
+#     terminal before the research service; OpenRouter/Groq remain fallbacks):
+node scripts/local-ai-gateway/server.mjs
+#
+#     For the controlled remote audit, set the same nonempty
+#     RESEARCH_CONTEXT_API_KEY in both processes, then use:
 #
 # RESEARCH_GAME_CONTEXT_MODE=remote RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081 \
-# RESEARCH_CONTEXT_API_KEY=... RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
-# RESEARCH_LIFECYCLE_SHADOW_ONLY=true ./scripts/start-research-service.sh
+# RESEARCH_CONTEXT_API_KEY=... APP_UNIVERSITY_ENABLED=false \
+# RESEARCH_LIFECYCLE_SHADOW_ENABLED=true RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
+# ./scripts/start-research-service.sh
 
 # 4. Tail logs (per service)
 tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine/logs/gpu-engine.log
