@@ -407,6 +407,11 @@ by `./scripts/start.sh`: Codex starts by default, while Claude starts only with
 `ET_ENABLE_LEGACY_AI_GATEWAY=1`. A redirect to `/login` is reported as
 ready-but-protected; set `ET_STATUS_COMMAND_CHARS` to adjust the abbreviated
 long `ps` command display.
+Its missing-service hints use the preferred launchers: `./scripts/start.sh` for
+the app and GPU engine, `./scripts/start-research-service.sh` for research, and
+the Julia sidecar launch scripts. The Julia hint enables its separately gated
+discovery endpoint; the isolated PyCall sidecar needs no `PY_SIDECAR_ENABLED`
+flag for the game to use it directly.
 
 ```bash
 ./scripts/status-related-apps.sh

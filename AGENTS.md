@@ -337,6 +337,9 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   default and Claude only with `ET_ENABLE_LEGACY_AI_GATEWAY=1`. `/login` redirects
   are ready-but-protected, and `ET_STATUS_COMMAND_CHARS` controls abbreviation
   of long active `ps` commands.
+  Its missing-service hints use the preferred app, GPU, research, and sidecar
+  launchers. The Julia hint enables discovery execution; the isolated PyCall
+  sidecar does not need `PY_SIDECAR_ENABLED` for direct game use.
 - **Runtime-state checks:** always use `./scripts/status-related-apps.sh` to
   determine whether the app or related services are running; do not substitute
   ad-hoc process or port checks.

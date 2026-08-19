@@ -176,7 +176,7 @@ check_gpu_engine() {
     local listeners start_command branch child_indent active_command
     branch="$1"
     child_indent="$2"
-    start_command="cd $GPU_ENGINE_ROOT && cargo run"
+    start_command="cd $GPU_ENGINE_ROOT && ./scripts/start.sh"
     listeners="$(ss -ltnH "sport = :$GPU_ENGINE_PORT" 2>/dev/null || true)"
     if [[ -n "$listeners" ]]; then
         printf '%sRust GPU engine — %s: TCP port %s is listening\n' "$branch" "$(colored "$GREEN" "READY")" "$GPU_ENGINE_PORT"
@@ -199,7 +199,7 @@ check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start
 check_service "local-ai-gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "required" "started with app"
 check_service "legacy-ai-gateway" "$LEGACY_AI_GATEWAY_URL" "cd $REPO_ROOT && ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh" "├── " "│   " "$LEGACY_AI_GATEWAY_PORT" "optional" "started with app when enabled"
 check_service "Research service" "$RESEARCH_SERVICE_URL" "cd $REPO_ROOT && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game"
-check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && JULIA_NUM_THREADS=4 PY_SIDECAR_ENABLED=true ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT"
+check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT"
 check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT"
 check_gpu_engine "└── " "    "
 
