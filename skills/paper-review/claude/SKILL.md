@@ -40,7 +40,8 @@ exist, update `reviews/CURRENT.md` and say there were no new papers.
 5. Write `reviews/runs/<run-id>.md`, replace `reviews/CURRENT.md`, append compact rows to
    `reviews/paper-index.md`, and update `reviews/issue-ledger.md`.
 6. Regenerate `docs/paper-literature-key-map.md` with
-   `./scripts/update-paper-literature-key-map.sh` from the project root.
+   `./scripts/update-paper-literature-key-map.sh` from the project root. It covers `research/`
+   (including archive) and standalone `apps/research-service/research/` artifacts.
 7. Validate the lifecycle ledger and end with the closing line.
 
 ## Split layout and lifecycle

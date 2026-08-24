@@ -6,6 +6,8 @@ cited in that paper's `## Related Work` section. It is intentionally stricter th
 output: a retrieval hit, unread key, failed read, or uncited source is not retained here.
 
 The paper markdown and `evidence/tool-trace.json` in the linked artifact are the source of truth.
+The generator scans artifacts under `research/` (including its archive) and
+`apps/research-service/research/`.
 Regenerate after each paper-review pass with:
 
 ```bash
@@ -14,6 +16,7 @@ Regenerate after each paper-review pass with:
 
 | Paper | Literature key | Relevance basis | Artifact |
 |---|---|---|---|
+| `P-b72c-77628007` | `HF1511802BB2106E451608` | issued + read + cited | [apps/research-service/research/b72c4e10/artifacts/P-b72c-77628007](../apps/research-service/research/b72c4e10/artifacts/P-b72c-77628007) |
 | `P-b72c-77627970` | `HF20A94C6E8F45DBCAF99E` | issued + read + cited | [research/archive/b72c4e10-20260730-3/artifacts/P-b72c-77627970](../research/archive/b72c4e10-20260730-3/artifacts/P-b72c-77627970) |
 | `P-b72c-77627977` | `HF69B6FDC948553E193947` | issued + read + cited | [research/archive/b72c4e10-20260731-2/artifacts/P-b72c-77627977](../research/archive/b72c4e10-20260731-2/artifacts/P-b72c-77627977) |
 | `P-b72c-77628001` | `HFB64828E8D2A41E621DA0` | issued + read + cited + assessed relevant | [research/archive/b72c4e10-20260802-10/artifacts/P-b72c-77628001](../research/archive/b72c4e10-20260802-10/artifacts/P-b72c-77628001) |

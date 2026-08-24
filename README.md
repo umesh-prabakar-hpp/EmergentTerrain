@@ -352,8 +352,9 @@ LLM request, database write, or persistent research output.
 
 After every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`.
 It regenerates [the paper-to-literature key map](docs/paper-literature-key-map.md) from current
-and archived final artifacts, retaining only keys that were safely issued, successfully read, and
-cited in the corresponding Related Work section. Search hits, unread sources, failed reads, and
+and archived final artifacts under `research/`, plus standalone final artifacts under
+`apps/research-service/research/`, retaining only keys that were safely issued, successfully read,
+and cited in the corresponding Related Work section. Search hits, unread sources, failed reads, and
 uncited snippets are deliberately excluded; the raw paper and tool trace remain authoritative.
 
 **Split paper-review records** — paper review no longer needs to append every run to one large

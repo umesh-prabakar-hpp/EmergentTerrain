@@ -7,7 +7,10 @@ set -euo pipefail
 
 repo_root=$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)
 output_path=${1:-"$repo_root/docs/paper-literature-key-map.md"}
-research_root="$repo_root/research"
+research_roots=(
+  "$repo_root/research"
+  "$repo_root/apps/research-service/research"
+)
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required to build the paper literature-key map." >&2
@@ -28,6 +31,8 @@ cited in that paper's `## Related Work` section. It is intentionally stricter th
 output: a retrieval hit, unread key, failed read, or uncited source is not retained here.
 
 The paper markdown and `evidence/tool-trace.json` in the linked artifact are the source of truth.
+The generator scans artifacts under `research/` (including its archive) and
+`apps/research-service/research/`.
 Regenerate after each paper-review pass with:
 
 ```bash
@@ -70,7 +75,12 @@ EOF
         "$paper_id" "$key" "$basis" "$artifact_rel" "$artifact_rel"
       found=1
     done <<<"$search_keys"
-  done < <(find "$research_root" -type f -path '*/artifacts/*/evidence/tool-trace.json' -print | sort)
+  done < <(
+    for research_root in "${research_roots[@]}"; do
+      [[ -d "$research_root" ]] || continue
+      find "$research_root" -type f -path '*/artifacts/*/evidence/tool-trace.json' -print
+    done | sort
+  )
 
   if [[ "$found" -eq 0 ]]; then
     echo '| _None yet_ | — | No reviewed artifact currently has an issued, read, and cited key. | — |'

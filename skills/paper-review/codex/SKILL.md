@@ -103,8 +103,9 @@ traceable conditions hold in that paper's final artifact:
 If an artifact has `evidence/literature-audit.json`, compare its `citedReadKeys` and, when
 available, `citedReadReviewedKeys` with the generated row. Treat any disagreement as a review
 finding. Do not retain raw search hits, unread keys, failed reads, snippets, or a model's
-asserted relevance alone. The generator scans both the current `research/` room and archived
-artifacts, and writes a `None yet` row when no paper satisfies the full evidence chain.
+asserted relevance alone. The generator scans `research/` (including archived artifacts) and
+standalone `apps/research-service/research/` artifacts, and writes a `None yet` row when no paper
+satisfies the full evidence chain.
 
 ## Default literature-backfill discovery
 
