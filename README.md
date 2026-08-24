@@ -1,5 +1,39 @@
 # EmergentTerrain
 
+```text
+hypothesis
+    ↓
+protocol
+    ↓
+execution
+    ↓
+evidence artifact
+    ├── computation and tool traces
+    ├── retrieved and cited sources
+    └── recorded failures and null results
+    ↓
+automated validation
+    ├── malformed narration → trace-grounded fallback or needs revision
+    ├── weak or ungrounded evidence → needs revision
+    ├── replication missing → incomplete / needs revision
+    ├── null result → preserve null result
+    └── valid, traceable result → publication candidate
+                                      ↓
+                              paper-review skill
+                              ├── inspect paper, trace, and literature audit
+                              ├── download/stage prior papers for reviewer context
+                              ├── compare claims, methods, and missing controls
+                              ├── write review findings and issue ledger
+                              └── regenerate literature-key map
+                                      ↓
+                       issues found → revise and revalidate
+                       evidence holds → publication
+
+Boundary: staged prior papers are reviewer context only. They become
+paper evidence only through that paper’s own:
+search_literature → read_reference → Related Work citation
+```
+
 Spring Boot POC that turns a user profile into a signed QR payload and a deterministic, editable 2D game world.
 
 ## Stack
