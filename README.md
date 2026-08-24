@@ -1,11 +1,11 @@
 # EmergentTerrain
 
 ```text
-hypothesis
+hypothesis (AI proposes)
     ↓
-protocol
+protocol (AI drafts; then locks)
     ↓
-execution
+execution (tools run)
     ↓
 evidence artifact
     ├── computation and tool traces
@@ -19,7 +19,7 @@ automated validation
     ├── null result → preserve null result
     └── valid, traceable result → publication candidate
                                       ↓
-                              paper-review skill
+                              paper-review skill (AI-assisted)
                               ├── inspect paper, trace, and literature audit
                               ├── download/stage prior papers for reviewer context
                               ├── compare claims, methods, and missing controls
