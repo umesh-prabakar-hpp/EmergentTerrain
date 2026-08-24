@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase Review"
+  short_description: "Audit phase-tracking documents and summarize genuine open work."
+  default_prompt: "Use $phase-review to audit all active phase documents, including nested phase directories."
