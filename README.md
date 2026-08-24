@@ -1,5 +1,54 @@
 # EmergentTerrain
 
+EmergentTerrain is an experimental open-source monorepo for two connected systems:
+
+- a Spring Boot multiplayer terrain simulation with profiles, signed QR payloads, bots, and an
+  editable 2D world; and
+- a research runtime that can execute bounded computational studies and retain their evidence,
+  validation results, and paper artifacts independently of the game UI.
+
+It is a research prototype, not a production game or an autonomous scientific authority. Generated
+papers are computational notes or candidates for human review; they do not establish novelty,
+proof, external replication, or publication acceptance.
+
+## Start here
+
+1. Install Java 21, Maven, PostgreSQL, Rust/Cargo, `protoc`, and a Vulkan userspace stack. On
+   Fedora, the one-time helper is `bash ./scripts/setup-fedora-prereqs.sh`.
+2. From the repository root, select Java 21 and inspect dependencies:
+
+   ```bash
+   export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
+   export PATH="$JAVA_HOME/bin:$PATH"
+   ./scripts/status-related-apps.sh || true
+   ```
+
+3. Choose one supported path:
+
+   ```bash
+   # Run the web app; starts its managed local-ai-gateway.
+   ./scripts/start.sh
+
+   # Run a safe, no-LLM research migration audit without the game.
+   APP_UNIVERSITY_ENABLED=false RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
+   RESEARCH_LIFECYCLE_SHADOW_ONLY=true ./scripts/start-research-service.sh
+
+   # Run the transition-period university research workflow without the game.
+   # This can use the configured LLM providers and write research artifacts.
+   APP_UNIVERSITY_ENABLED=true RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
+   ./scripts/start-research-service.sh
+   ```
+
+4. Verify the selected runtime with `./scripts/status-related-apps.sh`. Open the game at
+   `http://127.0.0.1:8081/` when running the web app. Stop managed services with
+   `./scripts/stop.sh`.
+
+For the complete multi-service setup, use [RUN.md](RUN.md). For copy-paste commands only, use
+[RUN-MINIMAL.md](RUN-MINIMAL.md). The research service's API, modes, and migration boundary are
+documented in [apps/research-service/README.md](apps/research-service/README.md).
+
+## Research workflow
+
 ```text
 hypothesis (AI proposes)
     ↓
@@ -34,7 +83,68 @@ paper evidence only through that paper’s own:
 search_literature → read_reference → Related Work citation
 ```
 
-Spring Boot POC that turns a user profile into a signed QR payload and a deterministic, editable 2D game world.
+The AI may propose hypotheses, protocols, tool calls, and drafts. Executed tools, immutable traces,
+deterministic validators, and review records—not model assertions—determine what evidence exists.
+
+## What to run
+
+You do not need every component for every task.
+
+| Goal | Required components | Preferred command |
+| --- | --- | --- |
+| Explore the game | PostgreSQL and the web app | `./scripts/start.sh` |
+| Audit the research migration | PostgreSQL and the research service | shadow-only research command above |
+| Run university research | PostgreSQL, research service, and configured LLM provider(s) | university research command above |
+| Work on GPU integration | the game plus the Rust GPU engine | `./engines/gpu-engine/scripts/start.sh` |
+| Work on math/grounding integration | the relevant Julia sidecar(s) | see [RUN.md](RUN.md) |
+
+The GPU engine, Julia sidecars, and literature-corpus builders are optional for a basic web-app
+startup. Keep the research service and game in separate terminals when running both; they use ports
+8082 and 8081 respectively.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `apps/game-service/` | Spring Boot game, web UI, gameplay simulation, and transition-period research code |
+| `apps/research-service/` | Standalone research API and worker, normally on port 8082 |
+| `libs/research-contract/` | Spring-free DTOs shared across the game/research boundary |
+| `contracts/research-api/` | Versioned OpenAPI contract for game-facing research reads and work handoff |
+| `engines/gpu-engine/` | Rust/WGPU terrain engine, normally on port 50051 |
+| `services/julia-math-sidecar/` | Optional Julia computation and Python/grounding sidecars |
+| `scripts/` | Supported launch, stop, setup, status, and data-preparation helpers |
+| `phases-for-human-like-performance/` | Migration plans, evidence, and remaining work by phase |
+
+## Build, test, and contribute
+
+Run these checks from the repository root after changing Java code:
+
+```bash
+mvn -f apps/game-service/pom.xml -DskipTests package
+mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+```
+
+For Rust engine changes, run `cargo test --manifest-path engines/gpu-engine/Cargo.toml`. Generated
+runtime data, logs, Maven `target/` directories, and `sample-output/` are local artifacts and
+should not be committed. Before opening a contribution, keep a change focused, describe any
+runtime/configuration impact, and update the relevant documentation.
+
+## Documentation and project status
+
+The concise operational commands are in [RUN-MINIMAL.md](RUN-MINIMAL.md); the full optional
+service, corpus, and review workflow is in [RUN.md](RUN.md). Phase plans explain the migration
+status and are intentionally more detailed than this overview. The research boundary is still in
+transition: the game-facing API and generic planning handoff exist, while legacy university
+execution is being extracted in staged, parity-checked increments.
+
+## License
+
+Unless a file states otherwise, EmergentTerrain code and project documentation are licensed under
+[AGPL-3.0-or-later](LICENSE). This permits commercial use but requires operators of modified
+network-facing versions to offer their corresponding source to users. Third-party data, downloaded
+papers, model weights, dependencies, and generated research artifacts retain their own terms; see
+[NOTICE](NOTICE). Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
+For responsible disclosure, see [SECURITY.md](SECURITY.md).
 
 ## Stack
 - Java 21, Spring Boot 3.x, Spring Security, Spring Data JPA (Hibernate)
@@ -957,40 +1067,3 @@ The fundamental gaps (current status)
 **What has been addressed (post-hoc rationalization)**
 
 The redesign in commit `b4c7f45` eliminated the root cause of papers like P-a29f-244 and P-a29f-252, where the LLM reframed null results as partial confirmations. The fixes: pre-registration locks the hypothesis before computation; deterministic classification assigns SUPPORTED/PARTIALLY_SUPPORTED/NULL_RESULT/DEGENERATE from numeric evidence alone; the narration prompt explicitly prohibits reframing null results; null result papers are stored separately with no confidence boost and a null-result banner.
-
-
-
-
-------------------------
-**DNA and gene expression for future reference and possible game implementation:**
-```
-Almost every human cell contains a complete copy of your DNA — approximately 3 billion base pairs organized into 46 chromosomes, located in the cell nucleus.
-
-The few exceptions:
-
-Red blood cells — mature ones eject their nucleus entirely, so no DNA
-Platelets — cell fragments, no nucleus, no DNA
-Some lens cells in the eye — also lose their nuclei at maturity
-Every other cell type — neurons, muscle cells, skin cells, liver cells — carries the full genome. The reason a liver cell is a liver cell and not a neuron isn't that it has different DNA; it's that different genes are switched on or off in each cell type through a process called gene expression.
-
-When genes first switch on
-
-The earliest switching happens during embryonic development. A fertilized egg starts as one cell with all genes mostly silent, then as it divides, different genes activate in different daughter cells, driving them to become different tissue types. By the time organs are forming (weeks 3–8 in humans), thousands of genes are already being selectively expressed — this is how a liver cell lineage diverges from a neuron lineage from what was originally identical cells.
-
-Does it stay on permanently?
-
-No, not in general. There are three patterns:
-
-Constitutive (always on) — housekeeping genes that every cell needs constantly, like the ones running basic metabolism and DNA repair. These stay on in essentially all cells all the time.
-
-Inducible (on/off by signal) — most genes. They respond to hormones, nutrients, stress, infection, temperature, physical activity, even time of day (circadian genes). Insulin tells liver cells to switch on glucose storage genes. Exercise activates muscle-repair genes. These can cycle on and off repeatedly throughout life.
-
-Developmental (on once, then silenced) — some genes fire during a specific developmental window and are then permanently shut off via epigenetic silencing (DNA methylation, histone modification). Fetal hemoglobin genes are a classic example — active before birth, then largely silenced as adult hemoglobin genes take over.
-
-What does the switching
-
-The machinery is mostly transcription factors — proteins that bind to DNA near a gene and either recruit or block the RNA polymerase that reads it. External signals (hormones, nutrients, damage signals) change which transcription factors are active, which changes which genes get read.
-
-The short answer: gene expression is more like a constantly adjusting equalizer than a set of light switches that flip once and stay.
-```
-------------

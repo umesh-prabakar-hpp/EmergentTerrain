@@ -1,0 +1,18 @@
+EmergentTerrain
+Copyright (C) 2026 EmergentTerrain contributors
+
+Unless a file says otherwise, source code and project documentation in this repository are
+licensed under the GNU Affero General Public License, version 3 or any later version
+(AGPL-3.0-or-later). See LICENSE.
+
+Third-party material remains subject to its own terms. In particular:
+
+* `apps/game-service/src/main/resources/msc-map.jsonl.gz` is derived from zbMATH Open and is
+  CC-BY-SA-4.0. Its required attribution and redistribution terms are in
+  `apps/game-service/src/main/resources/msc-map.README.md`.
+* Downloaded corpora, papers, model weights, package dependencies, and locally generated research
+  artifacts are not relicensed by this notice. Retain their upstream licenses, attribution, and
+  access terms.
+
+The EmergentTerrain name and any project logos are identifiers of the project and are not a grant
+of trademark permission.

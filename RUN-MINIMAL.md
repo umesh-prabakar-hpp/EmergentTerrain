@@ -1,112 +1,124 @@
-# Run — minimal (commands only)
+# Run EmergentTerrain — minimal
+
+## 1. Repository setup
 
 ```bash
-# 0. fresh checkout only (exec bits aren't git-tracked)
+cd "$(git rev-parse --show-toplevel)"
 chmod +x scripts/*.sh scripts/*.py
-
-# 0a. supported Java runtime and read-only service check
+chmod +x engines/gpu-engine/scripts/*.sh
+chmod +x services/julia-math-sidecar/scripts/*.sh
 export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 ./scripts/status-related-apps.sh || true
-
-# 0b. one-time corpus assets (idempotent; APP MUST BE DOWN — scripts compile)
-OPENALEX_MAILTO=you@example.com ./scripts/build-nt-corpus.sh && python3 scripts/run-ground-probes.py
-OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-fulltext-cores.sh
-OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-html-cores.sh
-FIELDS=math python3 scripts/build-fulltext-unarxive.py --zenodo   # §32.5d full text (unarXive open subset, 4.8 GB, no key)
-python3 scripts/msc-map.py --apply   # §32.5d MSC codes from committed map (no harvest); enables ET_GROUND_SUBJECTS=msc:11
-python3 scripts/build-oeis.py        # §32.5d OEIS domain ref (~40 MB, no key) -> domain-refs/oeis.jsonl
-python3 scripts/build-dlmf.py        # §32.5d DLMF special-functions ref (free scrape) -> domain-refs/dlmf.jsonl
-# broad full-text (jedibear/S2ORC + ar5iv bulk) needs a transient AWS box — see §32.5e / scripts/aws/provision-build-box.sh
-
-# 0c. Optional Phase 34 local literature index (public, tokenless; does not enable the app adapter)
-python3 -m pip install --user -U huggingface_hub pyarrow
-./scripts/bootstrap-hf-math-literature.sh
-HF_DATASET=marin-community/ar5iv-no-problem-markdown ./scripts/bootstrap-hf-math-literature.sh
-python3 scripts/prepare-hf-math-index.py --stage metadata
-python3 scripts/prepare-hf-math-index.py --stage theorems
-systemd-run --user --unit emergentterrain-phase34-marin-index --collect --same-dir /usr/bin/python3 "$PWD/scripts/prepare-hf-math-index.py" --stage fulltext
-# One fulltext writer only. The final FTS build is automatic; see phase-34-computational-publication/README.md.
-
-# 0d. Paper-review-screened literature index (only when the manifest has RETAINED_FOR_IMPORT)
-python3 scripts/prepare-paper-review-screened-literature-index.py \
-  --staged-text-manifest research/b72c4e10/literature-staging/staging-manifest.json
-stat -c '%n:%s:%Y' /home/fedorauser/.emergentterrain/indexes/math-literature-paper-review-screened/literature.db
-
-# 1. GPU engine
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine && ./scripts/start.sh
-
-# 2. Julia math sidecar. Discovery is served on 8088, so its execution gate
-#    belongs on this process. It also proxies the isolated PyCall routes.
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar && JULIA_NUM_THREADS=4 PY_SIDECAR_ENABLED=true ET_DISCOVER_EXEC=1 ./scripts/start.sh &
-
-# 2b. Py-sidecar (PyCall routes + literature grounding). The recommended combined
-#     subject gate drops cross-domain near-misses and applies the anchored Number
-#     Theory MSC prefix (msc:11 matches 11N37, not topic-id "11"). Omit it to
-#     leave the gate dormant.
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh &
-
-# 3. Spring Boot app
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && ./scripts/start.sh
-
-# 3b. Research-only runtime (separate terminal; port 8082). The default database
-#     context is transitional compatibility mode. A no-university shadow audit
-#     makes no LLM calls and does not need the game, proxies, GPU, or sidecars:
-APP_UNIVERSITY_ENABLED=false RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
-RESEARCH_LIFECYCLE_SHADOW_ONLY=true ./scripts/start-research-service.sh
-#
-#     For legacy university research, keep shadow-only off. It may call the
-#     configured LLM provider chain:
-APP_UNIVERSITY_ENABLED=true RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
-./scripts/start-research-service.sh
-#
-#     Optional local Codex provider for the legacy command (start in another
-#     terminal before the research service; OpenRouter/Groq remain fallbacks):
-node scripts/local-ai-gateway/server.mjs
-#
-#     For the controlled remote audit, set the same nonempty
-#     RESEARCH_CONTEXT_API_KEY in both processes, then use:
-#
-# RESEARCH_GAME_CONTEXT_MODE=remote RESEARCH_GAME_API_BASE_URL=http://127.0.0.1:8081 \
-# RESEARCH_CONTEXT_API_KEY=... APP_UNIVERSITY_ENABLED=false \
-# RESEARCH_LIFECYCLE_SHADOW_ENABLED=true RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
-# ./scripts/start-research-service.sh
-
-# 4. Tail logs (per service)
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine/logs/gpu-engine.log
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/py-sidecar.log
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/et-app.log
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/maven-stdout.log
-
-# 4b. Tail all logs at once
-tail -F \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/et-app.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/maven-stdout.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/py-sidecar.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine/logs/gpu-engine.log
 ```
 
-Stop each: `./scripts/stop.sh` in its dir. App: http://localhost:8081.
-Use `./scripts/status-related-apps.sh` to verify the app, research service, proxies, PostgreSQL,
-sidecars, and GPU engine rather than ad-hoc process or port checks.
-
-Note (2026-07-04): the py-sidecar (2b) also builds the literature-grounding BM25
-index at startup when `~/.emergentterrain/corpus-nt/abstracts.jsonl` exists —
-adds ~20–60 s before `Listening on: 127.0.0.1:8089`; wait for it before starting
-the app if you want grounding active from the first paper. No corpus = clean
-fallback, nothing breaks.
-
-Note (2026-07-08): `ET_GROUND_SUBJECTS=mathematics,msc:11` on the (2b) line
-activates the grounding **subject gate** — `mathematics` drops the ~5k non-math
-contaminants (Physics/Neuroscience/Environmental/…) that BM25 otherwise surfaces
-on generic words, while `msc:11` is the anchored Number-Theory refinement. Read
-at request time but it must be in the py-sidecar environment at launch; unset ⇒
-dormant. It needs a subject-tagged corpus plus the MSC map applied. See RUN.md
-for detail; validate with `run-ground-probes.py` (probes #21–#22).
+## 2. Fedora bootstrap
 
 ```bash
-# optional, post-run, app must be stopped
-OPENALEX_MAILTO=umesh.prabakar@gmail.com ./scripts/backfill-evidence-cores.sh
+cd "$(git rev-parse --show-toplevel)"
+bash ./scripts/setup-fedora-prereqs.sh
+```
+
+## 3. Web app
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/start.sh
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/status-related-apps.sh || true
+tail -F logs/et-app.log logs/maven-stdout.log logs/codex-proxy.log
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/stop.sh
+```
+
+## 4. Research audit without the game
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+APP_UNIVERSITY_ENABLED=false \
+RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
+RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
+./scripts/start-research-service.sh
+```
+
+## 5. University research without the game
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+APP_UNIVERSITY_ENABLED=true \
+RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
+./scripts/start-research-service.sh
+```
+
+## 6. GPU engine
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./engines/gpu-engine/scripts/start.sh
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./engines/gpu-engine/scripts/stop.sh
+```
+
+## 7. Julia math sidecar
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
+./services/julia-math-sidecar/scripts/start.sh
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./services/julia-math-sidecar/scripts/stop.sh
+```
+
+## 8. PyCall and grounding sidecar
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+ET_GROUND_SUBJECTS=mathematics,msc:11 \
+./services/julia-math-sidecar/scripts/start-py-sidecar.sh
+```
+
+## 9. legacy AI gateway
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh
+```
+
+## 10. Status and logs
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/status-related-apps.sh || true
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+tail -F \
+  logs/et-app.log \
+  logs/maven-stdout.log \
+  logs/codex-proxy.log \
+  services/julia-math-sidecar/logs/sidecar.log \
+  services/julia-math-sidecar/logs/py-sidecar.log \
+  engines/gpu-engine/logs/gpu-engine.log
+```
+
+## 11. Build and test
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+mvn -f apps/game-service/pom.xml -DskipTests package
+mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+cargo test --manifest-path engines/gpu-engine/Cargo.toml
 ```
