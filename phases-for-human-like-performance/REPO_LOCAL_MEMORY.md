@@ -40,9 +40,6 @@ Notable repo facts from the focused review:
   in-process fallback when the sidecar is unavailable.
 - Julia sidecar routes live on port `8088`; the single-threaded PyCall sidecar is on `8089`.
   `/discover/validate` remains execution-gated by `ET_DISCOVER_EXEC=1`.
-- Local worktree note during review: untracked
-  `phases-for-human-like-performance/phase-32-manuscript-grounding/ar5iv-options` exists and looks
-  like pasted ar5iv research notes, not a finalized doc.
 
 ## Final-phase review truth
 
@@ -117,6 +114,6 @@ Phase 30 is mostly built and live through later phases, but one W6 follow-on rem
    Reject cases, or keep waiting.
 3. Add the Phase 31 `memory_audit` log on the next 31.x touch.
 4. Persist accepted 30.7 mechanisms onto papers.
-5. Classify or remove the untracked `ar5iv-options` note; then execute or explicitly defer the
-   32.5e AWS bulk full-text build.
+5. Execute or explicitly defer the 32.5e AWS bulk full-text build under the literature-data
+   policy; do not add raw corpus-access notes or downloaded corpus text to the repository.
 6. Scope the successor phase around derivation-grade ln 2 conjecture treatment and external polish.

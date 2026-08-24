@@ -35,7 +35,7 @@ Two independent tracks: the **manifest track** (32.1→32.2) and the **evaluatio
 
 | Piece | Flag | Acceptance |
 |---|---|---|
-| `ManifestTraceabilityValidator` (tolerance rules ported from data-to-paper `check_numeric_values.py`) | `app.research.manifest.validator-mode: shadow` | ≥2 sessions: ≥95% verdict agreement with the ladder + ≥1 net-new catch + zero new FP classes |
+| `ManifestTraceabilityValidator` (tolerance rules adapted from data-to-paper `check_numeric_values.py`; see `THIRD_PARTY_NOTICES.md`) | `app.research.manifest.validator-mode: shadow` | ≥2 sessions: ≥95% verdict agreement with the ladder + ≥1 net-new catch + zero new FP classes |
 | Narration prompt: manifest as single citable source | `…validator-mode: enforce` | acceptance rate within noise of trailing baseline |
 | Consolidate `NumericalConsistencyValidator` / `UnsourcedClaimValidator` numeric arms onto manifest lookup | same flip | the nine hand-fixed FP classes reproduce as manifest tolerance rules (regression-pinned) |
 
@@ -79,7 +79,7 @@ Two independent tracks: the **manifest track** (32.1→32.2) and the **evaluatio
 | Item | Note |
 |---|---|
 | 32.6 guards | citation API-only rule rides with 32.5; second-pass refinement + reference-position check ride with any narration PR |
-| Survey debt | VLM figure machinery (v2) parked — re-survey with ARC §B1 figure agent; LLM node-selection (v2) parked until investigations exceed ~10 calls |
+| Survey debt | Re-survey figure machinery with ARC §B1 when figures become a supported paper artifact |
 
 ## Flag inventory (all default OFF)
 

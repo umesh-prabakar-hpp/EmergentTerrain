@@ -43,8 +43,13 @@ stat -c '%n:%s:%Y' \
 ```
 
 The importer accepts only source files recorded by the manifest, validates each SHA-256, refuses
-text replacement for an existing paper ID, stores manifest/source provenance, and inserts exactly
-one matching FTS row per new source. It is idempotent for matching source text.
+text replacement for an existing paper ID, stores manifest/source provenance plus license metadata,
+and inserts exactly one matching FTS row per new source. It is idempotent for matching source text.
+New manifests use schema v3: retained sources must record a license kind, HTTPS license URL, and a
+reviewed redistribution decision. Legacy manifests remain locally indexable as unknown,
+non-exportable sources. Before a source archive includes staged text, run
+`python3 scripts/check-literature-release.py --export-manifest <manifest>`; it rejects unknown and
+arXiv non-exclusive sources. See [the literature data policy](../../docs/literature-data-licenses.md).
 
 ### Metadata repair
 

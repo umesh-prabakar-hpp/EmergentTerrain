@@ -9,9 +9,9 @@ already-queued 30.5/30.6 work — not a new build. Originally drafted as a stand
 folder; folded here because the buildable content is a single guard.
 
 **Source:** Wang & Buehler, *Self-Revising Discovery Systems for Science: A Categorical Framework
-for Agentic Artificial Intelligence* (arXiv:2606.01444v1, 31 May 2026). Same MIT LAMM lineage as
-ScienceClaw / SciAgents / ProtAgents / Sparks. PDF kept in this folder:
-[`2606.01444v1.pdf`](2606.01444v1.pdf).
+for Agentic Artificial Intelligence* ([arXiv:2606.01444](https://arxiv.org/abs/2606.01444),
+31 May 2026). The paper is referenced by link only; its full text is not distributed in this
+repository.
 
 ---
 

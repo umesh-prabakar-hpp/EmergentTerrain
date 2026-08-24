@@ -14,8 +14,11 @@ import java.util.regex.Pattern;
  * narrated prose against the draft's {@link ValueManifest} instead of the
  * validator ladder's per-pattern regex passes.
  *
- * <p>Tolerance rules ported from data-to-paper's {@code check_numeric_values}
- * (the four that independently re-derive ladder FP classes ET fixed by hand):
+ * <p>Four tolerance-policy rules are adapted from data-to-paper's
+ * {@code check_numeric_values} at revision {@code 81df14c4b9600466e645c3b2b336cc54daa3df3a}
+ * (MIT; copyright 2024 Technion-Kishony-lab; full notice in
+ * {@code THIRD_PARTY_NOTICES.md}). This Java implementation is project-specific, but retains the
+ * upstream notice for the adapted policy:
  * <ul>
  *   <li><b>Trivial-number allowlist</b> — counts, axis labels, canonical CI
  *       multipliers, common framing percentages: never demanded traceable.</li>
@@ -90,7 +93,7 @@ public final class ManifestTraceabilityValidator {
     private static final Pattern PERCENT_SUFFIX = Pattern.compile("^\\s*%");
 
     /**
-     * Trivial-number allowlist (data-to-paper line-204 pattern, ET-tuned):
+     * Trivial-number allowlist (adapted policy, ET-tuned):
      * canonical CI multipliers, CI levels, common framing percentages, unity.
      * Deliberately small — every addition erodes the fabrication catch.
      */

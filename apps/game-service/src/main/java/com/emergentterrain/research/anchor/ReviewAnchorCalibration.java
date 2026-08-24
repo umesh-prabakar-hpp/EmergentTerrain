@@ -17,8 +17,7 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * Phase 32 Wave 3 (32.4) — the calibration harness, ops tooling in the
- * AI-Scientist {@code iclr_analysis} shape: grade the review head against the
+ * Phase 32 Wave 3 (32.4) — the calibration harness: grade the review head against the
  * operator's labeled verdicts and report accuracy / Reject-recall / per-class
  * confusion. Runs ONLY when the env var {@code ET_REVIEW_CALIBRATION=1} is
  * set at startup (the {@code ET_DISCOVER_EXEC} convention — never in a normal

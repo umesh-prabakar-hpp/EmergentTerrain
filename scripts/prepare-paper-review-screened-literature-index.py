@@ -22,6 +22,14 @@ INDEXABLE_EXTENSIONS = {".tex", ".txt", ".bib"}
 SUBJECT_MAP_LANES = {"target", "quantitative", "finite_method", "caveat"}
 RELEVANCE_TIERS = {"DIRECT_TARGET", "METHOD_CONTEXT", "BACKGROUND_ONLY", "REJECTED_LOW_RELEVANCE"}
 IMPORTABLE_RELEVANCE_TIERS = {"DIRECT_TARGET", "METHOD_CONTEXT"}
+LICENSE_KINDS = {
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "CC-BY-SA-4.0",
+    "C-UDA-1.0",
+    "ARXIV-NONEXCLUSIVE-1.0",
+    "UNKNOWN",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,6 +131,24 @@ def clean_title(value: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def source_license_metadata(source: dict, schema_version: int, arxiv_id: str) -> tuple[str, str, bool]:
+    """Return explicit export metadata, defaulting legacy records to non-exportable."""
+    if schema_version < 3:
+        return "UNKNOWN", "", False
+    license_kind = source.get("license_kind")
+    license_url = source.get("license_url")
+    redistribution_allowed = source.get("redistribution_allowed")
+    if license_kind not in LICENSE_KINDS:
+        raise SystemExit(f"retained source {arxiv_id} has an invalid license_kind: {license_kind!r}")
+    if not isinstance(license_url, str) or not license_url.startswith("https://"):
+        raise SystemExit(f"retained source {arxiv_id} has an invalid license_url")
+    if not isinstance(redistribution_allowed, bool):
+        raise SystemExit(f"retained source {arxiv_id} has a non-boolean redistribution_allowed")
+    if license_kind in {"UNKNOWN", "ARXIV-NONEXCLUSIVE-1.0"} and redistribution_allowed:
+        raise SystemExit(f"retained source {arxiv_id} cannot permit redistribution under {license_kind}")
+    return license_kind, license_url, redistribution_allowed
+
+
 def read_retained_sources(manifest_path: Path) -> list[dict]:
     manifest_path = manifest_path.expanduser().resolve()
     try:
@@ -160,6 +186,9 @@ def read_retained_sources(manifest_path: Path) -> list[dict]:
                 raise SystemExit("retained source has an invalid arXiv ID")
             if not isinstance(canonical_url, str) or not isinstance(file_names, list) or not isinstance(expected_hashes, dict):
                 raise SystemExit(f"retained source {arxiv_id} lacks provenance fields")
+            license_kind, license_url, redistribution_allowed = source_license_metadata(
+                source, schema_version, arxiv_id
+            )
             verified_files: list[str] = []
             text_blocks: list[str] = []
             for name in file_names:
@@ -184,6 +213,9 @@ def read_retained_sources(manifest_path: Path) -> list[dict]:
                 "verified_files": verified_files,
                 "text": text,
                 "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "license_kind": license_kind,
+                "license_url": license_url,
+                "redistribution_allowed": redistribution_allowed,
             })
     if not sources:
         raise SystemExit("staged text manifest has no RETAINED_FOR_IMPORT sources")
@@ -200,7 +232,8 @@ def connect(index_dir: Path) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS papers (
           paper_id TEXT PRIMARY KEY, title TEXT NOT NULL, authors TEXT NOT NULL,
-          link TEXT NOT NULL, primary_category TEXT NOT NULL, source TEXT NOT NULL
+          link TEXT NOT NULL, primary_category TEXT NOT NULL, source TEXT NOT NULL,
+          license TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS fulltext (
           paper_id TEXT PRIMARY KEY, source_key TEXT NOT NULL, text TEXT NOT NULL,
@@ -209,12 +242,24 @@ def connect(index_dir: Path) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS paper_review_imports (
           source_key TEXT PRIMARY KEY, manifest_sha256 TEXT NOT NULL, arxiv_id TEXT NOT NULL,
           paper_id TEXT NOT NULL, canonical_source_url TEXT NOT NULL, content_sha256 TEXT NOT NULL,
-          source_files_json TEXT NOT NULL, paper_ids_json TEXT NOT NULL, imported_at TEXT NOT NULL
+          source_files_json TEXT NOT NULL, paper_ids_json TEXT NOT NULL,
+          license_kind TEXT NOT NULL DEFAULT 'UNKNOWN', license_url TEXT NOT NULL DEFAULT '',
+          redistribution_allowed INTEGER NOT NULL DEFAULT 0, imported_at TEXT NOT NULL
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS fulltext_fts USING fts5(
           paper_id UNINDEXED, title, text, tokenize='unicode61 remove_diacritics 2'
         );
     """)
+    paper_columns = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
+    if "license" not in paper_columns:
+        conn.execute("ALTER TABLE papers ADD COLUMN license TEXT NOT NULL DEFAULT ''")
+    import_columns = {row[1] for row in conn.execute("PRAGMA table_info(paper_review_imports)")}
+    if "license_kind" not in import_columns:
+        conn.execute("ALTER TABLE paper_review_imports ADD COLUMN license_kind TEXT NOT NULL DEFAULT 'UNKNOWN'")
+    if "license_url" not in import_columns:
+        conn.execute("ALTER TABLE paper_review_imports ADD COLUMN license_url TEXT NOT NULL DEFAULT ''")
+    if "redistribution_allowed" not in import_columns:
+        conn.execute("ALTER TABLE paper_review_imports ADD COLUMN redistribution_allowed INTEGER NOT NULL DEFAULT 0")
     return conn
 
 
@@ -232,9 +277,9 @@ def import_sources(conn: sqlite3.Connection, manifest_path: Path, sources: list[
                 continue
             raise SystemExit(f"screened index refuses source-text replacement for {paper_id}")
         title = title_from_text(source["text"], paper_id)
-        conn.execute("""INSERT INTO papers(paper_id, title, authors, link, primary_category, source)
-                        VALUES (?, ?, '', ?, 'math.NT', 'paper-review-screened')""",
-                     (paper_id, title, source["canonical_source_url"]))
+        conn.execute("""INSERT INTO papers(paper_id, title, authors, link, primary_category, source, license)
+                        VALUES (?, ?, '', ?, 'math.NT', 'paper-review-screened', ?)""",
+                     (paper_id, title, source["canonical_source_url"], source["license_kind"]))
         conn.execute("""INSERT INTO fulltext(paper_id, source_key, text, text_sha256, char_count, source_scope)
                         VALUES (?, ?, ?, ?, ?, 'paper-review-screened-provenance')""",
                      (paper_id, source_key, source["text"], source["text_sha256"], len(source["text"])))
@@ -243,11 +288,13 @@ def import_sources(conn: sqlite3.Connection, manifest_path: Path, sources: list[
                      (rowid, paper_id, title, source["text"]))
         conn.execute("""INSERT INTO paper_review_imports(
                          source_key, manifest_sha256, arxiv_id, paper_id, canonical_source_url,
-                         content_sha256, source_files_json, paper_ids_json, imported_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                         content_sha256, source_files_json, paper_ids_json, license_kind, license_url,
+                         redistribution_allowed, imported_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                      (source_key, manifest_sha, source["arxiv_id"], paper_id, source["canonical_source_url"],
                       source["text_sha256"], json.dumps(source["verified_files"], sort_keys=True),
-                      json.dumps(source["paper_ids"], sort_keys=True)))
+                      json.dumps(source["paper_ids"], sort_keys=True), source["license_kind"],
+                      source["license_url"], int(source["redistribution_allowed"])))
         imported += 1
     conn.execute("INSERT OR REPLACE INTO metadata VALUES ('index_format', 'paper-review-screened-v1')")
     conn.execute("INSERT OR REPLACE INTO metadata VALUES ('fulltext_fts_complete', 'true')")

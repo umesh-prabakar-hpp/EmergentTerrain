@@ -10,6 +10,8 @@ Third-party material remains subject to its own terms. In particular:
 * `apps/game-service/src/main/resources/msc-map.jsonl.gz` is derived from zbMATH Open and is
   CC-BY-SA-4.0. Its required attribution and redistribution terms are in
   `apps/game-service/src/main/resources/msc-map.README.md`.
+* Adapted code and policy material is recorded in `THIRD_PARTY_PROVENANCE.md`; required source
+  notices are retained in `THIRD_PARTY_NOTICES.md`.
 * Downloaded corpora, papers, model weights, package dependencies, and locally generated research
   artifacts are not relicensed by this notice. Retain their upstream licenses, attribution, and
   access terms.

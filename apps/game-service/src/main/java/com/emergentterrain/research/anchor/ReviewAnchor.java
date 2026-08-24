@@ -7,8 +7,7 @@ import java.util.regex.Pattern;
 
 /**
  * Phase 32 Wave 3 (32.4) — the absolute review head, pure parts: prompt
- * construction and verdict parsing. The AI-Scientist lesson adopted here is
- * the *methodology*, not the rubric: an absolute decision head is only
+ * construction and verdict parsing. An absolute decision head is only
  * trustworthy once calibrated against labeled human verdicts
  * ({@code research/review-verdicts.csv}, harvested from every
  * {@code /paper-review} session) — so this head ships advisory-only and OFF,

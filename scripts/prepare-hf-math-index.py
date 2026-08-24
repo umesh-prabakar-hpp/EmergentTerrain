@@ -52,6 +52,14 @@ VERSION_RE = re.compile(r"v\d+$", re.IGNORECASE)
 AR5IV_SUFFIX_RE = re.compile(r"(?:\.html)?$")
 TEXT_SOURCE_EXTENSIONS = {".tex", ".txt", ".bib", ".bbl", ".sty"}
 INDEXABLE_TEXT_SOURCE_EXTENSIONS = {".tex", ".txt"}
+STAGED_LICENSE_KINDS = {
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "CC-BY-SA-4.0",
+    "C-UDA-1.0",
+    "ARXIV-NONEXCLUSIVE-1.0",
+    "UNKNOWN",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,7 +125,9 @@ def connect(index_dir: Path) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS staged_text_imports (
           source_key TEXT PRIMARY KEY, manifest_sha256 TEXT NOT NULL, arxiv_id TEXT NOT NULL,
           paper_id TEXT NOT NULL, canonical_source_url TEXT NOT NULL, content_sha256 TEXT NOT NULL,
-          source_files_json TEXT NOT NULL, imported_at TEXT NOT NULL
+          source_files_json TEXT NOT NULL, license_kind TEXT NOT NULL DEFAULT 'UNKNOWN',
+          license_url TEXT NOT NULL DEFAULT '', redistribution_allowed INTEGER NOT NULL DEFAULT 0,
+          imported_at TEXT NOT NULL
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS theorem_fts USING fts5(
           theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body,
@@ -137,6 +147,13 @@ def connect(index_dir: Path) -> sqlite3.Connection:
         conn.execute("ALTER TABLE fulltext ADD COLUMN primary_category TEXT")
     if "source_scope" not in fulltext_columns:
         conn.execute("ALTER TABLE fulltext ADD COLUMN source_scope TEXT NOT NULL DEFAULT ''")
+    staged_import_columns = {row[1] for row in conn.execute("PRAGMA table_info(staged_text_imports)")}
+    if "license_kind" not in staged_import_columns:
+        conn.execute("ALTER TABLE staged_text_imports ADD COLUMN license_kind TEXT NOT NULL DEFAULT 'UNKNOWN'")
+    if "license_url" not in staged_import_columns:
+        conn.execute("ALTER TABLE staged_text_imports ADD COLUMN license_url TEXT NOT NULL DEFAULT ''")
+    if "redistribution_allowed" not in staged_import_columns:
+        conn.execute("ALTER TABLE staged_text_imports ADD COLUMN redistribution_allowed INTEGER NOT NULL DEFAULT 0")
     return conn
 
 
@@ -431,6 +448,24 @@ def resolve_staged_paper(conn: sqlite3.Connection, arxiv_id: str, title: str) ->
     return arxiv_id, title, "math.NT"
 
 
+def staged_license_metadata(source: dict, schema_version: int, arxiv_id: str) -> tuple[str, str, bool]:
+    """Return export metadata, treating legacy manifests as unknown and non-exportable."""
+    if schema_version < 3:
+        return "UNKNOWN", "", False
+    license_kind = source.get("license_kind")
+    license_url = source.get("license_url")
+    redistribution_allowed = source.get("redistribution_allowed")
+    if license_kind not in STAGED_LICENSE_KINDS:
+        raise SystemExit(f"retained staged source {arxiv_id} has an invalid license_kind: {license_kind!r}")
+    if not isinstance(license_url, str) or not license_url.startswith("https://"):
+        raise SystemExit(f"retained staged source {arxiv_id} has an invalid license_url")
+    if not isinstance(redistribution_allowed, bool):
+        raise SystemExit(f"retained staged source {arxiv_id} has a non-boolean redistribution_allowed")
+    if license_kind in {"UNKNOWN", "ARXIV-NONEXCLUSIVE-1.0"} and redistribution_allowed:
+        raise SystemExit(f"retained staged source {arxiv_id} cannot permit redistribution under {license_kind}")
+    return license_kind, license_url, redistribution_allowed
+
+
 def read_retained_staged_sources(manifest_path: Path) -> list[dict]:
     manifest_path = manifest_path.expanduser().resolve()
     if not manifest_path.is_file():
@@ -441,6 +476,9 @@ def read_retained_staged_sources(manifest_path: Path) -> list[dict]:
         raise SystemExit(f"staged text manifest is invalid JSON: {manifest_path}") from exc
     if manifest.get("purpose", "").find("provenance-recorded text-source staging") < 0:
         raise SystemExit("staged text manifest does not declare the expected provenance purpose")
+    schema_version = manifest.get("schema_version", 1)
+    if not isinstance(schema_version, int) or schema_version < 1:
+        raise SystemExit("staged text manifest has an invalid schema_version")
     base = manifest_path.parent.resolve()
     retained: list[dict] = []
     for subject in manifest.get("subjects", []):
@@ -457,6 +495,9 @@ def read_retained_staged_sources(manifest_path: Path) -> list[dict]:
                 raise SystemExit("retained staged source has an invalid arXiv ID")
             if not isinstance(canonical_url, str) or not isinstance(text_files, list) or not isinstance(hashes, dict):
                 raise SystemExit(f"retained staged source {arxiv_id} lacks provenance fields")
+            license_kind, license_url, redistribution_allowed = staged_license_metadata(
+                source, schema_version, arxiv_id
+            )
             contents: list[str] = []
             verified_files: list[str] = []
             for raw_path in text_files:
@@ -483,6 +524,9 @@ def read_retained_staged_sources(manifest_path: Path) -> list[dict]:
                 "verified_files": verified_files,
                 "text": text,
                 "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "license_kind": license_kind,
+                "license_url": license_url,
+                "redistribution_allowed": redistribution_allowed,
             })
     if not retained:
         raise SystemExit("staged text manifest has no RETAINED_FOR_IMPORT sources")
@@ -517,12 +561,12 @@ def prepare_staged_text(conn: sqlite3.Connection, manifest_path: Path) -> None:
         conn.execute(
             """INSERT INTO papers(paper_id, title, authors, link, last_updated, summary, journal_ref,
                                   primary_category, categories, citations, source, license)
-               VALUES (?, ?, '', ?, '', ?, '', ?, ?, 0, 'paper-review-staged-text', '')
+               VALUES (?, ?, '', ?, '', ?, '', ?, ?, 0, 'paper-review-staged-text', ?)
                ON CONFLICT(paper_id) DO UPDATE SET
                  title = CASE WHEN papers.title = '' THEN excluded.title ELSE papers.title END,
                  link = CASE WHEN papers.link = '' THEN excluded.link ELSE papers.link END,
                  primary_category = CASE WHEN papers.primary_category = '' THEN excluded.primary_category ELSE papers.primary_category END""",
-            (paper_id, title, abs_url, source["reason"], category, category),
+            (paper_id, title, abs_url, source["reason"], category, category, source["license_kind"]),
         )
         conn.execute(
             """INSERT INTO fulltext(paper_id, source_key, text, text_sha256, char_count,
@@ -532,10 +576,12 @@ def prepare_staged_text(conn: sqlite3.Connection, manifest_path: Path) -> None:
         )
         conn.execute(
             """INSERT INTO staged_text_imports(source_key, manifest_sha256, arxiv_id, paper_id,
-                                                canonical_source_url, content_sha256, source_files_json, imported_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                                                canonical_source_url, content_sha256, source_files_json,
+                                                license_kind, license_url, redistribution_allowed, imported_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (source_key, source_manifest_sha, arxiv_id, paper_id, source["canonical_source_url"],
-             source["text_sha256"], json.dumps(source["verified_files"], sort_keys=True)),
+             source["text_sha256"], json.dumps(source["verified_files"], sort_keys=True),
+             source["license_kind"], source["license_url"], int(source["redistribution_allowed"])),
         )
         imported += 1
     needs_rebuild = imported > 0 or state(conn, "fulltext_fts_complete") != "true"

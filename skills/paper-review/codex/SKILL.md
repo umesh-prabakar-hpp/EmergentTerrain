@@ -147,7 +147,10 @@ lane, not a new evidence tool.
    `REJECTED_LOW_RELEVANCE`. Only the first two may be `RETAINED_FOR_IMPORT`; background sources
    remain provenance and cannot satisfy paper grounding. A weak keyword match, generic prime or
    divisor paper, or model assertion is not enough. State why each retained source bears on the
-   locked subject and why each rejected source does not.
+   locked subject and why each rejected source does not. For every retained source, record its
+   exact `license_kind`, HTTPS `license_url`, and reviewed boolean `redistribution_allowed` after
+   checking the source version's rights page. Treat unknown and arXiv non-exclusive terms as
+   non-exportable; do not infer redistribution permission from free web access.
 6. Validate the staging manifest, then import its retained sources into the separate incremental
    paper-review-screened index before ending the review. First confirm that no primary or screened
    index writer is active; do not run either importer concurrently. Run:
@@ -168,10 +171,12 @@ lane, not a new evidence tool.
    only after a later normal run completes indexed `search_literature → read_reference → Related
    Work`.
 
-Write new subject-map manifests as `schema_version: 2`. The staging manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
-`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`, and preserve each candidate's subject-map
-lane and relevance tier. A network, source, or index failure is `UNRESOLVED_RETRIEVAL`, never
-evidence that the literature is absent.
+Write new subject-map manifests as `schema_version: 3`. The staging manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
+`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`, preserve each candidate's subject-map
+lane and relevance tier, and attach license metadata to every retained source. A network, source,
+or index failure is `UNRESOLVED_RETRIEVAL`, never evidence that the literature is absent. Before
+including retained source text in any export, run `python3 scripts/check-literature-release.py
+--export-manifest <manifest>`; it rejects unreviewed, unknown, and non-exportable sources.
 
 ## End-of-review screened-index result
 

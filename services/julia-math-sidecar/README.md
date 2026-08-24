@@ -308,5 +308,7 @@ Tracked in [`phase-22-julia-math-sidecar.md`][p22] in EmergentTerrain.
 
 ## License
 
-TBD — operator's call. The Julia ecosystem is uniformly MIT; this project
-will likely follow.
+This sidecar is project-authored code included in the EmergentTerrain monorepo and is licensed
+under the repository's [AGPL-3.0-or-later license](../../LICENSE). Its Julia dependencies retain
+their own licenses; see [`../../sbom/README.md`](../../sbom/README.md) before distributing a
+binary or container.

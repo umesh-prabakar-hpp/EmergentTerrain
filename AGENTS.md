@@ -10,8 +10,9 @@ Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 - Julia/Python math sidecar: `services/julia-math-sidecar/`
 - Research API contract: `contracts/research-api/openapi.yaml`
 
-The GPU engine and Julia sidecar histories are imported into this monorepo. Do not restore them as
-Git submodules or nested Git repositories. Game-facing research reads must use
+The GPU engine and Julia sidecar histories are imported into this monorepo from project-owned local
+repositories; their origin and import evidence are recorded in `THIRD_PARTY_PROVENANCE.md`. Do not
+restore them as Git submodules or nested Git repositories. Game-facing research reads must use
 `ResearchQueryClient` / the v1 API contract rather than exposing `ResearchPaper` entities as a
 cross-service contract. `libs/research-contract/` is the Java representation of those stable DTOs
 and must remain free of Spring and persistence types. `apps/research-service/` is the autonomous research runtime; when the game
@@ -407,6 +408,12 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 
 ## Constraints
 - Do not commit local outputs under `sample-output/`.
+- Do not commit runtime research, LLM traces, service logs, simulation history, or Julia `outputs/`.
+  They are machine-local and excluded by `.gitignore`; release evidence belongs in reviewed source
+  fixtures or documented, separately licensed artifacts.
+- When adding copied or adapted external material, update `THIRD_PARTY_PROVENANCE.md`, preserve its
+  required notices in `THIRD_PARTY_NOTICES.md`, and regenerate the inventories described in
+  `sbom/README.md` before release.
 - Avoid touching `target/` or generated test reports in commits.
 - Keep secrets out of git. Use env vars or local overrides for credentials.
 - If behavior, setup, or performance workflows change, update both `README.md` and `AGENTS.md` in the same change.
@@ -428,10 +435,12 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   `--prepare-literature-backfill` flag is required. Use a bounded four-lane subject map (exact
   target/predicate, quantitative context, finite method, caveat) paired with the locked
   mathematical subject; do not treat the logged phrase or a mined affine coefficient as the
-  subject by itself. New `schema_version: 2` manifests record `discovery_lane` and
-  `relevance_tier`; only `DIRECT_TARGET` and `METHOD_CONTEXT` sources may be
-  `RETAINED_FOR_IMPORT`. Deduplicate by canonical URL, arXiv ID, and SHA-256, download only text
-  sources, and record URL/query/paper mapping/SHA-256.
+  subject by itself. New `schema_version: 3` manifests record `discovery_lane`, `relevance_tier`,
+  `license_kind`, HTTPS `license_url`, and a reviewed `redistribution_allowed` decision; only
+  `DIRECT_TARGET` and `METHOD_CONTEXT` sources may be `RETAINED_FOR_IMPORT`. Legacy manifests
+  remain locally indexable but are treated as `UNKNOWN` and non-exportable. Never mark
+  `UNKNOWN` or `ARXIV-NONEXCLUSIVE-1.0` as redistributable. Deduplicate by canonical URL, arXiv
+  ID, and SHA-256, download only text sources, and record URL/query/paper mapping/SHA-256.
   After validating `RETAINED_FOR_IMPORT` entries, the paper-review skill imports them with
   `prepare-paper-review-screened-literature-index.py --staged-text-manifest <manifest>` unless a
   primary or screened index writer is active; it then leaves the manifest staged pending safe
@@ -449,7 +458,11 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   plus common `\\LARGE{...}` display-title forms; repair-only runs commit title and FTS changes
   before manifest finalization. After an importer upgrade, repair existing screened display titles offline with
   `python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles` before
-  relying on title gates. See `phase-37-paper-review-screened-literature/README.md` before changing this lane.
+  relying on title gates. Before publishing any source archive, run
+  `python3 scripts/check-literature-release.py`; add `--export-manifest <manifest>` when source
+  text would be included. It rejects tracked corpus/index/staged-source data and non-exportable
+  retained sources. See `docs/literature-data-licenses.md` and
+  `phase-37-paper-review-screened-literature/README.md` before changing this lane.
 - **Paper-to-literature key map** — after every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`. It regenerates `docs/paper-literature-key-map.md` from final artifacts under `research/` (including `research/archive/`) and `apps/research-service/research/`; retain only a key issued by `search_literature` in `EVIDENCE`, successfully returned by `read_reference`, and cited in that paper's `## Related Work`. Never retain a search hit, snippet, failed read, or model relevance assertion alone. The map is a reviewer index; raw paper/trace artifacts remain authoritative. Both Codex and Claude paper-review skill copies require this regeneration.
 - **Split paper-review records** — do not keep appending new review cycles to one massive
   `research/REVIEW_REPORT.md`. Migrate a legacy room once with

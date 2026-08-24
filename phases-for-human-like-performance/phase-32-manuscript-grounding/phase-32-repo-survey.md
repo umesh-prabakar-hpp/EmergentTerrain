@@ -1,41 +1,14 @@
-# Phase 32 — per-repo survey: adopted / already-covered / rejected
+# Phase 32 — retained reference survey: adopted / already-covered / rejected
 
-Disposition table for every notable mechanism found in the four 2026-06-06 clones, so nothing is
-re-litigated from scratch later (the `arc-feature-considerations.md` convention). File refs point
-into `/opt/apps/ide/vscode/ai/reference-from-github/<repo>/`.
+Disposition table for the retained, permissively licensed 2026-06-06 reference material. File refs
+point into `/opt/apps/ide/vscode/ai/reference-from-github/<repo>/`.
 
 Legend: **→ 32.x** adopted into a phase-32 item · **covered** an ET mechanism or pending phase
 item already owns it · **rejected** reviewed and deliberately not ported.
 
 ---
 
-## A. AI-Scientist (`AI-Scientist/`, SakanaAI v1)
-
-| Mechanism | Key files | Disposition |
-|---|---|---|
-| Automated reviewer: NeurIPS review form (16 fields, 1–10 overall, binary decision), reflection rounds with "I am done" convergence, N-review ensemble + meta-reviewer aggregation, optional few-shot examples | `ai_scientist/perform_review.py:13-243`, `246-264`, `151-209`, `361-383` | **→ 32.4** — the *shape* (ensemble + reflection + meta-review + absolute decision head); the NeurIPS rubric itself does not transfer to deterministic-math papers |
-| Reviewer calibration harness: grade against ICLR 2022 OpenReview human accept/reject, compute accuracy/F1/AUC/FPR/FNR, hyperparameter sweep over reflections / few-shot / ensemble / temperature | `review_iclr_bench/iclr_analysis.py:126-489` | **→ 32.4** — the headline adoption. Swap ICLR labels for ET's own operator verdicts (Acceptable/Minor/Major/Reject per `/paper-review` session) |
-| Citation gathering loop: LLM proposes missing-citation location + query → Semantic Scholar top-10 → LLM selects → BibTeX inserted; hard rule "DO NOT ADD ANY NEW CITATIONS" (API-results-only) | `ai_scientist/perform_writeup.py:220-397`, rule at `:237` | **→ 32.5 / 32.6** — the API-only grounding rule is the citation-side twin of the value manifest; loop shape feeds the 32.5 sidecar contract |
-| Per-section writeup with section-specific tips dict + two-pass refinement (second pass: clarity, dedup, space) | `perform_writeup.py:130-217` | **→ 32.6** (cheap narration-side adoption) |
-| Manuscript error-checking: \cite↔bib validation, figure-file existence binding, duplicate-header removal, iterative chktex + LLM fix | `perform_writeup.py:20-91` | **→ 32.6** in spirit (ET's analog: section-contract + citation validators already exist; the *figure-file binding* is parked with the figure agent) |
-| Result grounding by instruction only: error-list prompt forbids "numerical results that do not come from explicit experiments and logs"; no post-hoc enforcement | `perform_writeup.py:182-195` | **covered — ET is already stronger** (validator ladder + [call_N] provenance); noted as the cautionary tale 32.1 exists to avoid |
-| Idea generation with seed ideas + reflection loop + implicit dedup via prev-ideas context | `ai_scientist/generate_ideas.py:75-175` | covered — conjecture miner + QD archive + clade selection own ET's idea layer |
-| Novelty check via Semantic Scholar query loop (LLM decides query-vs-finalize, ≤10 iterations) | `generate_ideas.py:405-493` | **→ 32.5** (as the *grounding-call shape* for promotion-track papers; the engine is PaperQA2, not raw S2 queries) |
-
-## B. AI-Scientist-v2 (`AI-Scientist-v2/`)
-
-| Mechanism | Key files | Disposition |
-|---|---|---|
-| Best-first tree search over experiment nodes: Node{plan, code, exec result, metric, is_buggy, analysis, parent/children}; journal of all nodes | `ai_scientist/treesearch/journal.py:23-168` | **→ 32.3** — the investigation-as-tree representation (ET's professor stage is a linear 5-call trace today) |
-| Debug-vs-improve branching: buggy node → debug child (probabilistic, `debug_prob`, capped by `max_debug_depth`); good node → improve child | `journal.py:159-168`, `bfts_config.yaml` | **→ 32.3** (the pivot policy: off-target/refuted-as-stated ⇒ "debug" the hypothesis via re-registration; on-target ⇒ deepen) |
-| Persistent-error-pattern detection surfaced to the next reflection round | `treesearch/agent_manager.py:1095-1104` | **→ 32.3** (repeated same-failure feeds the pivot decision, mirrors frontier-loop `frontierMaxConsecutiveFailures`) |
-| Staged goals injected per stage (initial → tuning → creative → ablation) with LLM stage-progression evaluation | `agent_manager.py:49-167`, `420-502` | **→ 32.3** in reduced form (ET stages: verify-as-stated → probe-binding-regime → refine-or-pivot); full 4-stage ML shape rejected |
-| LLM-based best-node selection with metric+analysis context, max-metric fallback | `journal.py:420-502` | rejected for v1 — ET investigations are ~5 calls; selection pressure is at the conjecture-docket layer (clade/QD), not within a trace |
-| VLM figure critique (caption accuracy, selection-for-page-limit, duplicate detection) | `ai_scientist/perform_vlm_review.py:15-483` | rejected (parked) — ET papers have no figures yet; re-survey when the ARC §B1 figure agent is scheduled |
-| Token tracker: per-model pricing, cached-vs-full prompt token split, per-interaction log | `ai_scientist/utils/token_tracker.py:1-223` | covered — `TokenAccountant` + `RunBudgetTracker` (drain, reserve, auth-class disable) are strictly stronger |
-| Reviewer (v2) | `ai_scientist/perform_llm_review.py:13-233` | same as v1 → 32.4; v2 adds no new calibration |
-
-## C. data-to-paper (`data-to-paper/`, Technion-Kishony-lab)
+## A. data-to-paper (`data-to-paper/`, Technion-Kishony-lab)
 
 | Mechanism | Key files | Disposition |
 |---|---|---|
@@ -49,7 +22,7 @@ item already owns it · **rejected** reviewed and deliberately not ported.
 | Human-in-the-loop modes (NONE / LLM_FIRST / LLM_UPON_REQUEST) at stage boundaries | `types.py:4-11`, `dual_converser.py:320-331` | covered — ARC §B6 publish-approval gate (pending, low priority) already holds this slot |
 | P-value star conversion, p-hacking guards via planned-analysis capture | `pvalue.py:293-320` | rejected — frequentist-stats-specific; ET's W4 stochastic-null + MCC own the analogous risk |
 
-## D. paper-qa (`paper-qa/`, Future-House PaperQA2)
+## B. paper-qa (`paper-qa/`, Future-House PaperQA2)
 
 | Mechanism | Key files | Disposition |
 |---|---|---|
@@ -67,9 +40,6 @@ item already owns it · **rejected** reviewed and deliberately not ported.
 
 ## Cross-repo synthesis
 
-The four repos partition cleanly into the four thesis gaps: data-to-paper owns **construction-time
-number provenance** (32.1/32.2), v2 + data-to-paper jointly own **investigation control flow**
-(32.3), v1's calibration harness owns **absolute review** (32.4), PaperQA2 owns **literature
-grounding** (32.5). No mechanism was found in two repos with conflicting shapes — the only overlap
-(citation grounding: v1's API-only rule vs PaperQA2's key-fidelity) is complementary and both land
-in 32.5/32.6.
+The retained sources cover construction-time number provenance (32.1/32.2), bounded
+re-registration (32.3), and literature grounding (32.5). The absolute review head (32.4) is
+grounded in EmergentTerrain's own labeled operator verdicts and calibration acceptance bar.

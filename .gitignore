@@ -42,6 +42,14 @@ Thumbs.db
 /simulation-history/**
 !/simulation-history/**/
 !/simulation-history/**/.gitkeep
+# Runtime research evidence is machine-local and may contain prompts, model output,
+# or operator data. These paths are intentionally never release artifacts.
+/apps/game-service/research/
+/apps/research-service/research/
+/apps/game-service/logs/
+/apps/research-service/logs/
+/apps/game-service/simulation-history/
+/apps/research-service/simulation-history/
 scratch.txt
 
 # Claude Code per-session state (lockfile + local permission overrides)

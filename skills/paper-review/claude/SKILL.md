@@ -104,7 +104,10 @@ not a new evidence tool.
 5. Screen after download with a stated tier: `DIRECT_TARGET`, `METHOD_CONTEXT`,
    `BACKGROUND_ONLY`, or `REJECTED_LOW_RELEVANCE`. Only direct-target and method-context sources
    may be `RETAINED_FOR_IMPORT`; background sources remain provenance and cannot satisfy paper
-   grounding. A generic keyword match or asserted relevance is not enough.
+   grounding. A generic keyword match or asserted relevance is not enough. For every retained
+   source, record its exact `license_kind`, HTTPS `license_url`, and reviewed boolean
+   `redistribution_allowed` after checking the source version's rights page. Treat unknown and
+   arXiv non-exclusive terms as non-exportable; free web access is not redistribution permission.
 6. Validate the manifest, then import `RETAINED_FOR_IMPORT` sources into the separate incremental
    paper-review-screened index before ending the review. First confirm no primary or screened
    index writer is active; do not run either importer concurrently.
@@ -122,10 +125,12 @@ not a new evidence tool.
    issues no `HF...` key, cites no paper, and upgrades no label. A source becomes evidence only
    after a later normal indexed search/read/Related Work chain.
 
-Write new subject-map manifests as `schema_version: 2`. The manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
-`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`, and preserve each candidate's subject-map
-lane and relevance tier. A network/source/index failure is unresolved retrieval, not a
-literature-absence claim.
+Write new subject-map manifests as `schema_version: 3`. The manifest must distinguish `DISCOVERED`, `RETAINED_FOR_IMPORT`,
+`REJECTED_LOW_RELEVANCE`, and `UNRESOLVED_RETRIEVAL`, preserve each candidate's subject-map
+lane and relevance tier, and attach license metadata to every retained source. A network/source/
+index failure is unresolved retrieval, not a literature-absence claim. Before including retained
+source text in any export, run `python3 scripts/check-literature-release.py --export-manifest
+<manifest>`; it rejects unreviewed, unknown, and non-exportable sources.
 
 ## End-of-review screened-index result
 

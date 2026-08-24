@@ -26,6 +26,7 @@ This avoids implementing a proposal that conflicts with an in-progress phase pla
    mvn -f apps/game-service/pom.xml -DskipTests package
    mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
    cargo test --manifest-path engines/gpu-engine/Cargo.toml  # when changing the GPU engine
+   python3 scripts/check-literature-release.py  # before a source archive/release
    ```
 
 5. Explain the problem, approach, verification, and any configuration or migration impact in the

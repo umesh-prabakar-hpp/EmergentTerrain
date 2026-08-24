@@ -111,14 +111,13 @@ below:
   [phase-31-research-memory/phase-31-repo-survey.md](phase-31-research-memory/phase-31-repo-survey.md).
 - **Phase 32 — manuscript grounding & calibrated evaluation**
   ([phase-32-manuscript-grounding/](phase-32-manuscript-grounding/), 2026-06-06, **proposal —
-  nothing built**): fifth external-pattern review, over four fresh clones (AI-Scientist v1+v2,
-  data-to-paper, paper-qa/PaperQA2). Thesis: the uncovered layer is **the manuscript as a verified
+  nothing built**): fifth external-pattern review, over retained references data-to-paper and
+  paper-qa/PaperQA2. Thesis: the uncovered layer is **the manuscript as a verified
   artifact** — numbers validated post-hoc by a hand-grown validator ladder instead of constructed
   traceable (32.1/32.2 verified-values manifest, the data-to-paper hypertarget pattern); no
   refine/pivot when an investigation discovers its own mis-specification (32.3, concretizes ARC
   §B3 — motivated live by P-b72c-210/215/217); panel scores relative-only with no absolute anchor
-  (32.4 calibrated review head over ET's own operator verdicts, the AI-Scientist ICLR-calibration
-  methodology; absorbs ARC §B7); literature grounding a stub (32.5 PaperQA2-pattern offline
+  (32.4 calibrated review head over ET's own operator verdicts; absorbs ARC §B7); literature grounding a stub (32.5 PaperQA2-pattern offline
   grounding sidecar — selects the engine for the still-deferred 30.4, flip gated on the standing
   first-promotion trigger). 32.4 hard-depends on 31.6 (verdicts must survive room resets).
   Sequencing + flags:

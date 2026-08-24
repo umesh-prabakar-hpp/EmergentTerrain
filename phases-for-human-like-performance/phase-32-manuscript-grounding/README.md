@@ -12,13 +12,11 @@ and the memory/deep-research review
 Every adopted item ships flag-gated **OFF** (`@Value … = false`) per house convention, flipped only
 after its acceptance bar.
 
-**Sources reviewed (2026-06-06)** — four fresh clones under
+**Sources reviewed (2026-06-06)** — two retained reference-only clones under
 `/opt/apps/ide/vscode/ai/reference-from-github/`:
 
 | Repo | One-line mechanism | Layer it contributes |
 |---|---|---|
-| `AI-Scientist` (SakanaAI) | full idea→experiment→writeup pipeline; automated NeurIPS-form reviewer **calibrated against ICLR 2022 human decisions**; citation gathering with API-only grounding | review **calibration** + writeup discipline |
-| `AI-Scientist-v2` (SakanaAI) | agentic best-first tree search over experiment nodes (debug-vs-improve branching, LLM node selection, staged goals); VLM figure critique; token tracking | investigation **control flow** |
 | `data-to-paper` (Technion-Kishony-lab) | every number in the manuscript wrapped in a provenance hyperlink traceable through the analysis chain to raw data; constrained value types (`PValue`); hypothesis locked before analysis with a bounded re-goal loop | number **traceability** |
 | `paper-qa` (Future-House, PaperQA2) | citation-faithful RAG over scientific papers: per-chunk relevance-scored evidence, answers constrained to retrieved citation keys, "I cannot answer" honesty path, contradiction-detection prompt variant, fully-offline mode (Tantivy + local embeddings) | literature **grounding** |
 
@@ -50,15 +48,13 @@ production-grade pattern in the clones:
    (preregistered pair never invoked, published a self-described "Critical Gap"), and the new
    hypothesis-LHS gate fired live on P-b72c-217 the same morning. The gate routes these to
    revision — but the *generative* fix is `data-to-paper`'s bounded re-goal loop (novelty/validity
-   failure → return to GOAL stage, max N refinements, hypothesis re-locked) combined with
-   AI-Scientist-v2's debug-vs-improve branching. ARC §B3 sketched this; the clones supply the
-   concrete control-flow shape.
+   failure → return to GOAL stage, max N refinements, hypothesis re-locked). ARC §B3 supplies the
+   complementary investigation-control-flow shape.
 
 3. **Review scores are relative, with no absolute anchor.** The panel's axis medians rank papers
    against each other; nothing answers "would a competent human reviewer accept this?"
-   AI-Scientist's reviewer is the calibration *methodology* to steal (not its NeurIPS rubric):
-   grade against a labeled benchmark of real human decisions, sweep reflections/ensemble/few-shot
-   until the agreement metrics stabilize, then trust the absolute head. ET's labeled set already
+   The calibration method is to grade against a labeled benchmark of real human decisions and
+   trust the absolute head only after agreement metrics stabilize. ET's labeled set already
    exists — every `/paper-review` session produces per-paper operator verdicts
    (Acceptable / Minor / Major / Reject); they are currently **discarded on room reset**
    (Phase 31's 31.6 makes them durable — explicit cross-dependency).
@@ -83,9 +79,9 @@ constructs the second out of existence. That is this phase's thesis in one paper
 | Pending item | How phase 32 treats it |
 |---|---|
 | ARC §B2 verified-metrics manifest | **becomes 32.1/32.2** (the data-to-paper treatment is strictly stronger than the ARC sketch) |
-| ARC §B3 refine/pivot + fresh pre-registration | **becomes 32.3** (control-flow shape from data-to-paper re-goal + v2 branching) |
+| ARC §B3 refine/pivot + fresh pre-registration | **becomes 32.3** (control-flow shape from data-to-paper re-goal) |
 | ARC §B7 graded paper benchmark | **becomes the calibration set inside 32.4** |
 | 30.4 literature grounding (deferred) | **engine selected in 32.5**; deferral trigger restated (first promotion paper) |
 | 29.2.1 rollback ratchet (did-it-help judge) | untouched here; 32.4's absolute head is the natural judge metric once calibrated |
 | 31.6 provenance unification | **hard dependency of 32.4** (operator verdicts must survive restarts to form the calibration set) |
-| Figure agent (ARC §B1) | out of scope — v2's VLM figure machinery surveyed and parked until ET papers have figures |
+| Figure agent (ARC §B1) | out of scope until ET papers have figures |

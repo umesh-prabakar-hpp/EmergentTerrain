@@ -74,10 +74,8 @@ rate within noise of the trailing baseline.
 
 ## 32.3 — REFINE / PIVOT with fresh pre-registration  *(investigation control flow)*
 
-**Pattern (data-to-paper + AI-Scientist-v2).** Hypothesis locked before analysis; a validity or
-novelty failure loops back to re-goal, bounded by `max_goal_refinement_iterations`; v2 represents
-the investigation as a node tree where buggy nodes spawn *debug* children and good nodes spawn
-*improve* children, with persistent-error patterns surfaced to the next decision.
+**Pattern (data-to-paper).** Hypothesis is locked before analysis; a validity or novelty failure
+loops back to re-goal, bounded by `max_goal_refinement_iterations`.
 
 **ET shape.** Today an investigation that discovers mis-specification (P-b72c-210's wrong-LHS
 tautology, P-b72c-215's never-tested pair, P-b72c-217 caught live by the new LHS gate) can only
@@ -105,8 +103,8 @@ publishes clean; no paper exceeds the refinement cap; mean calls/paper rises by 
 
 ## 32.4 — Calibrated absolute review head  *(the anchor)*
 
-**Pattern (AI-Scientist).** A reviewer with an absolute decision head, made trustworthy not by
-prompt-craft but by a **calibration harness**: grade N papers with known human verdicts, compute
+**Pattern.** A reviewer with an absolute decision head is made trustworthy by a **calibration
+harness**: grade N papers with known human verdicts, compute
 accuracy/F1/AUC/FPR/FNR, sweep reflections / few-shot / ensemble / temperature until the metrics
 stabilize, and only then deploy.
 

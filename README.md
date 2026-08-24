@@ -143,7 +143,8 @@ Unless a file states otherwise, EmergentTerrain code and project documentation a
 [AGPL-3.0-or-later](LICENSE). This permits commercial use but requires operators of modified
 network-facing versions to offer their corresponding source to users. Third-party data, downloaded
 papers, model weights, dependencies, and generated research artifacts retain their own terms; see
-[NOTICE](NOTICE). Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
+[NOTICE](NOTICE), [THIRD_PARTY_PROVENANCE.md](THIRD_PARTY_PROVENANCE.md), and
+[sbom/README.md](sbom/README.md). Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
 For responsible disclosure, see [SECURITY.md](SECURITY.md).
 
 ## Stack
@@ -154,8 +155,9 @@ For responsible disclosure, see [SECURITY.md](SECURITY.md).
 
 ## Monorepo layout
 
-The Git repositories for the Rust GPU engine and Julia math sidecar are now imported into this
-repository with their histories under `engines/gpu-engine/` and `services/julia-math-sidecar/`.
+The project-authored Git histories for the Rust GPU engine and Julia math sidecar are imported into
+this repository under `engines/gpu-engine/` and `services/julia-math-sidecar/`; their ownership and
+import evidence are recorded in [THIRD_PARTY_PROVENANCE.md](THIRD_PARTY_PROVENANCE.md).
 The Spring application now lives in `apps/game-service/`; `apps/research-service/` is a separate
 research-only runtime. Shared research implementation code remains in the game-service artifact
 while it is being extracted, but the research runtime does not scan or start gameplay components.
@@ -640,9 +642,10 @@ lines when validating a timeout recovery; FTS maintenance remains a single-write
 the single app run that produced that review batch; no `--prepare-literature-backfill` switch is
 required. It uses a bounded four-lane subject map (exact target/predicate, quantitative context,
 finite-range method, and caveat) rather than treating the logged retrieval phrase as the whole
-search. New schema-v2 manifests record each source's lane and relevance tier; only
-`DIRECT_TARGET` and `METHOD_CONTEXT` sources may be retained for import, while background and
-generic keyword matches remain provenance only. It obtains text-only candidates and
+search. New schema-v3 manifests record each source's lane, relevance tier, license kind, HTTPS
+license URL, and reviewed redistribution decision; only `DIRECT_TARGET` and `METHOD_CONTEXT`
+sources may be retained for import, while background and generic keyword matches remain
+provenance only. It obtains text-only candidates and
 relevance-screens them into a temporary staging area. After validating a
 `RETAINED_FOR_IMPORT` entry and confirming that no primary or screened index writer is active, the
 review imports it into the separate incremental paper-review-screened SQLite/FTS5 index instead of
@@ -671,6 +674,18 @@ manifest; after upgrading this script, repair previously imported display titles
 ```bash
 python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles
 ```
+
+**Literature licenses and release boundary** — the repository's AGPL license covers the code, not
+downloaded papers, Hugging Face corpora, or derived SQLite indexes. Keep every such input outside
+Git. New paper-review staging manifests use schema v3 and attach a source license kind, HTTPS
+license URL, and reviewed `redistribution_allowed` decision to every retained source. Older
+manifests remain locally indexable but are non-exportable by default. Run
+`python3 scripts/check-literature-release.py` before publishing a source archive; add
+`--export-manifest /path/to/staging-manifest.json` when an export would include source text. It
+rejects tracked raw corpus/index/staged source data, and that export mode rejects unknown and
+arXiv non-exclusive sources. See
+[the literature data policy](docs/literature-data-licenses.md) for the UW CC BY-SA corpus, the
+Marin C-UDA corpus, and redistribution conditions.
 
 **Prime-gap study protocol** — `cramer_gap_ratio` is a finite, window-dependent extreme-value
 measurement, not a registered constant limit. New investigations lock one discovery grid plus
