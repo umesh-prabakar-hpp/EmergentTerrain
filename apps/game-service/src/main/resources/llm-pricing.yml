@@ -29,14 +29,12 @@ llm-pricing:
     - "openai/gpt-oss-120b:free"      # OpenRouter free mirror — $0 actual spend
 
   providers:
-    # Local AI gateway. Operators should set these rates to the billing model
-    # of their configured local AI command; zero makes the budget accounting
-    # explicitly free rather than assuming a hidden provider rate.
+    # Local AI gateway (Codex GPT-5.6 Terra API-equivalent accounting).
     local-ai:
       models:
         "[local-ai]":
-          in-usd-per-mtok: 0.00
-          out-usd-per-mtok: 0.00
+          in-usd-per-mtok: 5.00
+          out-usd-per-mtok: 20.00
 
     groq:
       models:
