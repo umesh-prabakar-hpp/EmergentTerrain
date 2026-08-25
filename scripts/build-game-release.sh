@@ -73,6 +73,10 @@ commit="$(git -C "$repo_root" rev-parse HEAD)"
 git -C "$repo_root" archive --format=tar.gz --prefix="$release_name-source/" HEAD \
   > "$stage/source/$release_name-source.tar.gz"
 
-jar --create --file "$archive" --no-manifest -C "$release_root" "$release_name"
+# zip preserves the executable bit on bin/start; the JDK jar writer does not retain it.
+(
+  cd "$release_root"
+  zip -q -r "$archive" "$release_name"
+)
 echo "Wrote replaceable-dependency release: $archive"
 echo "Release source revision: $commit"
