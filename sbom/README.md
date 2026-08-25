@@ -23,7 +23,10 @@ review the transitive license fields, ship every required notice/source offer, a
 non-dependency copied material to
 [`../THIRD_PARTY_PROVENANCE.md`](../THIRD_PARTY_PROVENANCE.md).
 
-Read [`license-review.md`](license-review.md) before distributing a binary or container. In
-particular, the optional legacy-ai-gateway resolves an SDK governed by Anthropic commercial
-terms rather than an open-source package license; do not bundle its installed `node_modules` unless
-those terms permit the intended distribution.
+Read [`license-review.md`](license-review.md) before distributing a binary or container. The
+supported game-service ZIP is made by [`../scripts/build-game-release.sh`](../scripts/build-game-release.sh):
+it carries the Maven and Cargo SBOMs, notices, a matching source archive, and ordinary replaceable
+runtime JARs under `lib/`. Its generated output remains under `apps/game-service/target/release/`
+and is never committed. In particular, the optional legacy-ai-gateway resolves an SDK
+governed by Anthropic commercial terms rather than an open-source package license; do not bundle
+its installed `node_modules` unless those terms permit the intended distribution.

@@ -2,7 +2,10 @@
 
 This file retains notices required by external material incorporated into the source tree. It does
 not replace the dependency-level notices and license review required for a distributed binary or
-container; see [`sbom/README.md`](sbom/README.md).
+container; see [`sbom/README.md`](sbom/README.md). The supported game-service release builder
+copies this file, the selected-license register, applicable GNU license texts, and any
+`LICENSE`/`NOTICE`/`COPYING` files found in its separate runtime JARs into the release ZIP. Review
+the resulting `licenses/` directory against that release's SBOM before publication.
 
 ## data-to-paper tolerance-policy source
 

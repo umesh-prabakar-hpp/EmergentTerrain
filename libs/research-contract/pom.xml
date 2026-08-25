@@ -7,6 +7,13 @@
   <version>0.0.1-SNAPSHOT</version>
   <name>EmergentTerrain Research Contract</name>
   <description>Versioned Java DTOs shared by the game and research services.</description>
+  <licenses>
+    <license>
+      <name>GNU Affero General Public License v3.0 or later</name>
+      <url>https://www.gnu.org/licenses/agpl-3.0.html</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
     <jackson.version>2.17.1</jackson.version>

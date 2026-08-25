@@ -129,6 +129,13 @@ runtime data, logs, Maven `target/` directories, and `sample-output/` are local 
 should not be committed. Before opening a contribution, keep a change focused, describe any
 runtime/configuration impact, and update the relevant documentation.
 
+For a distributable game-service binary, generate and commit the reviewed SBOM update first, then
+run `./scripts/build-game-release.sh` from a clean checkout. It writes a Git-ignored ZIP beneath
+`apps/game-service/target/release/` with a plain application JAR and separate, replaceable
+dependency JARs under `lib/`; it does not add JARs to this repository. See
+[docs/release-distribution.md](docs/release-distribution.md) for the release procedure and review
+requirements.
+
 ## Documentation and project status
 
 The concise operational commands are in [RUN-MINIMAL.md](RUN-MINIMAL.md); the full optional

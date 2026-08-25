@@ -35,6 +35,14 @@ def component(package):
 
 root_id = metadata["resolve"]["root"]
 root = next(package for package in packages if package["id"] == root_id)
+root_component = {
+    "type": "application",
+    "name": root["name"],
+    "version": root["version"],
+    "purl": ref_by_id[root_id],
+}
+if root.get("license"):
+    root_component["licenses"] = [{"expression": root["license"]}]
 dependencies = []
 for node in metadata["resolve"]["nodes"]:
     ref = ref_by_id[node["id"]]
@@ -49,12 +57,7 @@ bom = {
     "version": 1,
     "metadata": {
         "timestamp": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "component": {
-            "type": "application",
-            "name": root["name"],
-            "version": root["version"],
-            "purl": ref_by_id[root_id],
-        },
+        "component": root_component,
         "tools": [{"vendor": "Cargo", "name": "cargo metadata", "version": 1}],
     },
     "components": sorted((component(package) for package in packages), key=lambda item: item["bom-ref"]),

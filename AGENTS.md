@@ -252,6 +252,22 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn -f apps/game-service/pom.xml -DskipTests package
 ```
 
+## Game-service binary release
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+./scripts/generate-sbom.sh
+./scripts/build-game-release.sh
+```
+
+Commit the regenerated, reviewed SBOMs before the second command; the release builder refuses a
+dirty source tree so that its source archive matches the binary. It stages the Git-ignored ZIP in
+`apps/game-service/target/release/` with the normal thin application JAR at `app/` and every
+runtime dependency as a distinct replaceable JAR under `lib/`. Do not commit that output, shade
+the release JAR, or move a release `lib/` directory into the repository root. Use
+`docs/release-distribution.md`, `DEPENDENCY_LICENSE_CHOICES.md`, and the packaged notices for the
+distribution review. The existing Spring Boot artifact remains for development and the benchmark
+workflow; it is not the distribution artifact.
+
 ## Tests
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
