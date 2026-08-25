@@ -163,9 +163,8 @@ until a project marker is found: `logs/`, `pom.xml`, `.git`, or `build.gradle`.
 Standard locations:
 
 - Main app: `<root>/logs/et-app.log`, or the newest non-archive `*.log` under `<root>/logs/`.
-- Julia sidecar: `<root>/../julia-math-sidecar/logs/sidecar.log`.
-- GPU engine: `<root>/../EmergentTerrainGPUEngine/logs/gpu-engine.log`, plus `.err.log` if present.
-- Also list sibling app logs whose mtimes overlap the batch publish window.
+- Julia sidecar: `<root>/services/julia-math-sidecar/logs/sidecar.log`.
+- GPU engine: `<root>/engines/gpu-engine/logs/gpu-engine.log`, plus `.err.log` if present.
 
 Confirm time overlap. A stale log is not evidence for the current batch. Do not infer a process was
 down from log mtime alone; check `ps` or an explicit crash/exit line. Do not blame a backend

@@ -95,7 +95,7 @@ the repo root (matches EmergentTerrain's `logs/et-app.log` pattern).
 Tail it with:
 
 ```bash
-tail -f /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/logs/sidecar.log
+tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log
 ```
 
 The log shows JIT warmup notices on first request to each new
@@ -296,7 +296,7 @@ instead of to the in-process Symja library. The sidecar is opt-in via
 
 Tracked in [`phase-22-julia-math-sidecar.md`][p22] in EmergentTerrain.
 
-[p22]: ../EmergentTerrain/phases-for-human-like-performance/phase-22-julia-math-sidecar.md
+[p22]: ../../phases-for-human-like-performance/phase-22-julia-math-sidecar.md
 
 - **0.1 (this release)** — HTTP server, `/eval`/`/solve`/`/nsolve`/`/integrate`/`/sweep`/`/healthz`/`/metrics`, safety filter, timeout wrapper, smoke tests. Phase 22.1.
 - **0.2** — Spring `JuliaMathClient` bean on the EmergentTerrain side, opt-in via `app.julia.enabled`. Phase 22.2.

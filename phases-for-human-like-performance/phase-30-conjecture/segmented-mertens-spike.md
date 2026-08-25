@@ -10,7 +10,7 @@ It does **not** yet ask an LLM to invent a method (that comes after the moat exi
 validate a proposal before the validator is built).
 
 > **Status (Phase 1 done).** The oracle (`nt_mertens_dense`), the moat test, and a *throwaway
-> baseline* candidate (`nt_mertens_segmented`) are in `../julia-math-sidecar/src/numbertheory.jl`,
+> baseline* candidate (`nt_mertens_segmented`) are in `../../services/julia-math-sidecar/src/numbertheory.jl`,
 > validated 25/25: dense ≡ segmented exactly across `[1, 2×10⁶]` (incl. non-round offsets), dense
 > refuses past `NT_MAX_N`, segmented extends to match OEIS A084237 (`M(10⁷)=1037`, `M(10⁸)=1928`).
 > **Decision (fork b):** the hand-written `nt_mertens_segmented` is kept *only* as a baseline that
@@ -96,10 +96,10 @@ Tool *exposure* is additionally gated on the conjecture invariant being mertens-
 
 **Sidecar** (⚠️ recompile hazard — stop/restart 8088+8089 around any `src/` change; the running
 process mmaps the `.ji` — see the `project_sidecar_recompile_crash` lesson):
-- `../julia-math-sidecar/src/numbertheory.jl` — add `nt_mertens_segmented(x; block=...)` (pure base
+- `../../services/julia-math-sidecar/src/numbertheory.jl` — add `nt_mertens_segmented(x; block=...)` (pure base
   Julia, no `using`), plus a `nt_mertens_dense(x)` helper if not already trivially available for the
   in-range ground truth.
-- `../julia-math-sidecar/src/handlers.jl` — a `mertens_segmented` request handler with the work guard
+- `../../services/julia-math-sidecar/src/handlers.jl` — a `mertens_segmented` request handler with the work guard
   (`x > segmentedMertensMaxX → ArgumentError`, mirroring the existing `NT_MAX_N` guards).
 - sidecar unit test for the new function (exact match to dense `M` on `[0, 2×10⁶]` checkpoints).
 

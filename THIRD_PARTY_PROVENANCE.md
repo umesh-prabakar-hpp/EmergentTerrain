@@ -10,10 +10,10 @@ The Rust GPU engine and Julia math sidecar were created in project-controlled lo
 then their histories were imported into this monorepo. They are not third-party code and are not
 Git submodules.
 
-| Monorepo path | Controlled source repository | First standalone commit | First monorepo commit | Evidence |
+| Monorepo path | Project-owned predecessor source | First standalone commit | First monorepo commit | Evidence |
 |---|---|---|---|---|
-| `engines/gpu-engine/` | [`EmergentTerrainGPUEngine`](project-owned-predecessor-gpu-engine) | `79ed6eecd8c7418f4268c67891f602f9ca56faa5` — 2026-02-15, `Initialize GPU engine gRPC service` | `4ce341c816916e202669ec6534a9efb5a9224e62` — same date and subject | Matching chronological history through the 2026-05-30 timestamped-logging commit |
-| `services/julia-math-sidecar/` | [`julia-math-sidecar`](project-owned-predecessor-julia-sidecar) | `1b4efba74fe06136985fec6802ffa9904d30d1b1` — 2026-05-20, `Phase 22.1 — bootstrap julia-math-sidecar` | `455ad7e5398220aa45f555a8807505278cf4769c` — same date and subject | Matching chronological history through the 2026-07-09 grounding-performance commit |
+| `engines/gpu-engine/` | EmergentTerrain GPU engine — imported project-owned source; no external remote required | `79ed6eecd8c7418f4268c67891f602f9ca56faa5` — 2026-02-15, `Initialize GPU engine gRPC service` | `4ce341c816916e202669ec6534a9efb5a9224e62` — same date and subject | Matching chronological history through the 2026-05-30 timestamped-logging commit |
+| `services/julia-math-sidecar/` | Julia math sidecar — imported project-owned source; no external remote required | `1b4efba74fe06136985fec6802ffa9904d30d1b1` — 2026-05-20, `Phase 22.1 — bootstrap julia-math-sidecar` | `455ad7e5398220aa45f555a8807505278cf4769c` — same date and subject | Matching chronological history through the 2026-07-09 grounding-performance commit |
 
 The project operator represents that they hold the right to license these project-authored sources
 under this repository's AGPL-3.0-or-later license. Their dependencies remain separately licensed;

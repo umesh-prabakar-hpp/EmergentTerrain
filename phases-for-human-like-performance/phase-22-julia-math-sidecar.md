@@ -13,9 +13,9 @@ symbolic-vs-numeric routing confusion, wrong-domain tool execution).
 
 **App naming.** The Julia component is generic — its protocol (JSON over
 HTTP, `eval` endpoint, `nsolve`/`quadgk`/`solve` endpoints) is not
-EmergentTerrain-specific and could serve any caller. **Proposed name:
-`julia-math-sidecar`.** A separate top-level repository / directory peer
-to `EmergentTerrain` and `EmergentTerrainGPUEngine`. If the operator
+EmergentTerrain-specific and could serve any caller. **Component name:**
+`julia-math-sidecar`. It now lives in this monorepo at
+`services/julia-math-sidecar/` and runs as a separate process. If the operator
 prefers a project-prefixed name, `emergent-julia-math` is the fallback.
 
 EmergentTerrain's bindings to it (the Spring beans, the
@@ -101,7 +101,7 @@ configurable (`app.julia.timeoutMs`, default 5000). The HTTP overhead
 
 ### 22.1 — sidecar bootstrap (this repo: zero changes) — **LANDED 2026-05-20**
 
-Bring up `julia-math-sidecar` as a separate repo / directory with the
+Bring up `services/julia-math-sidecar/` with the
 HTTP server, packages, basic endpoints (`/healthz`, `/eval`, `/solve`,
 `/nsolve`, `/integrate`, `/sweep`, `/metrics`). Verify it runs standalone
 with `curl` smoke tests against a fixture script. **Effort: ~2 days.**
@@ -112,9 +112,8 @@ with `curl` smoke tests against a fixture script. **Effort: ~2 days.**
 warmup. (Note: native Julia syntax `floor(...)` rather than Mathematica
 syntax `Floor[...]` — see Open Question 2.)
 
-**Status (2026-05-20):** SHIPPED. Located at
-`/opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/` (sibling to
-EmergentTerrain). Source files:
+**Status (2026-05-20):** SHIPPED. The imported source now lives at
+`services/julia-math-sidecar/`. Source files:
 
 - `Project.toml` — Julia package manifest (Symbolics.jl, Roots.jl,
   QuadGK.jl, HTTP.jl, JSON3.jl)
@@ -482,7 +481,7 @@ step; see runbook below.
 **Step 1 — bring up the sidecar.**
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar
 ./scripts/start.sh
 # Wait for "julia-math-sidecar starting" log line. Verify:
 curl -fsS localhost:8088/healthz | jq

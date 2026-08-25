@@ -212,9 +212,8 @@ Find the project root by walking up from `<research_dir>` until a marker appears
 Standard log locations:
 
 - Main app: `<root>/logs/et-app.log`, or newest non-archive `*.log` in `<root>/logs/`.
-- Julia: `<root>/../julia-math-sidecar/logs/sidecar.log`.
-- GPU: `<root>/../EmergentTerrainGPUEngine/logs/gpu-engine.log` and `.err.log` peer.
-- Candidate sibling logs: `<root>/../*/logs/*.log` with mtime overlapping the batch window.
+- Julia: `<root>/services/julia-math-sidecar/logs/sidecar.log`.
+- GPU: `<root>/engines/gpu-engine/logs/gpu-engine.log` and `.err.log` peer.
 
 Check content timestamp overlap with paper `Published` timestamps. A stale log can be reported
 as stale, but must not be mined as evidence for the current batch.

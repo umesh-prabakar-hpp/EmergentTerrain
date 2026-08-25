@@ -143,7 +143,7 @@ Symja is pure-Java, **LGPL-v3 licensed** (this doc previously claimed MIT — co
 
 ## Phase 4 — JIT to GPU (research project)
 
-**What:** Add `run_gpu_eval` as a third tool in [MathToolSuite](../src/main/java/com/emergentterrain/service/MathToolSuite.java). The LLM provides an expression `f(n)` and a range `[start, end)`; the tool compiles the expression to a WGSL compute shader and dispatches it on the existing [Rust GPU engine](../../EmergentTerrainGPUEngine) over gRPC at `127.0.0.1:50051` (per [AGENTS.md:56](../AGENTS.md)).
+**What:** Add `run_gpu_eval` as a third tool in [MathToolSuite](../src/main/java/com/emergentterrain/service/MathToolSuite.java). The LLM provides an expression `f(n)` and a range `[start, end)`; the tool compiles the expression to a WGSL compute shader and dispatches it on the existing [Rust GPU engine](../../engines/gpu-engine/) over gRPC at `127.0.0.1:50051` (per [AGENTS.md:56](../AGENTS.md)).
 
 Two real implementation paths:
 - **Runtime shader codegen via `naga`** in the existing Rust engine. Translate the `SandboxEngine` AST → WGSL → wgpu dispatch. Stays consistent with the current GPU architecture (Vulkan/wgpu, AMD-friendly).

@@ -2,8 +2,8 @@
 
 Rust gRPC service (tonic) that hosts the Vulkan compute engine.
 
-## Repo Location
-- Linux path: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine`
+## Monorepo Location
+- `engines/gpu-engine/`
 
 ## Fedora Setup
 The supported one-command Fedora bootstrap now lives in the Java repo:
@@ -12,7 +12,7 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
-It installs the shared Java/Rust/PostgreSQL/Vulkan prerequisites for both repos, initializes PostgreSQL, creates the app databases, and installs the optional Playwright browser dependency used by the Java repo UI scripts.
+It installs the shared Java/Rust/PostgreSQL/Vulkan prerequisites, initializes PostgreSQL, creates the app databases, and installs the optional Playwright browser dependency used by the UI scripts.
 
 Install the base toolchain and Vulkan/protobuf dependencies:
 ```bash
@@ -34,13 +34,13 @@ export PROTOC=/usr/bin/protoc
 
 ## Build / Run
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
 cargo build
 ```
 
 ```bash
 # Default listens on 127.0.0.1:50051
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
 cargo run
 
 # Custom address
@@ -48,7 +48,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ```
 
 ## Full App E2E Check
-From the Java app repo on this machine, run:
+From the monorepo root, run:
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 pwsh ./scripts/run-real-gpu-e2e.ps1

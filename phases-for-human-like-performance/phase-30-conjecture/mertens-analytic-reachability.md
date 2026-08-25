@@ -16,8 +16,8 @@ evaluate-and-check model is a **wall** for analytic *proofs* but an **asset** fo
 *computations*.
 
 Source of truth for the harness limits: `research/conjecture/ConjectureVerifier.java`
-(`MAX_N = 2_000_000`, `MAX_WORK = 100_000`), `../julia-math-sidecar/src/numbertheory.jl`
-(`NT_MAX_N`, `nt_factor` throws past it), `../julia-math-sidecar/src/julia_aliases.jl`
+(`MAX_N = 2_000_000`, `MAX_WORK = 100_000`), `../../services/julia-math-sidecar/src/numbertheory.jl`
+(`NT_MAX_N`, `nt_factor` throws past it), `../../services/julia-math-sidecar/src/julia_aliases.jl`
 (`isprime` trial-division fallback), and the sidecar's `MAX_TIMEOUT_MS = 30_000` single-thread call
 ceiling.
 

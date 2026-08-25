@@ -21,8 +21,8 @@ known stale.
 ## Repos reviewed
 
 - Java/Spring app: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrain`
-- Rust GPU engine: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine`
-- Julia math sidecar: `/opt/apps/ide/eclipse/workspace-web/julia-math-sidecar`
+- Rust GPU engine: `engines/gpu-engine/`
+- Julia math sidecar: `services/julia-math-sidecar/`
 
 Related workspace repos discovered: `bills-tracker`, `docs`, `health-dashboard`,
 `EmergentSomaUdal`, `EmergentInvestFlowOdai`, and `bills-tracker-android`.

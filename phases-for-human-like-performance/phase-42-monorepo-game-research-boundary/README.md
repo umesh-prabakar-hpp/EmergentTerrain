@@ -354,13 +354,13 @@ They have not. The conservative weighted accounting below is the current plannin
 
 1. **Establish a baseline.** Record current build, test, GPU smoke, and sidecar/proxy startup
    results before moving files.
-2. **Create the monorepo without changing behavior.** Import `EmergentTerrainGPUEngine` under
-   `engines/gpu-engine/` and `julia-math-sidecar` under `services/julia-math-sidecar/`, preserving
-   each repository's history with `git filter-repo` or `git subtree`.  Remove imported nested
-   `.git` directories only after confirming the imports; do not use Git submodules for this target.
-3. **Repair repository-relative tooling.** Update scripts, CI, README, and AGENTS.md paths that
-   currently assume sibling repositories.  Retain the existing ports unless a separately reviewed
-   compatibility change says otherwise.
+2. **Create the monorepo without changing behavior.** **Completed:** the project-owned GPU engine
+   is under `engines/gpu-engine/` and the Julia sidecar is under
+   `services/julia-math-sidecar/`; their histories were imported without nested `.git` directories
+   or Git submodules.
+3. **Repair repository-relative tooling.** **Completed for supported launchers:** scripts, CI,
+   README, and AGENTS.md use monorepo paths. Retain the existing ports unless a separately reviewed
+   compatibility change says otherwise; do not reintroduce sibling-repository assumptions.
 4. **Define the boundary.** Define and publish the game-agnostic `ResearchWorkRequest` and
    `ResearchResult` contracts, including request IDs, idempotency, source revisions, immutable
    context snapshots, job state, cancellation where supported, and paper/status retrieval. Add

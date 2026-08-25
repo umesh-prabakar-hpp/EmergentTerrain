@@ -19,7 +19,7 @@ can't.
 ## Architecture (confirmed)
 
 Per-integer scalars are computed in the **sidecar sieve**
-[`numbertheory.jl:nt_evaluate_window`](../../../julia-math-sidecar/src/numbertheory.jl) (a single pass
+[`numbertheory.jl:nt_evaluate_window`](../../services/julia-math-sidecar/src/numbertheory.jl) (a single pass
 over `n ∈ [start, start+W)` accumulating from per-`n` primitives `nt_omega/nt_big_omega/nt_divisor_count/
 nt_sigma/nt_mobius`), emitted as BASE scalars and **passed through** to
 [`MathInvariants.BASE`](../../src/main/java/com/emergentterrain/research/conjecture/MathInvariants.java).
