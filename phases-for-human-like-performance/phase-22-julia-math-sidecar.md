@@ -137,7 +137,7 @@ syntax `Floor[...]` — see Open Question 2.)
   cases and a timeout test.
 - `README.md` — install, run, protocol documentation
 
-**Wired into EmergentTerrain operator docs:** `STARTUP.md` §4.5 (full
+**Wired into EmergentTerrain operator docs:** `RUN.md` §2 (full
 install + run + verify), `RUN.md` §3 (terse copy-paste). Both note that
 EmergentTerrain doesn't yet *use* the sidecar — that lands in 22.2.
 

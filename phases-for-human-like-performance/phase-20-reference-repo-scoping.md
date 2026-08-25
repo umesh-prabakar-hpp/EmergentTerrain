@@ -476,7 +476,7 @@ pipelines/{world,patch,bots}.rs"). Shader constants moved into one
 file per pipeline under `pipelines/`. The next step (a typed
 `ComputePipeline` trait + per-pipeline unit tests) is **the only
 remaining 20.9 work**, naturally pulled when pipeline #4 (the
-distance-transform candidate from `changes-for-gpu-based-app.md`)
+distance-transform candidate from `docs/archive/gpu-architecture-notes.md`)
 gets added.
 
 **Source pattern:** workflow assembled from named stages — each stage
@@ -488,7 +488,7 @@ stages drop in by adding a file.
 pipelines, the gRPC service trait impl, the device init, and the
 shader constants all inlined. Adding a fourth pipeline (e.g.,
 distance-transform for highway influence per the
-`changes-for-gpu-based-app.md` Stage 4 plan) means editing the same
+`docs/archive/gpu-architecture-notes.md` Stage 4 plan) means editing the same
 file. Tests for one pipeline can't run without booting the whole
 service.
 
@@ -506,7 +506,7 @@ service.
   `RequestAdapterOptions::default()` in test mode).
 
 **Acceptance:** Adding a fourth pipeline (the
-`changes-for-gpu-based-app.md` distance-transform candidate) means
+`docs/archive/gpu-architecture-notes.md` distance-transform candidate) means
 one new file under `pipelines/`, one gRPC method addition, and zero
 edits to existing pipeline files.
 
@@ -1053,7 +1053,7 @@ items with a concrete pain point behind them.
 - **20.9 (engine stage split)** — refactor on its own has no
   behavior payoff. Pull *as part of adding pipeline #4* (the
   flow-field / distance-transform candidate from
-  `changes-for-gpu-based-app.md`) — same cost, payoff twice.
+  `docs/archive/gpu-architecture-notes.md`) — same cost, payoff twice.
 
 ### Backlog — do not implement now
 

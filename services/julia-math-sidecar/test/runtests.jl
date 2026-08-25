@@ -404,7 +404,7 @@ end
 # If this ever regresses, Lever 2's fan-out cannot be built.
 #
 # Test only runs when Julia has >= 2 threads. The production sidecar
-# starts with JULIA_NUM_THREADS=4 (see STARTUP.md), so the guard
+# starts with JULIA_NUM_THREADS=4 (see RUN.md), so the guard
 # trips only in single-threaded local runs.
 
 # ---------------------------------------------------------------------

@@ -6,7 +6,7 @@
 //! `rebuild_patch` / `simulate_bots_with_buffers` in `main.rs`) into a
 //! `ComputePipeline` trait so adding a fourth pipeline (e.g., the
 //! flow-field / distance-transform candidate from
-//! `changes-for-gpu-based-app.md`) becomes a one-file addition rather
+//! `docs/archive/gpu-architecture-notes.md`) becomes a one-file addition rather
 //! than an edit to `main.rs`.
 //!
 //! Target shape (TBD in follow-up commits):

@@ -56,10 +56,50 @@ point, so the command deliberately permits a nonzero status:
 ./scripts/status-related-apps.sh || true
 ```
 
+### Encrypted provider secrets
+
+The current game-service configuration enables the local encrypted secret store. If a configured
+remote provider needs credentials, create the encrypted store once before starting the app. Keep the
+plaintext JSON out of Git and delete it after sealing it.
+
+```bash
+mkdir -p ~/.emergentterrain
+chmod 700 ~/.emergentterrain
+$EDITOR ~/.emergentterrain/secrets.json
+```
+
+Use a JSON object whose keys match provider environment-variable names, such as
+`{"OPENROUTER_API_KEY":"..."}`. Then seal it with a passphrase stored in a mode-0600 file:
+
+```bash
+( umask 077; openssl rand -base64 32 | tr -d '\n' > ~/.emergentterrain/passphrase )
+mvn -q -f apps/game-service/pom.xml compile
+java -cp apps/game-service/target/classes \
+  com.emergentterrain.secrets.EncryptedSecretsFile \
+  seal ~/.emergentterrain/secrets.enc \
+  --passphrase-file ~/.emergentterrain/passphrase \
+  < ~/.emergentterrain/secrets.json
+rm ~/.emergentterrain/secrets.json
+```
+
+The app reads the sealed file automatically. A shell-exported secret still takes precedence. To run
+without the encrypted store, explicitly set `APP_SECRETS_ENABLED=false` for that launch.
+
 ## 2. Start the Julia sidecars
 
 Start each sidecar in its own terminal. Start the main Julia sidecar first, then start the
 single-threaded PyCall/grounding companion in a second terminal.
+
+On a fresh clone, install Julia and initialize the sidecar environment once before starting it:
+
+```bash
+cd services/julia-math-sidecar
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+Routine restarts do not need that command. See
+[services/julia-math-sidecar/README.md](services/julia-math-sidecar/README.md) for supported Julia
+installation methods.
 
 ### Julia math sidecar
 
@@ -69,7 +109,9 @@ JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
 ```
 
 This listens on `127.0.0.1:8088`. `ET_DISCOVER_EXEC=1` enables opt-in discovery execution; omit it
-when that capability is not needed.
+when that capability is not needed. The `/discover/validate` endpoint executes model-authored Julia
+only when this environment flag, `app.research.discovery.runtimeExecEnabled`, and the relevant
+per-invariant tool gate are all enabled. Keep it off for normal operation.
 
 In another terminal, follow its log:
 

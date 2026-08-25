@@ -19,7 +19,14 @@ cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
-## 3. Julia math sidecar
+## 3. First-time Julia sidecar setup
+
+```bash
+cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+## 4. Julia math sidecar
 
 Run this in its own terminal before starting the web app:
 
@@ -43,7 +50,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./services/julia-math-sidecar/scripts/stop.sh
 ```
 
-## 4. PyCall and grounding sidecar
+## 5. PyCall and grounding sidecar
 
 After the main Julia sidecar is listening, run this in a second terminal:
 
@@ -67,7 +74,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./services/julia-math-sidecar/scripts/stop.sh
 ```
 
-## 5. Research audit without the game
+## 6. Research audit without the game
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -77,7 +84,7 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 ./scripts/start-research-service.sh
 ```
 
-## 6. University research without the game
+## 7. University research without the game
 
 Run this in one terminal when the sibling local AI gateway copy exists:
 
@@ -113,7 +120,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/stop-local-ai-gateway.sh
 ```
 
-## 7. GPU engine
+## 8. GPU engine
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -125,14 +132,14 @@ cd "$(git rev-parse --show-toplevel)"
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-## 8. Web app
+## 9. Web app
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/start.sh
 ```
 
-## 9. Web app with local AI gateway
+## 10. Web app with local AI gateway
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -140,7 +147,7 @@ LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
 ./scripts/start.sh
 ```
 
-## 10. Status and logs
+## 11. Status and logs
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"

@@ -73,10 +73,10 @@ lesson-overlay / prompt-skill notes in
 - **ET shape:** the closer match is the **doctor** half, not the wizard half: a single
   `et doctor` (or actuator endpoint) verifying Julia sidecar `:8088`, Python sidecar `:8089`,
   GPU engine `:50051`, LLM provider reachability, secrets vault, and pgsql — replacing the
-  current STARTUP.md manual checklist. First-run wizardry matters less for a single-operator
+  current RUN.md manual checklist. First-run wizardry matters less for a single-operator
   project.
 - **Why not priority:** ET has one operator who already knows the checklist; value appears only
-  on new-machine setup (STARTUP.md covers it).
+  on new-machine setup (RUN.md covers it).
 
 ## 6. OpenClaw integration (bridge + agent-operable service contract)
 

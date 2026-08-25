@@ -1,4 +1,9 @@
-﻿Given your goal ("GPU compute skills + real projects") **and** you're building a Spring Boot/Thymeleaf terrain game (very similar to what your README describes: deterministic world generation, editable tiles, bots, consensus, highways, etc. ), the best move is:
+# Archived GPU architecture notes
+
+Historical planning reference from before the GPU engine was implemented. It does not define the
+current runtime or release procedure; use `engines/gpu-engine/README.md` and `RUN.md` for that.
+
+Given your goal ("GPU compute skills + real projects") **and** you're building a Spring Boot/Thymeleaf terrain game (very similar to what your README describes: deterministic world generation, editable tiles, bots, consensus, highways, etc. ), the best move is:
 
 * **Use GPU compute where it actually helps your game** (world/terrain generation, region recompute, bot simulation, heatmaps/pathfields)
 * **Pick a GPU stack that's portable and works well on AMD**

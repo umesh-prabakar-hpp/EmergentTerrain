@@ -86,7 +86,7 @@ app:
     file:
       # Local encrypted-file source (no CLI, no server, no network): an
       # AES-256-GCM blob unlocked by ONE bootstrap passphrase. Create/rotate it
-      # with the seal CLI (see RUN.md §3.6). To use, set source: file above.
+      # with the seal CLI (see RUN.md, "Encrypted provider secrets"). To use, set source: file above.
       path: ""                               # empty = ~/.emergentterrain/secrets.enc
       passphrase-env: ET_SECRETS_KEY         # the ONE bootstrap secret (decryption passphrase)
       passphrase-file: ~/.emergentterrain/passphrase   # 0600 file holding the passphrase; wins over passphrase-env
