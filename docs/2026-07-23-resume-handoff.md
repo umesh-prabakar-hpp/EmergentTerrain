@@ -33,10 +33,8 @@ approval_policy = "never"
 ```
 
 Those settings apply only to a **new** Codex session and may still be superseded
-by managed policy. The helper scripts are intentionally outside this repository:
-
-- `/opt/apps/ide/eclipse/workspace-web/enable-codex-danger-full-access.sh`
-- `/opt/apps/ide/eclipse/workspace-web/revert-codex-danger-full-access.sh`
+by managed policy. The local helper scripts used for that host setup are intentionally outside this
+repository and are not required for a clone.
 
 On 2026-07-23, host-context checks found PostgreSQL accepting connections for
 both `emergentterrain` and `emergentterrain_perf`. The prescribed
@@ -51,7 +49,7 @@ down. Claude remains intentionally dormant.
    from this handoff:
 
    ```bash
-   cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+   cd "$(git rev-parse --show-toplevel)"
    ./scripts/status-related-apps.sh
    ```
 
@@ -59,7 +57,7 @@ down. Claude remains intentionally dormant.
    lifecycle script:
 
    ```bash
-   cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+   cd "$(git rev-parse --show-toplevel)"
    ./scripts/start.sh
    ```
 

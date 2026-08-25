@@ -7,6 +7,9 @@ literature indexes are only needed for their respective features.
 For a command-only reference, see [RUN-MINIMAL.md](RUN-MINIMAL.md). For scope, safety boundaries,
 and the repository map, start with the [README](README.md).
 
+Clone the repository into any directory and enter it before using this guide. Every command below
+is relative to that checkout; no fixed workspace layout is required.
+
 ## 1. Prerequisites
 
 Required for the main services:
@@ -26,7 +29,7 @@ On Fedora, the bootstrap helper installs the local prerequisites and initializes
 PostgreSQL databases:
 
 ```bash
-cd /path/to/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 

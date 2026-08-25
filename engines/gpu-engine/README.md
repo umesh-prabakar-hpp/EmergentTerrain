@@ -8,7 +8,7 @@ Rust gRPC service (tonic) that hosts the Vulkan compute engine.
 ## Fedora Setup
 The supported one-command Fedora bootstrap now lives in the Java repo:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
@@ -34,13 +34,13 @@ export PROTOC=/usr/bin/protoc
 
 ## Build / Run
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
+cd "$(git rev-parse --show-toplevel)"/engines/gpu-engine
 cargo build
 ```
 
 ```bash
 # Default listens on 127.0.0.1:50051
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
+cd "$(git rev-parse --show-toplevel)"/engines/gpu-engine
 cargo run
 
 # Custom address
@@ -50,7 +50,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ## Full App E2E Check
 From the monorepo root, run:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 pwsh ./scripts/run-real-gpu-e2e.ps1
 ```
 

@@ -20,7 +20,7 @@ known stale.
 
 ## Repos reviewed
 
-- Java/Spring app: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrain`
+- Java/Spring app: repository root
 - Rust GPU engine: `engines/gpu-engine/`
 - Julia math sidecar: `services/julia-math-sidecar/`
 

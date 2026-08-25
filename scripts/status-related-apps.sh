@@ -16,7 +16,9 @@
 #   ET_PY_SIDECAR_URL=http://127.0.0.1:9089 \
 #   ./scripts/status-related-apps.sh
 #
-# Exit status: 0 when all services are healthy/listening, 1 when any is not.
+# Exit status: 0 when every required service is healthy/listening; optional
+# services may be DORMANT. Exit 1 when a required service is unavailable or a
+# checked endpoint returns an error.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -62,6 +64,21 @@ fi
 
 if ! command -v psql >/dev/null 2>&1 || ! command -v pg_isready >/dev/null 2>&1; then
     echo "ERROR: psql and pg_isready are required to check PostgreSQL health." >&2
+    exit 1
+fi
+
+if ! command -v ss >/dev/null 2>&1 || ! command -v ps >/dev/null 2>&1; then
+    echo "ERROR: ss and ps are required to identify listening-process commands." >&2
+    exit 1
+fi
+
+if ! [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: ET_STATUS_TIMEOUT_SECONDS must be a positive integer." >&2
+    exit 1
+fi
+
+if ! [[ "$COMMAND_DISPLAY_CHARS" =~ ^[1-9][0-9]*$ ]] || (( COMMAND_DISPLAY_CHARS < 140 )); then
+    echo "ERROR: ET_STATUS_COMMAND_CHARS must be an integer of at least 140." >&2
     exit 1
 fi
 
@@ -189,7 +206,7 @@ check_gpu_engine() {
     local listeners start_command branch child_indent active_command
     branch="$1"
     child_indent="$2"
-    start_command="cd $GPU_ENGINE_ROOT && ./scripts/start.sh"
+    start_command="cd \"$GPU_ENGINE_ROOT\" && ./scripts/start.sh"
     listeners="$(ss -ltnH "sport = :$GPU_ENGINE_PORT" 2>/dev/null || true)"
     if [[ -n "$listeners" ]]; then
         printf '%sRust GPU engine — %s: TCP port %s is listening\n' "$branch" "$(colored "$GREEN" "READY")" "$GPU_ENGINE_PORT"
@@ -208,11 +225,11 @@ check_gpu_engine() {
 
 echo "EmergentTerrain related-service status (timeout: ${TIMEOUT_SECONDS}s)"
 check_postgres
-check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
-check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "started with app when configured"
-check_service "Research service" "$RESEARCH_SERVICE_URL" "cd $REPO_ROOT && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game"
-check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/sidecar.log"
-check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/py-sidecar.log"
+check_service "EmergentTerrain app" "$APP_URL" "cd \"$REPO_ROOT\" && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
+check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "cd \"$REPO_ROOT\" && LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "started with app when configured" "cd \"$REPO_ROOT\" && ./scripts/stop-local-ai-gateway.sh"
+check_service "Research service" "$RESEARCH_SERVICE_URL" "cd \"$REPO_ROOT\" && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game" "cd \"$REPO_ROOT\" && ./scripts/stop-research-service.sh"
+check_service "Julia math sidecar" "$JULIA_URL" "cd \"$JULIA_SIDECAR_ROOT\" && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd \"$JULIA_SIDECAR_ROOT\" && ./scripts/stop.sh" "tail -F \"$JULIA_SIDECAR_ROOT/logs/sidecar.log\""
+check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd \"$JULIA_SIDECAR_ROOT\" && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd \"$JULIA_SIDECAR_ROOT\" && ./scripts/stop.sh" "tail -F \"$JULIA_SIDECAR_ROOT/logs/py-sidecar.log\""
 check_gpu_engine "└── " "    "
 
 exit "$overall_status"

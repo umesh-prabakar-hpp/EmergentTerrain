@@ -5,7 +5,7 @@ read API and runs the university research cycle from PostgreSQL on port `8082` b
 not start the game UI, WebSocket stack, world generation, GPU adapter, or `RoomService`.
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -pl apps/research-service -am install -DskipTests
 mvn -f apps/research-service/pom.xml spring-boot:run
 ```

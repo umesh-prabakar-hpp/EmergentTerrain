@@ -20,7 +20,7 @@ location.
 ## Run and verify
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/start.sh
 curl -fsS http://127.0.0.1:8788/healthz
 curl -fsS http://127.0.0.1:8788/v1/models

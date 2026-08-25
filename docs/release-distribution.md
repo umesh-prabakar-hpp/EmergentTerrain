@@ -9,7 +9,7 @@ That makes every runtime library, including LGPL libraries, plainly replaceable.
 First regenerate the inventories, review the changes, and commit them:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/generate-sbom.sh
 git add sbom
 git commit -m "chore: refresh release SBOMs"

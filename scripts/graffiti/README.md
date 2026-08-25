@@ -112,7 +112,7 @@ soaks, dumps, runs `scripts/stop.sh`, repeats.
     "soak_seconds": 120,
     "window_minutes": 30,
     "dump_dir": "research/graffiti/dumps/auto",
-    "repo_root": "/opt/apps/ide/eclipse/workspace-web/EmergentTerrain",
+    "repo_root": ".",
     "boot_timeout_seconds": 180,
     "base_url": "http://localhost:8081",
     "health_url": "http://localhost:8081/actuator/health"

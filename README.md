@@ -13,9 +13,16 @@ proof, external replication, or publication acceptance.
 
 ## Start here
 
-1. Install Java 21, Maven, PostgreSQL, Rust/Cargo, `protoc`, and a Vulkan userspace stack. On
+1. Clone the repository into any directory, then enter it:
+
+   ```bash
+   git clone https://github.com/umesh-prabakar-hpp/EmergentTerrain.git
+   cd EmergentTerrain
+   ```
+
+2. Install Java 21, Maven, PostgreSQL, Rust/Cargo, `protoc`, and a Vulkan userspace stack. On
    Fedora, the one-time helper is `bash ./scripts/setup-fedora-prereqs.sh`.
-2. From the repository root, select Java 21 and inspect dependencies:
+3. From the repository root, select Java 21 and inspect dependencies:
 
    ```bash
    export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
@@ -23,7 +30,7 @@ proof, external replication, or publication acceptance.
    ./scripts/status-related-apps.sh || true
    ```
 
-3. Choose one supported path:
+4. Choose one supported path:
 
    ```bash
    # Run the web app; starts its managed local AI gateway when configured.
@@ -39,7 +46,7 @@ proof, external replication, or publication acceptance.
    ./scripts/start-research-service.sh
    ```
 
-4. Verify the selected runtime with `./scripts/status-related-apps.sh`. Open the game at
+5. Verify the selected runtime with `./scripts/status-related-apps.sh`. Open the game at
    `http://127.0.0.1:8081/` when running the web app. Stop managed services with
    `./scripts/stop.sh`.
 
@@ -357,7 +364,7 @@ Fedora / Linux example:
 export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml spring-boot:run
 ```
 Open `http://localhost:8081/`
@@ -381,7 +388,7 @@ configured command direct access to application tools.
 Configure the command, then start the application:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
 ./scripts/start.sh
 ```
@@ -390,7 +397,7 @@ export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
 without the game, start it in a separate terminal before starting the research worker:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
 node scripts/local-ai-gateway/server.mjs
 ```
@@ -401,7 +408,7 @@ does not run university LLM work and does not need it.
 For the standalone university workflow, stop only those two processes with:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/stop-research-service.sh
 ./scripts/stop-local-ai-gateway.sh
 ```
@@ -588,7 +595,7 @@ flag for the game to use it directly.
 If you want one native Fedora setup path for both repos, use:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
@@ -612,7 +619,7 @@ Useful flags:
 
 Smoke test for the helper:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/test-setup-fedora-prereqs.sh
 ```
 
@@ -818,13 +825,13 @@ Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performa
 Benchmarks live under `apps/game-service/src/jmh/java/com/emergentterrain/bench`.
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml -DskipTests -Pbench package
 ```
 
 Standalone (forked, recommended for real numbers):
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff apps/game-service/target/jmh-result.json
 ```
 
@@ -839,7 +846,7 @@ java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar ".
 
 In-process (no fork, quick sanity):
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target/jmh-result.json"
 ```
 
@@ -883,7 +890,7 @@ A successful GPU-backed engine call returns a non-stub `220x165` world with non-
 
 Fedora shortcut for a full two-process check:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/run-real-gpu-e2e.sh
 ```
 
@@ -892,7 +899,7 @@ The script starts the real Rust engine from `engines/gpu-engine/` by default, st
 ### Release perf comparison
 Use the release-binary comparison harness for CPU-vs-GPU timings:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/compare-cpu-vs-gpu-performance.sh --iterations 2 --build-artifacts
 ```
 
@@ -926,7 +933,7 @@ sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'NewStrongPasswordHe
 
 Or use the native helper from this repo:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 

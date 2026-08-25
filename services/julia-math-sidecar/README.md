@@ -95,7 +95,8 @@ the repo root (matches EmergentTerrain's `logs/et-app.log` pattern).
 Tail it with:
 
 ```bash
-tail -f /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log
+cd "$(git rev-parse --show-toplevel)"
+tail -f services/julia-math-sidecar/logs/sidecar.log
 ```
 
 The log shows JIT warmup notices on first request to each new

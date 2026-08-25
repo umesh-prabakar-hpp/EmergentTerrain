@@ -214,8 +214,7 @@ exposed cleanly).
 `app.sympyProver.enabled` (default `false`),
 `app.sympyProver.timeoutMs` (default 10000),
 `app.sympyProver.python` (default `python3`),
-`app.sympyProver.scriptDir` (default
-`/opt/apps/ide/eclipse/workspace-web/EmergentTerrain/scripts/sympy_prover`).
+`app.sympyProver.scriptDir` (default `scripts/sympy_prover`, relative to the repository root).
 
 API:
 ```java

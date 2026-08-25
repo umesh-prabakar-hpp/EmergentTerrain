@@ -30,10 +30,10 @@ tasks once 20 PHYSICS+MATERIALS papers have shipped under the new flag.
 
 **Live-verification runbook:**
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar
+cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
 julia --project=. -e 'using Pkg; Pkg.instantiate()'     # ~5-10 min first run
 ./scripts/start.sh                                       # restart sidecar
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/pysr-probe/run.sh                              # smoke check
 # Note: probe is now informational, not a flag-gate (flag already on).
 # 3/5 expected on the current fixtures; newton-gravity and rc-decay

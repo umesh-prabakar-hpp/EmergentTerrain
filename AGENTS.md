@@ -199,7 +199,7 @@ the gate.
 
 Fedora bootstrap helper:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
@@ -217,7 +217,7 @@ After Temurin is installed, `setup-fedora-prereqs.sh` detects it, omits the unav
 export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml spring-boot:run
 ```
 
@@ -252,13 +252,13 @@ If tests or runtime need a real DB, ensure PostgreSQL is running and the datasou
 
 ## Build
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml -DskipTests package
 ```
 
 ## Game-service binary release
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/generate-sbom.sh
 ./scripts/build-game-release.sh
 ```
@@ -274,7 +274,7 @@ workflow; it is not the distribution artifact.
 
 ## Tests
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
 ```
 
@@ -285,7 +285,7 @@ agent instead (tested: all 11 `SynthesisPaperServiceTest` tests pass):
 export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn test -Dtest=SynthesisPaperServiceTest \
   -DargLine=-javaagent:$HOME/.m2/repository/net/bytebuddy/byte-buddy-agent/1.15.11/byte-buddy-agent-1.15.11.jar
 ```
@@ -295,7 +295,7 @@ runtime for compiling and running the application.
 
 Real two-process GPU smoke check:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/run-real-gpu-e2e.sh
 ```
 
@@ -310,7 +310,7 @@ Logs are written under `sample-output/gpu-e2e-*`.
 
 Release-binary perf comparison:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/compare-cpu-vs-gpu-performance.sh --iterations 2 --build-artifacts
 ```
 
@@ -318,7 +318,7 @@ That script is the supported Fedora performance path. It uses the packaged Sprin
 
 ## Benchmarks
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml -DskipTests -Pbench package
 java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff apps/game-service/target/jmh-result.json
 ```
@@ -330,13 +330,13 @@ See `engines/gpu-engine/README.md` for full setup.
 
 Quick run:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
+cd "$(git rev-parse --show-toplevel)"/engines/gpu-engine
 cargo run
 ```
 
 Override the default bind:
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
+cd "$(git rev-parse --show-toplevel)"/engines/gpu-engine
 GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ```
 

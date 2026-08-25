@@ -481,7 +481,7 @@ step; see runbook below.
 **Step 1 — bring up the sidecar.**
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar
+cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
 ./scripts/start.sh
 # Wait for "julia-math-sidecar starting" log line. Verify:
 curl -fsS localhost:8088/healthz | jq

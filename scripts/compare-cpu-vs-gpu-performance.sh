@@ -10,7 +10,7 @@ Options:
   --bot-simulation-iterations N     Iterations for /perf/room/{roomId}/bot-simulation. Default: 10
   --java-home PATH                  JDK home. Defaults to $JAVA_HOME or /usr/lib/jvm/java-21-openjdk
   --maven-cmd CMD                   Maven command. Defaults to $MAVEN_CMD or mvn
-  --java-repo PATH                  Java repo path. Default: /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+  --java-repo PATH                  Java repo path. Default: repository root derived from this script
   --gpu-repo PATH                   GPU repo path. Default: engines/gpu-engine in this monorepo
   --report-dir PATH                 Report output directory. Defaults to sample-output/perf-report-<timestamp>
   --build-artifacts                 Force rebuild of the Spring Boot jar and Rust release binary

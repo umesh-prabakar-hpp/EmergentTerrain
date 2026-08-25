@@ -306,7 +306,7 @@ The schema is managed by Hibernate (`ddl-auto: update`) — no migration scripts
 ## 4. Start the GPU engine
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine
+cd "$(git rev-parse --show-toplevel)"/engines/gpu-engine
 cargo run --release
 ```
 
@@ -328,7 +328,7 @@ https://install.julialang.org | sh`, or `dnf install julia` on Fedora),
 then resolve + instantiate the package environment:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar
+cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
 julia --project=. -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
 ```
 
@@ -345,7 +345,7 @@ compiled state actually loads.
 **Run.**
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar
+cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
 ./scripts/start.sh
 ```
 
@@ -408,7 +408,7 @@ Enabling these for ET is thus just one extra process (the plain `./scripts/start
 above is unchanged):
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar
+cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
 ./scripts/start-py-sidecar.sh &                  # JULIA_NUM_THREADS=1, binds :8089
 ```
 
@@ -433,7 +433,7 @@ end-to-end. Run from the **ET repo** (the probe script lives there,
 not in the sidecar repo) with the sidecar already running:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 ./scripts/pysr-probe/run.sh                                       # default smoke check (~60 s)
 ./scripts/pysr-probe/run.sh --filter hooke                        # one fixture
 ./scripts/pysr-probe/run.sh --auto-normalize                      # phase 24.7 Lever 1
@@ -501,7 +501,7 @@ hostnames `localhost,192.168.1.145`, the primary-provider API-key env-var
 references, and Phase 9's selection-test toggle). Just run:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 export JAVA_HOME=/usr/lib/jvm/java-25-openjdk   # once per shell on Fedora 44 (no JDK 21 package)
 mvn -f apps/game-service/pom.xml clean spring-boot:run
 ```
@@ -516,7 +516,7 @@ mvn -f apps/game-service/pom.xml clean spring-boot:run
 Or build and run the jar:
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml clean package -DskipTests
 java -jar apps/game-service/target/game-service-0.0.1-SNAPSHOT-boot.jar
 ```
@@ -720,12 +720,13 @@ tail -f logs/et-app.log
 
 # Tail EVERYTHING at once — app + maven stdout + sidecar + py-sidecar + GPU engine.
 # tail -F follows by name, so it tolerates not-yet-created / rotated files:
+cd "$(git rev-parse --show-toplevel)"
 tail -F \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/et-app.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/logs/maven-stdout.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/sidecar.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/services/julia-math-sidecar/logs/py-sidecar.log \
-  /opt/apps/ide/eclipse/workspace-web/EmergentTerrain/engines/gpu-engine/logs/gpu-engine.log
+  logs/et-app.log \
+  logs/maven-stdout.log \
+  services/julia-math-sidecar/logs/sidecar.log \
+  services/julia-math-sidecar/logs/py-sidecar.log \
+  engines/gpu-engine/logs/gpu-engine.log
 ```
 
 LLM generation failures log at WARN level and do not affect game stability. Backend
