@@ -20,7 +20,7 @@ Required only for optional components:
 
 - Rust/Cargo, `protoc`, and Vulkan userspace for the GPU engine
 - Julia for the math sidecars
-- Node.js and the Codex CLI for the local local-ai-gateway
+- Node.js for the optional local AI gateway
 
 On Fedora, the bootstrap helper installs the local prerequisites and initializes the development
 PostgreSQL databases:
@@ -167,9 +167,10 @@ From the repository root:
 ./scripts/start.sh
 ```
 
-The launcher stops a previous managed app/proxy set, starts the local local-ai-gateway when
-Node.js and a `codex login` session are available, performs a clean Maven build, and starts the game
-on <http://127.0.0.1:8081/>. The proxy is optional: set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip it.
+The launcher stops a previous managed app/gateway set, starts the local AI gateway when Node.js and
+`LOCAL_AI_GATEWAY_COMMAND` are configured, performs a clean Maven build, and starts the game on
+<http://127.0.0.1:8081/>. The gateway is optional: set
+`ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip it.
 
 For foreground debugging, use `./scripts/start.sh --foreground`.
 
@@ -192,7 +193,7 @@ To follow all usual logs at once:
 tail -F \
   logs/et-app.log \
   logs/maven-stdout.log \
-  logs/codex-proxy.log \
+  logs/local-ai-gateway.log \
   services/julia-math-sidecar/logs/sidecar.log \
   services/julia-math-sidecar/logs/py-sidecar.log \
   engines/gpu-engine/logs/gpu-engine.log
@@ -246,7 +247,8 @@ they do not grant permission to mutate gameplay state or treat AI narration as e
   supported runtime.
 - **Port already in use:** use the status script to identify the listener and its command. Stop it
   using that service's documented launcher rather than killing an unrelated process.
-- **local AI gateway is down:** run `codex login`, confirm Node.js is on `PATH`, then restart the web app;
-  or set `ET_DISABLE_LOCAL_AI_GATEWAY=1` when the bridge is not needed.
+- **Local AI gateway is down:** confirm Node.js is on `PATH` and
+  `LOCAL_AI_GATEWAY_COMMAND` is configured, then restart the web app; or set
+  `ET_DISABLE_LOCAL_AI_GATEWAY=1` when the gateway is not needed.
 - **Research worker cannot start:** verify PostgreSQL first. The launcher installs the required
   transition-period game-service artifact before it starts the standalone worker.

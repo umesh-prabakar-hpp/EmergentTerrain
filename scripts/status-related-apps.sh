@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Print health for the PostgreSQL datasource, Spring app, the local Codex
-# subscription proxy, Julia math sidecars, and Rust GPU engine. This script
+# Print health for the PostgreSQL datasource, Spring app, the local AI gateway,
+# Julia math sidecars, and Rust GPU engine. This script
 # is read-only: it never starts, stops, or restarts a process. PostgreSQL is
 # checked with an authenticated `SELECT 1` using the app's PG_* configuration.
 # For a listening service, it resolves the listener PID and prints that
@@ -209,7 +209,7 @@ check_gpu_engine() {
 echo "EmergentTerrain related-service status (timeout: ${TIMEOUT_SECONDS}s)"
 check_postgres
 check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
-check_service "local-ai-gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "required" "started with app"
+check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "started with app"
 check_service "Research service" "$RESEARCH_SERVICE_URL" "cd $REPO_ROOT && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game"
 check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/sidecar.log"
 check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/py-sidecar.log"

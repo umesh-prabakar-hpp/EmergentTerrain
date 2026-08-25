@@ -195,7 +195,7 @@ the gate.
 - `protoc`
 - Vulkan userspace stack for the GPU engine
 - PowerShell (`pwsh`) if you want to run the existing `.ps1` helper scripts on Fedora
-- Node.js and the Codex CLI when using the enabled ChatGPT/local-ai provider
+- Node.js when using the optional local AI gateway
 
 Fedora bootstrap helper:
 ```bash
@@ -221,22 +221,20 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn -f apps/game-service/pom.xml spring-boot:run
 ```
 
-For the configured primary LLM, prefer `./scripts/start.sh`: it starts the
-local `local-ai-gateway` on `127.0.0.1:8788` before launching the JVM.
+For the configured primary LLM, prefer `./scripts/start.sh`: it starts the optional
+local AI gateway on `127.0.0.1:8788` before launching the JVM when
+`LOCAL_AI_GATEWAY_COMMAND` is configured. The gateway is tracked at
+`scripts/local-ai-gateway`; set `ET_LOCAL_AI_GATEWAY_DIR` to use another location.
+If it is unavailable, the launcher leaves it off and the remaining providers are used.
 It first performs the graceful `./scripts/stop.sh` sweep and a clean Maven
 build, so each start reloads the app and its managed proxies without retaining
 stale compiled classes.
-The proxy uses the machine's `codex login` session with an ephemeral read-only
-turn in `/tmp`; it pins the locally validated `gpt-5.6-terra`, and reports its
-token usage for API-equivalent budget accounting at Terra's $2.50 input / $15
-output per million-token public rates, including streamed narration through a
-final SSE usage frame.
-The ChatGPT-authenticated CLI rejects `gpt-5-codex` as an explicit model
-selection on this installation. OpenRouter is the fallback. Set
-`ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the bridge. The Codex pool
-has `parallelism: 2`; keep it small because every request launches a Codex turn.
-For the exact local Codex/Claude login, proxy connection, enablement, and
-verification procedure, see `docs/subscription-providers.md`.
+The gateway sends each request to the configured local command from `/tmp` and
+returns the assistant response through its compatible endpoint. Set
+`ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip it. The local AI pool has `parallelism: 2`;
+keep it small because every request launches a local AI command. For the command
+protocol, connection, enablement, and verification procedure, see
+`docs/subscription-providers.md`.
 
 If tests or runtime need a real DB, ensure PostgreSQL is running and the datasource properties are correct in `apps/game-service/src/main/resources/application.yml` or via env vars.
 

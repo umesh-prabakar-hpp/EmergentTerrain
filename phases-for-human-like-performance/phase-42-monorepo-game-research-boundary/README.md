@@ -203,14 +203,12 @@ EmergentTerrain/
     julia-math-sidecar/    # Julia/Python sidecar (current julia-math-sidecar repository)
   contracts/
     research-api/          # versioned OpenAPI or protobuf definitions and generated clients
-  scripts/
-    local-ai-gateway/
   docs/
   scripts/
 ```
 
-The local AI gateway is already tracked inside the current repository. It moves only as ordinary
-tracked files; it is not a separate repository to import.
+The optional local AI gateway is a tracked, vendor-neutral adapter at
+`scripts/local-ai-gateway`; it does not grant research any game authority.
 
 ## Final service boundary: game-agnostic research
 

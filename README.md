@@ -26,7 +26,7 @@ proof, external replication, or publication acceptance.
 3. Choose one supported path:
 
    ```bash
-   # Run the web app; starts its managed local-ai-gateway.
+   # Run the web app; starts its managed local AI gateway when configured.
    ./scripts/start.sh
 
    # Run a safe, no-LLM research migration audit without the game.
@@ -371,34 +371,31 @@ For the full monorepo runtime sequence—including the GPU engine, Julia sidecar
 worker, and verified status checks—use [`RUN.md`](RUN.md); [`RUN-MINIMAL.md`](RUN-MINIMAL.md) is
 the command-only version. Both use the in-repository `engines/` and `services/` paths.
 
-### local-ai provider
+### Local AI gateway
 
-The enabled primary LLM provider is the local `local-ai-gateway` on
-`127.0.0.1:8788`. It invokes the machine's signed-in ChatGPT/Codex session
-through an ephemeral, read-only Codex CLI turn with its interactive tools
-disabled; it does **not** use an OpenAI API key or a fixed public API model id.
-Start the application through the helper so that proxy is present:
+The optional local AI gateway listens on `127.0.0.1:8788`. It supplies a
+compatible chat endpoint through an operator-configured local AI command. The
+application owns tool validation and execution; the gateway never grants the
+configured command direct access to application tools.
+
+Configure the command, then start the application:
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
 ./scripts/start.sh
 ```
 
 `start.sh` first runs the graceful `stop.sh` sweep and then performs a clean
-Maven build, so invoking it reloads the Spring app and its managed subscription
-proxies without reusing stale compiled classes. Use `stop.sh` directly when you
+Maven build, so invoking it reloads the Spring app and its managed gateway
+without reusing stale compiled classes. Use `stop.sh` directly when you
 only intend to shut down.
 
-Run `codex login` first if this machine has not been authenticated. The proxy
-pins the locally validated `gpt-5.6-terra`, and returns Codex token usage for
-API-equivalent budget accounting at Terra's $2.50 input / $15 output per
-million-token public rates. This includes a final usage frame on streamed
-narration, so those calls count toward the run-budget guard; it rejects the public
-API slug `gpt-5-codex` on this ChatGPT-authenticated installation. OpenRouter remains the
-automatic fallback. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the local bridge. See
-[`docs/subscription-providers.md`](docs/subscription-providers.md) for the Codex login,
-connection, verification, and troubleshooting guide. The active Codex pool permits two concurrent requests;
-account-level usage limits still apply. A full research narration has a
+Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the optional gateway, or
+`ET_LOCAL_AI_GATEWAY_DIR=/absolute/path/to/local-ai-gateway` to use another
+gateway location. See [`docs/subscription-providers.md`](docs/subscription-providers.md)
+for the command protocol, connection, verification, and troubleshooting guide.
+The active local AI pool permits two concurrent requests. A full research narration has a
 90-minute wall-clock deadline; its stale-draft reaper is 100 minutes, so the
 narration timeout is the first recovery mechanism. Phase 35 retrieval work
 remains necessary to avoid consuming that allowance in a broad FTS5 search.

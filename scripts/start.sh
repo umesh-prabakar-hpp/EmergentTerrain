@@ -65,16 +65,15 @@ mkdir -p "$REPO_ROOT/logs"
 STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
 
 # ---------------------------------------------------------------------
-# local-ai-gateway (scripts/local-ai-gateway).
-# OpenAI-compat shim backed by the locally logged-in ChatGPT/Codex account.
-# Each request is an ephemeral read-only Codex turn in /tmp. The active
-# `local-ai` provider points at port 8788 and falls back to
-# OpenRouter when the local session cannot serve a request.
+# Local AI gateway.
+# A loopback-only compatible endpoint backed by an operator-configured local AI
+# command. The `local-ai` provider points at port 8788 and falls back to the
+# remaining configured providers when the gateway is unavailable.
 # ---------------------------------------------------------------------
-LOCAL_AI_GATEWAY_DIR="$REPO_ROOT/scripts/local-ai-gateway"
+LOCAL_AI_GATEWAY_DIR="${ET_LOCAL_AI_GATEWAY_DIR:-$REPO_ROOT/scripts/local-ai-gateway}"
 LOCAL_AI_GATEWAY_PATTERN="local-ai-gateway/server.mjs"
-LOCAL_AI_GATEWAY_LOG="$REPO_ROOT/logs/codex-proxy.log"
-start_codex_proxy() {
+LOCAL_AI_GATEWAY_LOG="$REPO_ROOT/logs/local-ai-gateway.log"
+start_local_ai_gateway() {
     : > "$LOCAL_AI_GATEWAY_LOG"
     nohup node "$LOCAL_AI_GATEWAY_DIR/server.mjs" >> "$LOCAL_AI_GATEWAY_LOG" 2>&1 &
     echo "local-ai-gateway: started on http://127.0.0.1:8788 (PID $!), log → $LOCAL_AI_GATEWAY_LOG"
@@ -86,18 +85,26 @@ elif pgrep -f "$LOCAL_AI_GATEWAY_PATTERN" >/dev/null 2>&1; then
         echo "local-ai-gateway: restarting (ET_RESTART_LOCAL_AI_GATEWAY=1)"
         pkill -f "$LOCAL_AI_GATEWAY_PATTERN"
         for _ in 1 2 3 4 5 6 7 8; do pgrep -f "$LOCAL_AI_GATEWAY_PATTERN" >/dev/null 2>&1 || break; sleep 1; done
-        if command -v node >/dev/null 2>&1 && command -v codex >/dev/null 2>&1; then
-            start_codex_proxy
+        if [ ! -f "$LOCAL_AI_GATEWAY_DIR/server.mjs" ]; then
+            echo "local-ai-gateway: not found at $LOCAL_AI_GATEWAY_DIR — configured fallbacks will be used" >&2
+        elif [ -z "${LOCAL_AI_GATEWAY_COMMAND:-}" ]; then
+            echo "local-ai-gateway: LOCAL_AI_GATEWAY_COMMAND is not configured — configured fallbacks will be used" >&2
+        elif command -v node >/dev/null 2>&1; then
+            start_local_ai_gateway
         else
-            echo "local-ai-gateway: cannot restart — node or codex missing" >&2
+            echo "local-ai-gateway: cannot restart — node is not on PATH" >&2
         fi
     else
         echo "local-ai-gateway: already running — set ET_RESTART_LOCAL_AI_GATEWAY=1 to reload"
     fi
-elif ! command -v node >/dev/null 2>&1 || ! command -v codex >/dev/null 2>&1; then
-    echo "local-ai-gateway: node or codex not on PATH — OpenRouter will be used" >&2
+elif ! command -v node >/dev/null 2>&1; then
+    echo "local-ai-gateway: node is not on PATH — configured fallbacks will be used" >&2
+elif [ ! -f "$LOCAL_AI_GATEWAY_DIR/server.mjs" ]; then
+    echo "local-ai-gateway: not found at $LOCAL_AI_GATEWAY_DIR — configured fallbacks will be used" >&2
+elif [ -z "${LOCAL_AI_GATEWAY_COMMAND:-}" ]; then
+    echo "local-ai-gateway: LOCAL_AI_GATEWAY_COMMAND is not configured — configured fallbacks will be used" >&2
 else
-    start_codex_proxy
+    start_local_ai_gateway
 fi
 
 if [ "$FOREGROUND" = "1" ]; then

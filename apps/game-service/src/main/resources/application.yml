@@ -481,19 +481,18 @@ app:
       # 2026-05-22 paper-review — nvidia removed (provider disabled above).
       # 2026-05-23 — cerebras removed (0 calls last run; provider disabled).
       # Restore "nvidia," / "cerebras," if/when their legacy blocks flip enabled: true.
-      # The local Codex bridge translates these application-owned tool calls to
+      # The local AI gateway translates these application-owned tool calls to
       # a constrained JSON tool plan, then ET executes the Java tool and sends
       # the result back for synthesis. OpenRouter remains the provider fallback
-      # when Codex is unavailable or rate-limited.
+      # when the gateway is unavailable or rate-limited.
       providers: "local-ai,openrouter,groq"
     # Global primary routing order (provider keys, CSV) — first match in the bean
     # registry wins when building the primary chain and sorting the model registry.
     # Externalized from LlmRouter on 2026-05-24 so no provider name is baked into
     # the routing policy; blank / missing falls back to registry/bean order (any
     # available pool). Per-role reordering layers on top of this (role-overrides).
-    # Subscription-backed Codex is the first primary provider. Its local proxy
-    # uses the signed-in ChatGPT/Codex account's selected model; OpenRouter and
-    # then Groq provide normal API fallbacks.
+    # The local AI gateway is the first primary provider. OpenRouter and Groq
+    # provide normal API fallbacks.
     primaryProviderOrder: "local-ai,openrouter,groq"
     # Fast-tier pool key — low-stakes / audit calls route here (router.callFast /
     # streamFast). Externalized from LlmRouter on 2026-05-24; blank / missing falls
@@ -594,14 +593,11 @@ app:
     # per-provider budget/rate caps live inline (merged into Budget/
     # TokenBudgetProperties at startup).
     providers:
-      # Local OpenAI-compatible proxy over the signed-in ChatGPT/Codex session.
-      # GPT-5.6 Terra is explicitly selected after a local read-only Codex probe.
-      # The proxy runs each turn ephemerally and
-      # read-only under /tmp; see scripts/local-ai-gateway/README.md.
+      # Local compatible AI gateway; see docs/subscription-providers.md.
       local-ai:
         base-url: http://127.0.0.1:8788/v1
-        api-key: local-chatgpt-codex-login
-        models: [gpt-5.6-terra]
+        api-key: local-ai-gateway
+        models: [local-ai]
         supports-tools: true
         context-window: 200000
         max-output-tokens: 8000
@@ -886,8 +882,8 @@ app:
     # 12k TPM on llama-3.3-70b, 8k on gpt-oss-120b): 4 concurrent narrations
     # overshot the limit and starved 7 papers on 2026-05-26; 2 keeps demand near
     # one model's ceiling while retaining 2x serial throughput. Drop to 1 if the
-    # log still shows recurring `pre-debit budget exceeded` / 429 once claude-
-    # subscription (the primary) is spilling to Groq; raise back toward 4 when
+    # log still shows recurring `pre-debit budget exceeded` / 429 once the
+    # primary is spilling to Groq; raise back toward 4 when
     # the primary is healthy and Groq isn't on the critical path.
     narration-concurrency-cap: 2
     # ── Phase 1 — identity + graph + programs ──

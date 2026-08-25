@@ -1,21 +1,21 @@
-# Local local-ai provider
+# Local AI gateway
 
-EmergentTerrain can use the local ChatGPT/Codex CLI login without storing an OpenAI API key. The
-loopback-only `local-ai-gateway` is for one trusted developer machine; do not expose it
-through a reverse proxy or firewall rule.
+EmergentTerrain can use a locally configured AI command without storing provider credentials in the
+application. The loopback-only `local-ai-gateway` is for one trusted developer machine; do not
+expose it through a reverse proxy or firewall rule.
 
 ## Setup
 
-Install Node.js and the Codex CLI, then sign in as the OS user that will run the application:
+Install Node.js and configure an executable that reads one complete prompt from standard input and
+writes one complete assistant response to standard output:
 
 ```bash
-codex login
+export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
+export LOCAL_AI_GATEWAY_COMMAND_ARGS_JSON='["--safe"]'
 ```
 
-The proxy invokes one ephemeral `codex exec --json` turn per completion from `/tmp` in a read-only
-sandbox. Application-owned professor tools are planned by Codex and executed by EmergentTerrain.
-The proxy model is `gpt-5.6-terra`; `gpt-5-codex` is not accepted by this ChatGPT-authenticated
-installation.
+The gateway is tracked at `scripts/local-ai-gateway`. Set `ET_LOCAL_AI_GATEWAY_DIR` to use another
+location.
 
 ## Run and verify
 
@@ -24,18 +24,17 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/start.sh
 curl -fsS http://127.0.0.1:8788/healthz
 curl -fsS http://127.0.0.1:8788/v1/models
-tail -f logs/codex-proxy.log
+tail -f logs/local-ai-gateway.log
 ```
 
-The app uses the non-secret sentinel `local-chatgpt-codex-login`. Codex token usage is returned for
-API-equivalent budget accounting. A failed login, unavailable CLI, proxy failure, or account limit
-falls through to the configured OpenRouter and Groq providers.
+The app uses the non-secret sentinel `local-ai-gateway`. A missing command or gateway failure falls
+through to the remaining configured providers.
 
-To run without the local bridge for one launch:
+To run without the local gateway for one launch:
 
 ```bash
 ET_DISABLE_LOCAL_AI_GATEWAY=1 ./scripts/start.sh
 ```
 
-Use `ET_RESTART_LOCAL_AI_GATEWAY=1` after changing proxy code or environment variables. `./scripts/stop.sh`
-stops the Spring process and the local AI gateway.
+Use `ET_RESTART_LOCAL_AI_GATEWAY=1` after changing gateway code or environment variables.
+`./scripts/stop.sh` stops the Spring process and the local AI gateway.

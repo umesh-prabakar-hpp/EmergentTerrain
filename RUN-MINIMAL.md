@@ -117,7 +117,7 @@ cd "$(git rev-parse --show-toplevel)"
 tail -F \
   logs/et-app.log \
   logs/maven-stdout.log \
-  logs/codex-proxy.log \
+  logs/local-ai-gateway.log \
   services/julia-math-sidecar/logs/sidecar.log \
   services/julia-math-sidecar/logs/py-sidecar.log \
   engines/gpu-engine/logs/gpu-engine.log
