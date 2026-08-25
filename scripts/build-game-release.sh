@@ -29,6 +29,27 @@ copy_jar_notices() {
   done
 }
 
+copy_symja_sources() {
+  local destination="$1"
+  local artifact
+  local -a artifacts=(
+    "org.matheclipse:matheclipse-core:3.2.0:jar:sources"
+    "org.matheclipse:matheclipse-external:3.2.0:jar:sources"
+    "org.matheclipse:matheclipse-parser:3.2.0:jar:sources"
+  )
+
+  mkdir -p "$destination"
+  for artifact in "${artifacts[@]}"; do
+    mvn -q -f "$service_dir/pom.xml" org.apache.maven.plugins:maven-dependency-plugin:3.7.1:copy \
+      -Dartifact="$artifact" \
+      -DoutputDirectory="$destination"
+  done
+  (
+    cd "$destination"
+    sha256sum matheclipse-*-3.2.0-sources.jar > SHA256SUMS
+  )
+}
+
 require_clean_source
 
 version="$(mvn -q -f "$service_dir/pom.xml" help:evaluate -Dexpression=project.version -DforceStdout)"
@@ -48,7 +69,7 @@ if [[ "${ET_RELEASE_SKIP_TESTS:-0}" == "1" ]]; then
 fi
 mvn "${maven_args[@]}"
 
-mkdir -p "$stage/app" "$stage/bin" "$stage/lib" "$stage/licenses/from-jars" "$stage/sbom" "$stage/source"
+mkdir -p "$stage/app" "$stage/bin" "$stage/lib" "$stage/licenses/from-jars" "$stage/sbom" "$stage/source" "$stage/sources/third-party"
 
 mvn -q -f "$service_dir/pom.xml" org.apache.maven.plugins:maven-dependency-plugin:3.7.1:copy-dependencies \
   -DincludeScope=runtime \
@@ -58,6 +79,7 @@ install -m 0644 "$service_dir/target/game-service-$version.jar" "$stage/app/emer
 install -m 0755 "$repo_root/scripts/release-game-start.sh" "$stage/bin/start"
 install -m 0644 "$repo_root/LICENSE" "$stage/licenses/EmergentTerrain-AGPL-3.0-or-later.txt"
 install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$stage/licenses/THIRD_PARTY_NOTICES.md"
+install -m 0644 "$repo_root/THIRD_PARTY_SOURCE_MANIFEST.md" "$stage/licenses/THIRD_PARTY_SOURCE_MANIFEST.md"
 install -m 0644 "$repo_root/DEPENDENCY_LICENSE_CHOICES.md" "$stage/licenses/DEPENDENCY_LICENSE_CHOICES.md"
 install -m 0644 "$repo_root/release-licenses/GNU-GPL-3.0.txt" "$stage/licenses/GNU-GPL-3.0.txt"
 install -m 0644 "$repo_root/release-licenses/GNU-LGPL-2.1.txt" "$stage/licenses/GNU-LGPL-2.1.txt"
@@ -68,6 +90,7 @@ install -m 0644 "$repo_root/sbom/cargo.cdx.json" "$stage/sbom/cargo.cdx.json"
 install -m 0644 "$repo_root/docs/release-distribution.md" "$stage/SOURCE-AND-BUILD.md"
 
 copy_jar_notices "$stage/lib" "$stage/licenses/from-jars"
+copy_symja_sources "$stage/sources/third-party"
 
 commit="$(git -C "$repo_root" rev-parse HEAD)"
 git -C "$repo_root" archive --format=tar.gz --prefix="$release_name-source/" HEAD \

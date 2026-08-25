@@ -19,6 +19,10 @@ The release keeps all runtime libraries as distinct files under `lib/`. In parti
 Trove4j, Logback (selected option), and JGraphT (selected option) carry LGPL-2.1 terms. Do not
 shade, relocate, merge, or block replacement of any of these JARs.
 
+For the three Symja LGPL-3.0 JARs, the release builder also packages the exact matching Maven source
+JARs under `sources/third-party/`, a SHA-256 file, and
+`licenses/THIRD_PARTY_SOURCE_MANIFEST.md`. Keep those artifacts matched to the runtime JAR version.
+
 The exact versions and hashes are in `sbom/maven.cdx.json` packaged with each release. Before a
 release, review whether its runtime closure has changed and update this table rather than assuming
 the choice applies to a new version.

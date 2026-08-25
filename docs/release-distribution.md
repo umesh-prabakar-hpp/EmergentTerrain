@@ -28,8 +28,10 @@ apps/game-service/target/release/EmergentTerrain-<version>-distribution.zip
 ```
 
 It contains a matching Git source archive, `app/emergent-terrain-app.jar`, unmodified runtime
-dependencies under `lib/`, `bin/start`, SBOMs, notices, and license texts. Build from a clean tag
-for publication so the included source archive exactly matches the binaries.
+dependencies under `lib/`, `bin/start`, SBOMs, notices, and license texts. It also includes the
+exact Symja LGPL source JARs and their SHA-256 file under `sources/third-party/`; see
+`licenses/THIRD_PARTY_SOURCE_MANIFEST.md`. Build from a clean tag for publication so the included
+source archive exactly matches the binaries.
 
 ## Run and replace a library
 
@@ -53,6 +55,7 @@ shade, relocate, merge, or otherwise conceal third-party classes in the applicat
 Before publishing, regenerate the SBOMs and review:
 
 - `licenses/THIRD_PARTY_NOTICES.md`
+- `licenses/THIRD_PARTY_SOURCE_MANIFEST.md` and `sources/third-party/SHA256SUMS`
 - `licenses/DEPENDENCY_LICENSE_CHOICES.md`
 - `licenses/from-jars/`
 - `sbom/maven.cdx.json` and `sbom/cargo.cdx.json`
