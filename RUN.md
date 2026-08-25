@@ -126,10 +126,30 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 This transition-period path can use the configured LLM provider chain and write research artifacts.
 Use it only when that is intended; it is not the safe audit path above.
 
+`start-research-service.sh` deliberately does not start the optional local AI gateway. If university
+research should use that provider, start it in a separate terminal first:
+
+```bash
+LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
+node scripts/local-ai-gateway/server.mjs
+```
+
+Leave that terminal running, then start the worker in another terminal:
+
 ```bash
 APP_UNIVERSITY_ENABLED=true \
 RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
 ./scripts/start-research-service.sh
+```
+
+The gateway is not required when another configured provider is available; the provider chain can
+fall back to it. The safe migration-audit mode does not invoke university LLM work and needs neither.
+
+Stop the standalone worker and gateway independently:
+
+```bash
+./scripts/stop-research-service.sh
+./scripts/stop-local-ai-gateway.sh
 ```
 
 In another terminal, verify the worker:
@@ -248,7 +268,8 @@ they do not grant permission to mutate gameplay state or treat AI narration as e
 - **Port already in use:** use the status script to identify the listener and its command. Stop it
   using that service's documented launcher rather than killing an unrelated process.
 - **Local AI gateway is down:** confirm Node.js is on `PATH` and
-  `LOCAL_AI_GATEWAY_COMMAND` is configured, then restart the web app; or set
-  `ET_DISABLE_LOCAL_AI_GATEWAY=1` when the gateway is not needed.
+  `LOCAL_AI_GATEWAY_COMMAND` is configured, then start it with
+  `node scripts/local-ai-gateway/server.mjs` for research-only university work, or restart the web
+  app to have `start.sh` manage it. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` when it is not needed.
 - **Research worker cannot start:** verify PostgreSQL first. The launcher installs the required
   transition-period game-service artifact before it starts the standalone worker.

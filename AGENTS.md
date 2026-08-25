@@ -226,6 +226,14 @@ local AI gateway on `127.0.0.1:8788` before launching the JVM when
 `LOCAL_AI_GATEWAY_COMMAND` is configured. The gateway is tracked at
 `scripts/local-ai-gateway`; set `ET_LOCAL_AI_GATEWAY_DIR` to use another location.
 If it is unavailable, the launcher leaves it off and the remaining providers are used.
+`./scripts/start-research-service.sh` deliberately does not start the gateway: for university
+research without the game, run `LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter node
+scripts/local-ai-gateway/server.mjs` in a separate terminal before the worker when that provider is
+intended. It is optional when another configured provider is available, and the shadow-only audit
+path does not invoke university LLM work.
+Use `./scripts/stop-research-service.sh` and `./scripts/stop-local-ai-gateway.sh` to stop that
+standalone university workflow; do not use the broader `./scripts/stop.sh`, which also stops the
+game application.
 It first performs the graceful `./scripts/stop.sh` sweep and a clean Maven
 build, so each start reloads the app and its managed proxies without retaining
 stale compiled classes.

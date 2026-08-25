@@ -79,11 +79,31 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 
 ## 6. University research without the game
 
+Run this in one terminal when the university workflow should use the local AI provider:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
+node scripts/local-ai-gateway/server.mjs
+```
+
+Run this in another terminal:
+
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 APP_UNIVERSITY_ENABLED=true \
 RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
 ./scripts/start-research-service.sh
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/stop-research-service.sh
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/stop-local-ai-gateway.sh
 ```
 
 ## 7. GPU engine
@@ -105,7 +125,15 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/start.sh
 ```
 
-## 9. Status and logs
+## 9. Web app with local AI gateway
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
+./scripts/start.sh
+```
+
+## 10. Status and logs
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -128,7 +156,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/stop.sh
 ```
 
-## 11. Build and test
+## 12. Build and test
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"

@@ -209,7 +209,7 @@ check_gpu_engine() {
 echo "EmergentTerrain related-service status (timeout: ${TIMEOUT_SECONDS}s)"
 check_postgres
 check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
-check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "started with app"
+check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "started with app when configured"
 check_service "Research service" "$RESEARCH_SERVICE_URL" "cd $REPO_ROOT && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game"
 check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/sidecar.log"
 check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/py-sidecar.log"

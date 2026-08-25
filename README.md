@@ -386,6 +386,26 @@ export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
 ./scripts/start.sh
 ```
 
+`start-research-service.sh` intentionally does not manage this gateway. For university research
+without the game, start it in a separate terminal before starting the research worker:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
+node scripts/local-ai-gateway/server.mjs
+```
+
+The gateway is optional when another configured LLM provider is available. The research audit path
+does not run university LLM work and does not need it.
+
+For the standalone university workflow, stop only those two processes with:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+./scripts/stop-research-service.sh
+./scripts/stop-local-ai-gateway.sh
+```
+
 `start.sh` first runs the graceful `stop.sh` sweep and then performs a clean
 Maven build, so invoking it reloads the Spring app and its managed gateway
 without reusing stale compiled classes. Use `stop.sh` directly when you

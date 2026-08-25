@@ -19,3 +19,9 @@ The gateway binds to `127.0.0.1:8788` by default. `LOCAL_AI_GATEWAY_PORT`,
 `LOCAL_AI_GATEWAY_HOST`, `LOCAL_AI_GATEWAY_MODEL`, and `LOCAL_AI_GATEWAY_TURN_TIMEOUT_MS` override
 the defaults. It never exposes application tools to the configured command; tool selection is
 validated by the gateway and executed by EmergentTerrain.
+
+For a gateway started separately from the game, stop only that process with:
+
+```bash
+./scripts/stop-local-ai-gateway.sh
+```
