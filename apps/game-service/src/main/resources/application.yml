@@ -392,8 +392,7 @@ app:
     # continuity matters more than a clean per-run dir.
     researchOutputRetention: archive
     # 2026-05-26: lowered 3 → 2 to hold at most 2 papers in flight at any time,
-    # aligned with app.research.narration-concurrency-cap=2 and the
-    # legacy-ai parallelism=2 subprocess clamp. With backlog==cap the
+    # aligned with app.research.narration-concurrency-cap=2. With backlog==cap the
     # narration slot never queues, so no paper waits (or risks the 10-min
     # reaper) behind the throttle.
     maxDraftBacklog: 2
@@ -484,8 +483,8 @@ app:
       # Restore "nvidia," / "cerebras," if/when their legacy blocks flip enabled: true.
       # The local Codex bridge translates these application-owned tool calls to
       # a constrained JSON tool plan, then ET executes the Java tool and sends
-      # the result back for synthesis. Claude is dormant for now; OpenRouter
-      # remains the provider fallback when Codex is unavailable or rate-limited.
+      # the result back for synthesis. OpenRouter remains the provider fallback
+      # when Codex is unavailable or rate-limited.
       providers: "local-ai,openrouter,groq"
     # Global primary routing order (provider keys, CSV) — first match in the bean
     # registry wins when building the primary chain and sorting the model registry.
@@ -608,45 +607,6 @@ app:
         max-output-tokens: 8000
         parallelism: 2
         retry-after-source: HEADER
-      # 2026-05-25 — Claude *subscription* as the primary text provider.
-      # Routed through scripts/legacy-ai-gateway (an OpenAI-compat shim
-      # that fronts the Claude Agent SDK using the locally logged-in Pro/Max
-      # subscription, NOT a billed API key — apiKeySource=none). start.sh /
-      # stop.sh launch and stop the shim alongside the JVM.
-      #
-      #   supports-tools: true  → joins PrimaryModelRegistry so callPrimary /
-      #     streamPrimary (narration, first-pass) route here. It is deliberately
-      #     LEFT OUT of app.ai.tool-calling.providers (still "groq,openrouter"),
-      #     so callPrimaryWithTools (the professor tool loop) skips it via
-      #     LlmRouter.isToolEnabled — the shim does not bridge OpenAI function-
-      #     calling yet and returns HTTP 400 if it ever receives a tools array.
-      #   api-key: sentinel — the shim authenticates off the local subscription
-      #     login and ignores any non-`sk-ant-oat` bearer. To make the token
-      #     portable/headless instead, drop a `claude setup-token` value into
-      #     ANTHROPIC_OAUTH_TOKEN (secrets.json → reseal) and switch this to
-      #     `api-key-env: ANTHROPIC_OAUTH_TOKEN`; the shim forwards it as
-      #     CLAUDE_CODE_OAUTH_TOKEN.
-      #   Cost tracking: the subscription is flat (not metered), but per operator
-      #     decision its usage is priced at Anthropic's GA API list rates in
-      #     llm-pricing.yml (legacy-ai/<model>), so an API-equivalent $
-      #     cost is tracked AND counts toward the global $5 stop like a metered
-      #     provider. No per-provider budget block ⇒ only the global cap (and
-      #     global max-calls) bound it. Anthropic-side rate limits surface as a
-      #     failed call and fall through to groq/openrouter below.
-      #   parallelism: 2 — each call spawns a `claude` subprocess; keep it small.
-      legacy-ai:
-        # Disabled while the local-ai bridge is the selected provider.
-        # Preserve its config for a one-line rollback after verifying Codex.
-        enabled: false
-        base-url: http://127.0.0.1:8787/v1
-        api-key: local-subscription-login   # sentinel; shim uses the local login
-        models: [claude-sonnet-4-6]          # add claude-opus-4-7 for higher quality (heavier on Max limits)
-        supports-tools: true
-        context-window: 200000
-        max-tokens-field: max_completion_tokens
-        max-output-tokens: 8000
-        parallelism: 2
-        retry-after-source: HEADER
       openrouter:
         base-url: https://openrouter.ai/api/v1
         api-key-env: OPENROUTER_API_KEY
@@ -657,8 +617,7 @@ app:
         # 2026-05-26 — paid frontier slot (promoted above groq). Three
         # tool-capable frontier models, cheapest-frontier first so most fallback
         # traffic hits best value and the premium model is a deeper fallback.
-        # Claude excluded on purpose (redundant with the legacy-ai
-        # primary). IDs transcribed from the OpenRouter API on 2026-05-26 —
+        # IDs transcribed from the OpenRouter API on 2026-05-26 —
         # VERIFY exact ids at https://openrouter.ai/models before relying on
         # them; a wrong id silently drops the model from the pool. Prices live
         # in llm-pricing.yml (openrouter:) and must match.
@@ -693,7 +652,7 @@ app:
     # Groq primary + fast tiers (models pre-ranked, highest-quality first).
       groq:
         # 2026-05-29 — Groq disabled (default OFF). With Ollama also dormant,
-        # the primary tier is legacy-ai + openrouter, and the fast
+        # the primary tier is Codex + OpenRouter, and the fast
         # tier (FastModelRegistry now empty) falls through to the legacy
         # fastPool = OpenRouter (app.ai.fastProvider). Config block preserved;
         # set enabled: true to bring Groq back into the primary chain.
@@ -787,16 +746,10 @@ app:
       # hung up to the 420s cap, so a draft sat ~7 min in the panel and was reaped
       # at the 10-min stuck-draft TTL (1 paper of ~7). Cap those providers tight so
       # a slow reviewer fails fast and the panel degrades-and-proceeds.
-      # 2026-05-28 — legacy-ai override raised to 1100s: its local proxy
-      # turn timeout (LEGACY_AI_GATEWAY_TURN_TIMEOUT_MS) was raised 300→1000s so heavy
-      # professor tool turns can finish in-place instead of failing over. ET MUST
-      # wait past the proxy's 1000s cap to receive its clean turn-timeout 500, so
-      # this override sits 100s above it. Keep these two in lockstep.
       provider-timeout-seconds:
         local-ai: 1000
         groq: 120
         openrouter: 120
-        legacy-ai: 1100
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500
@@ -897,10 +850,6 @@ app:
     # healthier. 0 would disable (not recommended).
     # 2026-05-27 420000 → 1080000 (7 → 18 min) for best-of-N — was abandoning
     # 100% of best-of-N papers at 7 min (P-a328-981/982 timed out, 0 published).
-    # 2026-05-28 1080000 → 2400000 (18 → 40 min): per-paper professor turns on the
-    # legacy-ai path were hitting the proxy's turn cap and failing over
-    # (see REVIEW_REPORT rec 2/3). Raised with the proxy turn cap (300→1000s) and the
-    # legacy-ai HTTP timeout (→1100s) so heavy turns can finish in-place.
     # 2026-07-17 2400000 → 5400000 (40 → 90 min): a live best-of-N run had one
     # FTS-backed paper publish just before 40 min while a second missed the deadline
     # during its final candidate. The reaper remains 10 min higher. Phase 35 still
@@ -1964,18 +1913,10 @@ app:
       # Safe to include the author's narration model now: runPanel bars the
       # narration model from a panel majority (fills with independent reviewers
       # first, admits the narrator only up to ≤ half, drops it entirely if it
-      # would be the sole reviewer). legacy-ai keeps its 420s timeout;
-      # groq/openrouter remain capped at 120s (app.ai.http.provider-timeout-seconds).
-      # Watch panel-degradation + subscription-quota burn — narrow back to an
-      # explicit CSV here if claude review volume gets expensive.
-      # 2026-05-29 — narrowed from "*"/4 to a 2-model frontier panel for the
-      # conjecture-stabilization phase: legacy-ai + openrouter (openrouter
-      # contributes a frontier model from its pool — deepseek-v4-pro / grok-4.20 /
-      # gpt-5.4). Fewer panelists = less narration wall-clock, fewer rev:parse_failed /
-      # degraded-panel events, lower cost. Two genuinely-different families keeps some
-      # review orthogonality. NOTE: n=2 is fragile — one panelist flaking drops to n=1
-      # → panel-degradation demote; widen back toward "*"/4 once the pipeline is stable.
-      providers: "legacy-ai,openrouter"
+      # would be the sole reviewer). Groq and OpenRouter remain capped at 120s
+      # (app.ai.http.provider-timeout-seconds). OpenRouter supplies the two-model
+      # frontier panel for the conjecture-stabilization phase.
+      providers: "openrouter"
       size: 2
       # Panel-only denylist: deepseek-v4-pro repeatedly returned no parseable review
       # through both its tool and JSON-text paths (2026-07-29). Keep it eligible for

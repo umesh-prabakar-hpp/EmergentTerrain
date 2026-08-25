@@ -1465,7 +1465,7 @@ public class MathToolSuite {
                 // happens to increment a counter — accrued totalSuccesses()==0 and
                 // was killed by the D3 empty_trace gate even when every verify call
                 // succeeded (observed room b72c4e10: P-b72c-3/4/5/6 all suppressed
-                // once legacy-ai correctly used verify_conjecture only).
+                // once the configured provider used verify_conjecture only).
                 // A verify result starting with "verify_conjecture:" (HELD or
                 // REFUTED — both legitimate computations) counts; "Invalid …"/
                 // "… not configured" (failed args / sidecar) does not, via isSuccessResult.

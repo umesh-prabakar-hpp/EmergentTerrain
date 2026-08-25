@@ -157,10 +157,7 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
             // panel degrades-and-proceeds, instead of parking a draft in the
             // post-narration pipeline until the stuck-draft reaper reclaims it
             // (2026-05-25: drafts stalled ~7 min entering the panel, reaped at the
-            // 10-min TTL → 1 paper of ~7). legacy-ai keeps the long
-            // default: its local proxy's own turn timeout is 180s
-            // (LEGACY_AI_GATEWAY_TURN_TIMEOUT_MS), so ET must wait past that for one
-            // full tool turn.
+            // 10-min TTL → 1 paper of ~7).
             int requestTimeoutSec = resolveRequestTimeoutSeconds(environment, providerKey);
             def.getConstructorArgumentValues().addIndexedArgumentValue(
                     3, Duration.ofSeconds(requestTimeoutSec));
@@ -183,8 +180,7 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
      * {@code app.ai.http.requestTimeoutSeconds} (420 if unset), overridden per
      * provider by {@code app.ai.http.provider-timeout-seconds.<provider>}. The
      * override caps the panel-reviewer providers (groq/openrouter) so a slow
-     * reviewer fails fast; legacy-ai is left on the default because its
-     * proxy turn timeout (180s) needs ET to wait past it for a full tool turn.
+     * reviewer fails fast.
      * Package-private + static for unit testing against a MockEnvironment.
      */
     static int resolveRequestTimeoutSeconds(org.springframework.core.env.Environment env, String providerKey) {

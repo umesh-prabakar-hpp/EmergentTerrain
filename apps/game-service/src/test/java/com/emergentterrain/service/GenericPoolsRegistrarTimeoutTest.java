@@ -10,8 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ({@link GenericPoolsRegistrar#resolveRequestTimeoutSeconds}). The peer-review
  * panel runs reviewers on groq/openrouter; capping those lets a slow reviewer
  * fail fast instead of parking a draft for ~7 min until the stuck-draft reaper
- * reclaims it (2026-05-25: 1 paper of ~7). legacy-ai must keep the
- * long default — its proxy turn timeout is 180s. Uses MockEnvironment, no Mockito.
+ * reclaims it (2026-05-25: 1 paper of ~7). Uses MockEnvironment, no Mockito.
  */
 class GenericPoolsRegistrarTimeoutTest {
 
@@ -19,7 +18,6 @@ class GenericPoolsRegistrarTimeoutTest {
     void defaultsTo420WhenNothingConfigured() {
         MockEnvironment env = new MockEnvironment();
         assertThat(GenericPoolsRegistrar.resolveRequestTimeoutSeconds(env, "groq")).isEqualTo(420);
-        assertThat(GenericPoolsRegistrar.resolveRequestTimeoutSeconds(env, "legacy-ai")).isEqualTo(420);
     }
 
     @Test
@@ -40,8 +38,6 @@ class GenericPoolsRegistrarTimeoutTest {
         // Panel-reviewer providers are capped tight.
         assertThat(GenericPoolsRegistrar.resolveRequestTimeoutSeconds(env, "groq")).isEqualTo(120);
         assertThat(GenericPoolsRegistrar.resolveRequestTimeoutSeconds(env, "openrouter")).isEqualTo(120);
-        // legacy-ai (no override) keeps the long default for its proxy turn.
-        assertThat(GenericPoolsRegistrar.resolveRequestTimeoutSeconds(env, "legacy-ai")).isEqualTo(420);
         // Any other un-overridden provider inherits the global default.
         assertThat(GenericPoolsRegistrar.resolveRequestTimeoutSeconds(env, "nvidia")).isEqualTo(420);
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Print health for the PostgreSQL datasource, Spring app, the two local
-# subscription proxies, Julia math sidecars, and Rust GPU engine. This script
+# Print health for the PostgreSQL datasource, Spring app, the local Codex
+# subscription proxy, Julia math sidecars, and Rust GPU engine. This script
 # is read-only: it never starts, stops, or restarts a process. PostgreSQL is
 # checked with an authenticated `SELECT 1` using the app's PG_* configuration.
 # For a listening service, it resolves the listener PID and prints that
@@ -25,13 +25,11 @@ JULIA_SIDECAR_ROOT="${JULIA_SIDECAR_ROOT:-$REPO_ROOT/services/julia-math-sidecar
 GPU_ENGINE_ROOT="${GPU_ENGINE_ROOT:-$REPO_ROOT/engines/gpu-engine}"
 
 APP_URL="${ET_APP_URL:-http://127.0.0.1:8081/actuator/health}"
-LEGACY_AI_GATEWAY_URL="${ET_LEGACY_AI_GATEWAY_URL:-http://127.0.0.1:8787/healthz}"
 LOCAL_AI_GATEWAY_URL="${ET_LOCAL_AI_GATEWAY_URL:-http://127.0.0.1:8788/healthz}"
 RESEARCH_SERVICE_URL="${ET_RESEARCH_SERVICE_URL:-http://127.0.0.1:8082/actuator/health}"
 JULIA_URL="${ET_JULIA_URL:-http://127.0.0.1:8088/healthz}"
 PY_SIDECAR_URL="${ET_PY_SIDECAR_URL:-http://127.0.0.1:8089/healthz}"
 APP_PORT="${ET_APP_PORT:-8081}"
-LEGACY_AI_GATEWAY_PORT="${ET_LEGACY_AI_GATEWAY_PORT:-8787}"
 LOCAL_AI_GATEWAY_PORT="${ET_LOCAL_AI_GATEWAY_PORT:-8788}"
 RESEARCH_SERVICE_PORT="${ET_RESEARCH_SERVICE_PORT:-8082}"
 JULIA_PORT="${ET_JULIA_PORT:-8088}"
@@ -212,7 +210,6 @@ echo "EmergentTerrain related-service status (timeout: ${TIMEOUT_SECONDS}s)"
 check_postgres
 check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
 check_service "local-ai-gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "required" "started with app"
-check_service "legacy-ai-gateway" "$LEGACY_AI_GATEWAY_URL" "cd $REPO_ROOT && ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh" "├── " "│   " "$LEGACY_AI_GATEWAY_PORT" "optional" "started with app when enabled"
 check_service "Research service" "$RESEARCH_SERVICE_URL" "cd $REPO_ROOT && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game"
 check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/sidecar.log"
 check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/py-sidecar.log"

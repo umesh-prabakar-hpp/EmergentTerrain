@@ -335,7 +335,6 @@ class SecretsTest {
         Map<String, Object> cfg = new HashMap<>();
         cfg.put("app.ai.providers.openrouter.api-key-env", "OPENROUTER_API_KEY");
         cfg.put("app.ai.providers.groq.api-key-env", "GROQ_API_KEY");
-        cfg.put("app.ai.providers.legacy-ai.api-key", "local-login"); // literal → no env key
         env.getPropertySources().addFirst(new MapPropertySource("test", cfg));
 
         List<String> keys = FileSecretsBootstrap.expectedKeys(env);

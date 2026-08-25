@@ -203,15 +203,14 @@ EmergentTerrain/
     julia-math-sidecar/    # Julia/Python sidecar (current julia-math-sidecar repository)
   contracts/
     research-api/          # versioned OpenAPI or protobuf definitions and generated clients
-  tools/
+  scripts/
     local-ai-gateway/
-    legacy-ai-gateway/
   docs/
   scripts/
 ```
 
-The existing Codex and Claude proxies are already tracked inside the current repository.  They
-move only as ordinary tracked files; they are not separate repositories to import.
+The local AI gateway is already tracked inside the current repository. It moves only as ordinary
+tracked files; it is not a separate repository to import.
 
 ## Final service boundary: game-agnostic research
 

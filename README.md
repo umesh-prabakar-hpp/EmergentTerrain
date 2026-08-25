@@ -394,13 +394,10 @@ pins the locally validated `gpt-5.6-terra`, and returns Codex token usage for
 API-equivalent budget accounting at Terra's $2.50 input / $15 output per
 million-token public rates. This includes a final usage frame on streamed
 narration, so those calls count toward the run-budget guard; it rejects the public
-API slug `gpt-5-codex` on this ChatGPT-authenticated installation. Claude is disabled by default;
-OpenRouter remains the automatic fallback. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to
-skip the local bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1` only when intentionally
-bringing the dormant Claude bridge back up. See
-[`docs/subscription-providers.md`](docs/subscription-providers.md) for the
-complete Codex and Claude login, activation, connection, verification, and
-troubleshooting guide. The active Codex pool permits two concurrent requests;
+API slug `gpt-5-codex` on this ChatGPT-authenticated installation. OpenRouter remains the
+automatic fallback. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the local bridge. See
+[`docs/subscription-providers.md`](docs/subscription-providers.md) for the Codex login,
+connection, verification, and troubleshooting guide. The active Codex pool permits two concurrent requests;
 account-level usage limits still apply. A full research narration has a
 90-minute wall-clock deadline; its stale-draft reaper is 100 minutes, so the
 narration timeout is the first recovery mechanism. Phase 35 retrieval work
@@ -546,19 +543,18 @@ it can seed later work.
 
 Use the read-only status helper to check the configured PostgreSQL datasource
 with an authenticated `SELECT 1`, the Spring app (`8081`), local AI gateway (`8788`),
-optional/dormant legacy AI gateway (`8787`), Julia math sidecar (`8088`), isolated
-PyCall/grounding sidecar (`8089`), and Rust GPU engine (`50051`). For each
+Julia math sidecar (`8088`), isolated PyCall/grounding sidecar (`8089`), and Rust
+GPU engine (`50051`). For each
 listener it prints the owning PID and exact active command from `ps`, then the
 copy-pasteable command to start it when absent. It exits nonzero if PostgreSQL
 or a required service is not healthy (or, for the gRPC GPU engine, not
-listening); the disabled legacy AI gateway is reported as `DORMANT`. PostgreSQL
+listening). PostgreSQL
 defaults to the app's `PG_URL`, `PG_USER`, and `PG_PASSWORD` settings; use
 `ET_POSTGRES_URL`, `ET_POSTGRES_USER`, and `ET_POSTGRES_PASSWORD` to check an
 explicit alternate datasource. It accepts matching `ET_*_URL` / `ET_*_PORT`
 overrides and `ET_STATUS_TIMEOUT_SECONDS`. Its terminal output uses color; pipe
-it or set `NO_COLOR=1` for plain text. The proxy entries are lifecycle-managed
-by `./scripts/start.sh`: Codex starts by default, while Claude starts only with
-`ET_ENABLE_LEGACY_AI_GATEWAY=1`. A redirect to `/login` is reported as
+it or set `NO_COLOR=1` for plain text. The local AI gateway is lifecycle-managed by
+`./scripts/start.sh`. A redirect to `/login` is reported as
 ready-but-protected; set `ET_STATUS_COMMAND_CHARS` to adjust the abbreviated
 long `ps` command display.
 Its missing-service hints use the preferred launchers: `./scripts/start.sh` for

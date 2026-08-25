@@ -30,7 +30,4 @@ for (uuid, dep) in sort!(collect(deps); by = pair -> lowercase(pair[2].name))
 end
 ' > "$sbom_dir/julia-dependencies.toml"
 
-npm --prefix "$repo_root/scripts/legacy-ai-gateway" ls --all --package-lock-only --json \
-  > "$sbom_dir/node-legacy-ai-gateway.json"
-
 echo "Wrote dependency inventories to $sbom_dir"

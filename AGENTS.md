@@ -232,10 +232,8 @@ token usage for API-equivalent budget accounting at Terra's $2.50 input / $15
 output per million-token public rates, including streamed narration through a
 final SSE usage frame.
 The ChatGPT-authenticated CLI rejects `gpt-5-codex` as an explicit model
-selection on this installation. Claude is intentionally dormant
-(`legacy-ai.enabled: false`); OpenRouter is the fallback. Set
-`ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1`
-only to start the preserved legacy AI gateway for rollback testing. The Codex pool
+selection on this installation. OpenRouter is the fallback. Set
+`ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the bridge. The Codex pool
 has `parallelism: 2`; keep it small because every request launches a Codex turn.
 For the exact local Codex/Claude login, proxy connection, enablement, and
 verification procedure, see `docs/subscription-providers.md`.
@@ -341,17 +339,16 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - GPU engine gRPC: `127.0.0.1:50051` by default
 - Related-service health: `./scripts/status-related-apps.sh` first runs an
   authenticated `SELECT 1` against the configured PostgreSQL datasource, then
-  reports the Spring app (`8081`), local AI gateway (`8788`), optional legacy AI gateway
-  (`8787`), Julia math sidecar (`8088`), PyCall/grounding sidecar (`8089`), and
+  reports the Spring app (`8081`), local AI gateway (`8788`), Julia math sidecar
+  (`8088`), PyCall/grounding sidecar (`8089`), and
   GPU gRPC listener (`50051`) without changing any process. PostgreSQL uses the
   app's `PG_URL`, `PG_USER`, and `PG_PASSWORD` values by default; override only
   the status check with `ET_POSTGRES_URL`, `ET_POSTGRES_USER`, and
   `ET_POSTGRES_PASSWORD`. It prints each listener's PID and active `ps`
-  command, plus its start command when absent. The disabled legacy AI gateway is
-  `DORMANT`; PostgreSQL or other unavailable required services make it exit
-  nonzero. It uses color when attached to a terminal; `NO_COLOR=1` disables it.
-  Both proxies are lifecycle-managed by `./scripts/start.sh`: Codex starts by
-  default and Claude only with `ET_ENABLE_LEGACY_AI_GATEWAY=1`. `/login` redirects
+  command, plus its start command when absent. PostgreSQL or other unavailable
+  required services make it exit nonzero. It uses color when attached to a terminal;
+  `NO_COLOR=1` disables it.
+  The local AI gateway is lifecycle-managed by `./scripts/start.sh`. `/login` redirects
   are ready-but-protected, and `ET_STATUS_COMMAND_CHARS` controls abbreviation
   of long active `ps` commands.
   Its missing-service hints use the preferred app, GPU, research, and sidecar
@@ -532,7 +529,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - **Final panel revision and reviewer eligibility (2026-07-29)** — The panel-revision JSON contract includes `discussion` and `related_work`; a Related Work-only correction is material, not a no-op. When the selected trace both issues and successfully reads an `HF...` key, final narration must retain an exact `[HF...]` citation in `related_work`. Its omission stamps `literature:read_key_omitted:demoted_to_needs_revision` before best-of-N scoring, and a revision cannot say a definition, registered instrument, or trace table is unavailable when the selected trace records it. `app.research.review-panel.excluded-models` is a lower-cased CSV denylist for panel seats only: do not use it to disable a model's ordinary provider routing. The live DeepSeek exclusion is limited to its repeated panel tool/JSON parse failure; remove it only after a verified panel-format repair.
 - **Question-served host smoke** — `QuestionServedProtocolCloneSmokeRunner` is dormant unless `app.research.question-serve.clone-smoke.enabled=true`. Run it with `app.university.enabled=false` and `spring.task.scheduling.enabled=false` so it persists one temporary exact-clone question, calls the real allocation service, requires no draft-ID/reservation/narration path, logs the allocation decline, and deletes the row. It is the safe live verification path; never use the normal scheduler merely to test this guard.
 - **Phase 35 search observability** — every enabled lookup logs its exact FTS expressions plus per-candidate record-evidence and required-title anchors at INFO level in `logs/et-app.log`; use those values for manual SQLite/FTS tests. Completion logs also name the final search surface (`theorem` or `fulltext`). Repeated tokens emitted by an identifier such as `omega_Omega_gap` are normally skipped as invalid two-anchor pairs; the exact case-distinct mathematical pair `omega`/`Omega` is the narrow exception and maps to validated `prime` + `factors` title anchors with `multiplicity` evidence, preserving the ordinary source-read gate.
-- **Narration deadline (2026-07-17)** — `app.research.narrationTimeoutMs` is 90 minutes and `stuckDraftTtlMs` is 100 minutes, so the narration timeout fires before the stale-draft reaper. This is room for a full best-of-N/FTS-backed cascade, not a replacement for Phase 35's bounded retrieval work. Keep the dormant legacy AI gateway's session TTL above the narration deadline (default: 95 minutes) if it is enabled for rollback testing.
+- **Narration deadline (2026-07-17)** — `app.research.narrationTimeoutMs` is 90 minutes and `stuckDraftTtlMs` is 100 minutes, so the narration timeout fires before the stale-draft reaper. This is room for a full best-of-N/FTS-backed cascade, not a replacement for Phase 35's bounded retrieval work.
 - **Run-budget drain (2026-07-21)** — Global LLM cost is capped at `$5.00` with `drain-reserve-cost-usd: 2.80`, so the derived drain point remains `$2.20`. At drain, no new research starts and the aggregate `$2.80` is retained for already-started papers. Calls remain capped at 350 with a 60-call reserve (drain at 290). This is not per-paper escrow; do not describe it as a completion guarantee until optional work is credit-gated.
 - **Bounded shutdown reconciliation (2026-07-26)** — A hard budget stop calls `ResearchShutdownReconciler` before `SpringApplication.exit`: it waits up to `app.research.shutdown-reconciliation.timeout-ms` (30s) for `ResearchCycleService`'s in-flight drafts, records every remaining durable paper ID and last phase as `shutdown_timeout:<phase>` suppression, then closes `UniversityService`'s publication gate for up to `publication-lock-ms` (5s). Do not bypass this by calling `SpringApplication.exit` directly from another budget path. If the gate cannot close, the process exits fail-closed without Spring context teardown; closing Hikari under a publication transaction reintroduces the P-b72c-77627930 `Socket closed` persistence race.
 - **End-of-run paper summary** — `UniversityService` logs `Run paper summary` during context shutdown, listing the paper ID, title, and terminal status for papers created by that JVM only. It separately logs deliberately suppressed drafts and any still-active drafts with their last narration phase, so a hard budget stop leaves its sequence gaps auditable. Do not substitute the database/cache for these lists: both can contain historical rows from earlier app runs.

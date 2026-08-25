@@ -28,6 +28,8 @@ Thumbs.db
 /npm-debug.log*
 /yarn.lock
 /pnpm-lock.yaml
+/scripts/legacy-ai-gateway/
+/sbom/node-legacy-ai-gateway.json
 
 # H2
 *.mv.db

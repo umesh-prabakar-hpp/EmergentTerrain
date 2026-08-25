@@ -159,15 +159,6 @@ debug Cargo build. Stop it with:
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-### Optional legacy AI gateway
-
-The legacy AI gateway remains disabled by default. To include it in the final web-app launch for rollback
-testing, set this in the terminal that will run the web-app command:
-
-```bash
-export ET_ENABLE_LEGACY_AI_GATEWAY=1
-```
-
 ## 5. Run the web app
 
 From the repository root:

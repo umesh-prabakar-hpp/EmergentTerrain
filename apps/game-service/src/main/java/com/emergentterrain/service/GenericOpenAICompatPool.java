@@ -1046,7 +1046,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                     String content = message.path("content").asText("");
                     if (content.isBlank()) content = message.path("reasoning").asText("");
                     // 2026-06-08 — provider usage-cap sentinel. A subscription-
-                    // backed model (e.g. legacy-ai) returns HTTP 200
+                    // backed model can return HTTP 200
                     // with a short "You've hit your limit · resets <time>" body
                     // and NO tool_calls when its quota is exhausted. Untreated,
                     // the loop reads that as "model declined to call tools" →

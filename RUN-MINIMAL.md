@@ -98,21 +98,14 @@ cd "$(git rev-parse --show-toplevel)"
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-## 8. legacy AI gateway
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-export ET_ENABLE_LEGACY_AI_GATEWAY=1
-```
-
-## 9. Web app
+## 8. Web app
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/start.sh
 ```
 
-## 10. Status and logs
+## 9. Status and logs
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"

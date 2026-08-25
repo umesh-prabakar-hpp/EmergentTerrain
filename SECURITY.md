@@ -24,7 +24,7 @@ reporter and credit them only with their consent.
 
 Examples of in-scope issues include authentication and signed-QR flaws, exposed API keys or service
 credentials, game/research API authorization bypasses, unsafe database or network exposure,
-dependency vulnerabilities with a practical impact, and flaws in the Codex/legacy AI gateway boundary.
+dependency vulnerabilities with a practical impact, and flaws in the local AI gateway boundary.
 
 Out of scope are requests for product features, disagreements with research conclusions that do not
 create a security impact, attacks requiring credentials already under the attacker's control, and
