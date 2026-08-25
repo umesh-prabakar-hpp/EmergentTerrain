@@ -19,25 +19,55 @@ cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
-## 3. Web app
+## 3. Julia math sidecar
+
+Run this in its own terminal before starting the web app:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-./scripts/start.sh
+JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
+./services/julia-math-sidecar/scripts/start.sh
 ```
+
+In another terminal, follow the log:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-./scripts/status-related-apps.sh || true
-tail -F logs/et-app.log logs/maven-stdout.log logs/codex-proxy.log
+tail -F services/julia-math-sidecar/logs/sidecar.log
 ```
+
+Stop both Julia sidecars with:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-./scripts/stop.sh
+./services/julia-math-sidecar/scripts/stop.sh
 ```
 
-## 4. Research audit without the game
+## 4. PyCall and grounding sidecar
+
+After the main Julia sidecar is listening, run this in a second terminal:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+ET_GROUND_SUBJECTS=mathematics,msc:11 \
+./services/julia-math-sidecar/scripts/start-py-sidecar.sh
+```
+
+In another terminal, follow the log:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+tail -F services/julia-math-sidecar/logs/py-sidecar.log
+```
+
+Stop both Julia sidecars with:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./services/julia-math-sidecar/scripts/stop.sh
+```
+
+## 5. Research audit without the game
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -47,7 +77,7 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 ./scripts/start-research-service.sh
 ```
 
-## 5. University research without the game
+## 6. University research without the game
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -56,7 +86,7 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
 ./scripts/start-research-service.sh
 ```
 
-## 6. GPU engine
+## 7. GPU engine
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -68,32 +98,18 @@ cd "$(git rev-parse --show-toplevel)"
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-## 7. Julia math sidecar
+## 8. legacy AI gateway
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
-./services/julia-math-sidecar/scripts/start.sh
+export ET_ENABLE_LEGACY_AI_GATEWAY=1
 ```
 
-```bash
-cd "$(git rev-parse --show-toplevel)"
-./services/julia-math-sidecar/scripts/stop.sh
-```
-
-## 8. PyCall and grounding sidecar
+## 9. Web app
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-ET_GROUND_SUBJECTS=mathematics,msc:11 \
-./services/julia-math-sidecar/scripts/start-py-sidecar.sh
-```
-
-## 9. legacy AI gateway
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh
+./scripts/start.sh
 ```
 
 ## 10. Status and logs
@@ -112,6 +128,11 @@ tail -F \
   services/julia-math-sidecar/logs/sidecar.log \
   services/julia-math-sidecar/logs/py-sidecar.log \
   engines/gpu-engine/logs/gpu-engine.log
+```
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/stop.sh
 ```
 
 ## 11. Build and test

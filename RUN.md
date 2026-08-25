@@ -1,8 +1,8 @@
 # Run EmergentTerrain
 
-This guide starts the project using its supported launchers. Begin with the web app or the
-research-only service; the GPU engine, Julia sidecars, LLM proxies, and literature indexes are
-optional unless you are working on their specific features.
+This guide starts the project using its supported launchers. Start the Julia sidecars before the
+web app when using the standard math and grounding integrations. The GPU engine, LLM proxies, and
+literature indexes are only needed for their respective features.
 
 For a command-only reference, see [RUN-MINIMAL.md](RUN-MINIMAL.md). For scope, safety boundaries,
 and the repository map, start with the [README](README.md).
@@ -53,32 +53,56 @@ point, so the command deliberately permits a nonzero status:
 ./scripts/status-related-apps.sh || true
 ```
 
-## 2. Run the web app
+## 2. Start the Julia sidecars
 
-From the repository root:
+Start each sidecar in its own terminal. Start the main Julia sidecar first, then start the
+single-threaded PyCall/grounding companion in a second terminal.
 
-```bash
-./scripts/start.sh
-```
-
-The launcher stops a previous managed app/proxy set, starts the local local-ai-gateway when
-Node.js and a `codex login` session are available, performs a clean Maven build, and starts the game
-on <http://127.0.0.1:8081/>. The proxy is optional: set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip it.
-
-Verify startup and inspect logs:
+### Julia math sidecar
 
 ```bash
-./scripts/status-related-apps.sh || true
-tail -F logs/et-app.log logs/maven-stdout.log logs/codex-proxy.log
+JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
+./services/julia-math-sidecar/scripts/start.sh
 ```
 
-Stop the managed web app and its managed proxies:
+This listens on `127.0.0.1:8088`. `ET_DISCOVER_EXEC=1` enables opt-in discovery execution; omit it
+when that capability is not needed.
+
+In another terminal, follow its log:
 
 ```bash
-./scripts/stop.sh
+tail -F services/julia-math-sidecar/logs/sidecar.log
 ```
 
-For foreground debugging, use `./scripts/start.sh --foreground`.
+Stop both Julia sidecars with:
+
+```bash
+./services/julia-math-sidecar/scripts/stop.sh
+```
+
+### PyCall and literature-grounding sidecar
+
+After the main Julia sidecar is listening, run this in a second terminal:
+
+```bash
+ET_GROUND_SUBJECTS=mathematics,msc:11 \
+./services/julia-math-sidecar/scripts/start-py-sidecar.sh
+```
+
+This single-threaded companion listens on `127.0.0.1:8089`. The subject gate is optional; omit
+`ET_GROUND_SUBJECTS` to leave it disabled.
+
+In another terminal, follow its log:
+
+```bash
+tail -F services/julia-math-sidecar/logs/py-sidecar.log
+```
+
+Stop both Julia sidecars with:
+
+```bash
+./services/julia-math-sidecar/scripts/stop.sh
+```
 
 ## 3. Run research without the game
 
@@ -118,10 +142,9 @@ Use `Ctrl-C` in the worker terminal to stop it. See
 [apps/research-service/README.md](apps/research-service/README.md) for remote game-context mode,
 API authentication, durable work intake, and Phase 42 ownership boundaries.
 
-## 4. Optional services
+## 4. Additional services
 
-Start each optional service in its own terminal. Use them only when the feature you are testing
-requires them.
+Start each service in its own terminal when the feature you are testing requires it.
 
 ### Rust GPU engine
 
@@ -136,39 +159,30 @@ debug Cargo build. Stop it with:
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-### Julia math sidecar
-
-```bash
-JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
-./services/julia-math-sidecar/scripts/start.sh
-```
-
-This listens on `127.0.0.1:8088`. `ET_DISCOVER_EXEC=1` enables opt-in discovery execution; omit it
-when that capability is not needed. Stop it with:
-
-```bash
-./services/julia-math-sidecar/scripts/stop.sh
-```
-
-### PyCall and literature-grounding sidecar
-
-```bash
-ET_GROUND_SUBJECTS=mathematics,msc:11 \
-./services/julia-math-sidecar/scripts/start-py-sidecar.sh
-```
-
-This single-threaded companion listens on `127.0.0.1:8089`. The subject gate is optional; omit
-`ET_GROUND_SUBJECTS` to leave it disabled. It is also stopped with the Julia sidecar's `stop.sh`.
-
 ### Optional legacy AI gateway
 
-The legacy AI gateway remains disabled by default. Start it only for rollback testing:
+The legacy AI gateway remains disabled by default. To include it in the final web-app launch for rollback
+testing, set this in the terminal that will run the web-app command:
 
 ```bash
-ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh
+export ET_ENABLE_LEGACY_AI_GATEWAY=1
 ```
 
-## 5. Status and logs
+## 5. Run the web app
+
+From the repository root:
+
+```bash
+./scripts/start.sh
+```
+
+The launcher stops a previous managed app/proxy set, starts the local local-ai-gateway when
+Node.js and a `codex login` session are available, performs a clean Maven build, and starts the game
+on <http://127.0.0.1:8081/>. The proxy is optional: set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip it.
+
+For foreground debugging, use `./scripts/start.sh --foreground`.
+
+## 6. Status and logs
 
 Always use the read-only status script to determine runtime state:
 
@@ -178,9 +192,8 @@ Always use the read-only status script to determine runtime state:
 
 It checks PostgreSQL with an authenticated query and reports the game, research service, local
 proxies, Julia sidecars, and GPU listener. It prints each detected service's PID and command plus a
-preferred start command when absent. It may exit nonzero when components you deliberately have not
-started, notably the Julia sidecars or GPU engine, are down; use `|| true` when inspecting a partial
-runtime.
+preferred start command when absent. It may exit nonzero when a service is down; use `|| true` when
+inspecting a partial runtime.
 
 To follow all usual logs at once:
 
@@ -197,7 +210,13 @@ tail -F \
 `tail -F` tolerates services that have not yet created their log file and continues across log
 rotation.
 
-## 6. Build and test
+When finished, stop the managed web app and its managed proxies:
+
+```bash
+./scripts/stop.sh
+```
+
+## 7. Build and test
 
 Run Java checks from the repository root:
 
@@ -216,7 +235,7 @@ For the real two-process GPU smoke test and packaged performance comparison, see
 [AGENTS.md](AGENTS.md). Do not use `spring-boot:run` or `cargo run` as substitutes for the
 documented release-performance workflow.
 
-## 7. Optional literature and review workflows
+## 8. Optional literature and review workflows
 
 Literature corpora and SQLite/FTS indexes are large, separately licensed, and not required to run
 the game or safe research audit. Their preparation, provenance, and acceptance requirements are in
@@ -227,7 +246,7 @@ For maintainers using the local Codex skills, the paper-review and phase-review 
 documented in `skills/paper-review/` and `skills/phase-review/`. They review evidence and planning;
 they do not grant permission to mutate gameplay state or treat AI narration as evidence.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 - **PostgreSQL is down or unauthenticated:** start PostgreSQL, verify the configured `PG_URL`,
   `PG_USER`, and `PG_PASSWORD`, then rerun the status script.

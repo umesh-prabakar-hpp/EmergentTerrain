@@ -131,6 +131,8 @@ check_service() {
     local port="$6"
     local expectation="${7:-required}"
     local start_label="${8:-start if needed}"
+    local stop_command="${9:-}"
+    local tail_command="${10:-}"
     local response_file header_file http_status response location active_command
 
     response_file="$(mktemp)"
@@ -169,6 +171,19 @@ check_service() {
     else
         printf '%s├── %s\n' "$child_indent" "$(colored "$CYAN" "active command: unavailable (no process identified on port $port)")"
     fi
+    if [[ -n "$stop_command" || -n "$tail_command" ]]; then
+        printf '%s├── %s\n' "$child_indent" "$(colored "$CYAN" "$start_label: $start_command")"
+        if [[ -n "$stop_command" && -n "$tail_command" ]]; then
+            printf '%s├── %s\n' "$child_indent" "$(colored "$CYAN" "stop: $stop_command")"
+        elif [[ -n "$stop_command" ]]; then
+            printf '%s└── %s\n' "$child_indent" "$(colored "$CYAN" "stop: $stop_command")"
+            return
+        fi
+        if [[ -n "$tail_command" ]]; then
+            printf '%s└── %s\n' "$child_indent" "$(colored "$CYAN" "logs: $tail_command")"
+        fi
+        return
+    fi
     printf '%s└── %s\n' "$child_indent" "$(colored "$CYAN" "$start_label: $start_command")"
 }
 
@@ -199,8 +214,8 @@ check_service "EmergentTerrain app" "$APP_URL" "cd $REPO_ROOT && ./scripts/start
 check_service "local-ai-gateway" "$LOCAL_AI_GATEWAY_URL" "cd $REPO_ROOT && ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "required" "started with app"
 check_service "legacy-ai-gateway" "$LEGACY_AI_GATEWAY_URL" "cd $REPO_ROOT && ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh" "├── " "│   " "$LEGACY_AI_GATEWAY_PORT" "optional" "started with app when enabled"
 check_service "Research service" "$RESEARCH_SERVICE_URL" "cd $REPO_ROOT && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game"
-check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT"
-check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT"
+check_service "Julia math sidecar" "$JULIA_URL" "cd $JULIA_SIDECAR_ROOT && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/sidecar.log"
+check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd $JULIA_SIDECAR_ROOT && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd $JULIA_SIDECAR_ROOT && ./scripts/stop.sh" "tail -F $JULIA_SIDECAR_ROOT/logs/py-sidecar.log"
 check_gpu_engine "└── " "    "
 
 exit "$overall_status"
