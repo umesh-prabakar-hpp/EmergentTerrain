@@ -394,12 +394,19 @@ export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
 ```
 
 `start-research-service.sh` intentionally does not manage this gateway. For university research
-without the game, start it in a separate terminal before starting the research worker:
+without the game, start it in a separate terminal before starting the research worker. When the
+sibling external gateway copy exists, use it:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
+cd "$(dirname "$(git rev-parse --show-toplevel)")/ai-proxy/local-ai-gateway"
+node server.mjs
+```
+
+Otherwise use the portable in-repository adapter:
+
+```bash
 LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
-node scripts/local-ai-gateway/server.mjs
+node "$(git rev-parse --show-toplevel)/scripts/local-ai-gateway/server.mjs"
 ```
 
 The gateway is optional when another configured LLM provider is available. The research audit path
@@ -577,10 +584,13 @@ defaults to the app's `PG_URL`, `PG_USER`, and `PG_PASSWORD` settings; use
 `ET_POSTGRES_URL`, `ET_POSTGRES_USER`, and `ET_POSTGRES_PASSWORD` to check an
 explicit alternate datasource. It accepts matching `ET_*_URL` / `ET_*_PORT`
 overrides and `ET_STATUS_TIMEOUT_SECONDS`. Its terminal output uses color; pipe
-it or set `NO_COLOR=1` for plain text. The local AI gateway is lifecycle-managed by
-`./scripts/start.sh`. A redirect to `/login` is reported as
-ready-but-protected; set `ET_STATUS_COMMAND_CHARS` to adjust the abbreviated
-long `ps` command display.
+it or set `NO_COLOR=1` for plain text. Its default local-AI hint starts the portable
+in-repository adapter and explicitly requires `LOCAL_AI_GATEWAY_COMMAND`. When the sibling
+`ai-proxy/local-ai-gateway/server.mjs` exists, it instead shows that standalone gateway command.
+Set `ET_LOCAL_AI_GATEWAY_STANDALONE_DIR` for another location, or set
+`ET_LOCAL_AI_GATEWAY_START_COMMAND` (and optionally `ET_LOCAL_AI_GATEWAY_START_LABEL`) for an exact
+custom hint. A redirect to `/login` is reported as ready-but-protected; set
+`ET_STATUS_COMMAND_CHARS` to adjust the abbreviated long `ps` command display.
 Its missing-service hints use the preferred launchers: `./scripts/start.sh` for
 the app and GPU engine, `./scripts/start-research-service.sh` for research, and
 the Julia sidecar launch scripts. The Julia hint enables its separately gated

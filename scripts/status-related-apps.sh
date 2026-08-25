@@ -14,6 +14,7 @@
 #   ET_APP_URL=http://127.0.0.1:9081 \
 #   ET_JULIA_URL=http://127.0.0.1:9088 \
 #   ET_PY_SIDECAR_URL=http://127.0.0.1:9089 \
+#   ET_LOCAL_AI_GATEWAY_START_COMMAND='cd /path/to/local-ai-gateway && node server.mjs' \
 #   ./scripts/status-related-apps.sh
 #
 # Exit status: 0 when every required service is healthy/listening; optional
@@ -23,6 +24,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 JULIA_SIDECAR_ROOT="${JULIA_SIDECAR_ROOT:-$REPO_ROOT/services/julia-math-sidecar}"
 GPU_ENGINE_ROOT="${GPU_ENGINE_ROOT:-$REPO_ROOT/engines/gpu-engine}"
 
@@ -42,6 +44,18 @@ COMMAND_DISPLAY_CHARS="${ET_STATUS_COMMAND_CHARS:-360}"
 POSTGRES_URL="${ET_POSTGRES_URL:-${PG_URL:-jdbc:postgresql://localhost:5432/emergentterrain}}"
 POSTGRES_USER="${ET_POSTGRES_USER:-${PG_USER:-postgres}}"
 POSTGRES_PASSWORD="${ET_POSTGRES_PASSWORD:-${PG_PASSWORD:-NewStrongPasswordHere}}"
+STANDALONE_LOCAL_AI_GATEWAY_DIR="${ET_LOCAL_AI_GATEWAY_STANDALONE_DIR:-$WORKSPACE_ROOT/ai-proxy/local-ai-gateway}"
+
+if [[ -n "${ET_LOCAL_AI_GATEWAY_START_COMMAND:-}" ]]; then
+    LOCAL_AI_GATEWAY_START_COMMAND="$ET_LOCAL_AI_GATEWAY_START_COMMAND"
+    LOCAL_AI_GATEWAY_START_LABEL="${ET_LOCAL_AI_GATEWAY_START_LABEL:-start external local AI gateway}"
+elif [[ -f "$STANDALONE_LOCAL_AI_GATEWAY_DIR/server.mjs" ]]; then
+    LOCAL_AI_GATEWAY_START_COMMAND="cd \"$STANDALONE_LOCAL_AI_GATEWAY_DIR\" && node server.mjs"
+    LOCAL_AI_GATEWAY_START_LABEL="start standalone local AI gateway"
+else
+    LOCAL_AI_GATEWAY_START_COMMAND="cd \"$REPO_ROOT\" && LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter node scripts/local-ai-gateway/server.mjs"
+    LOCAL_AI_GATEWAY_START_LABEL="start standalone adapter (requires LOCAL_AI_GATEWAY_COMMAND)"
+fi
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     GREEN=$'\033[32m'
@@ -226,7 +240,7 @@ check_gpu_engine() {
 echo "EmergentTerrain related-service status (timeout: ${TIMEOUT_SECONDS}s)"
 check_postgres
 check_service "EmergentTerrain app" "$APP_URL" "cd \"$REPO_ROOT\" && ./scripts/start.sh" "├── " "│   " "$APP_PORT"
-check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "cd \"$REPO_ROOT\" && LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter ./scripts/start.sh" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "started with app when configured" "cd \"$REPO_ROOT\" && ./scripts/stop-local-ai-gateway.sh"
+check_service "Local AI gateway" "$LOCAL_AI_GATEWAY_URL" "$LOCAL_AI_GATEWAY_START_COMMAND" "├── " "│   " "$LOCAL_AI_GATEWAY_PORT" "optional" "$LOCAL_AI_GATEWAY_START_LABEL" "cd \"$REPO_ROOT\" && ./scripts/stop-local-ai-gateway.sh"
 check_service "Research service" "$RESEARCH_SERVICE_URL" "cd \"$REPO_ROOT\" && ./scripts/start-research-service.sh" "├── " "│   " "$RESEARCH_SERVICE_PORT" "optional" "runs without game" "cd \"$REPO_ROOT\" && ./scripts/stop-research-service.sh"
 check_service "Julia math sidecar" "$JULIA_URL" "cd \"$JULIA_SIDECAR_ROOT\" && ET_DISCOVER_EXEC=1 ./scripts/start.sh" "├── " "│   " "$JULIA_PORT" "required" "start if needed" "cd \"$JULIA_SIDECAR_ROOT\" && ./scripts/stop.sh" "tail -F \"$JULIA_SIDECAR_ROOT/logs/sidecar.log\""
 check_service "PyCall/grounding sidecar" "$PY_SIDECAR_URL" "cd \"$JULIA_SIDECAR_ROOT\" && ET_GROUND_SUBJECTS=mathematics,msc:11 ./scripts/start-py-sidecar.sh" "├── " "│   " "$PY_SIDECAR_PORT" "required" "start if needed" "cd \"$JULIA_SIDECAR_ROOT\" && ./scripts/stop.sh" "tail -F \"$JULIA_SIDECAR_ROOT/logs/py-sidecar.log\""

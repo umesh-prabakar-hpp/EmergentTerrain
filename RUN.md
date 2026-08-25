@@ -130,7 +130,16 @@ This transition-period path can use the configured LLM provider chain and write 
 Use it only when that is intended; it is not the safe audit path above.
 
 `start-research-service.sh` deliberately does not start the optional local AI gateway. If university
-research should use that provider, start it in a separate terminal first:
+research should use that provider, start it in a separate terminal first. When the sibling external
+gateway copy exists, prefer the tested local-CLI gateway:
+
+```bash
+cd "$(dirname "$(git rev-parse --show-toplevel)")/ai-proxy/local-ai-gateway"
+node server.mjs
+```
+
+Otherwise, use the portable in-repository adapter with a command that reads the prompt from standard
+input and writes the response to standard output:
 
 ```bash
 LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
@@ -270,9 +279,10 @@ they do not grant permission to mutate gameplay state or treat AI narration as e
   supported runtime.
 - **Port already in use:** use the status script to identify the listener and its command. Stop it
   using that service's documented launcher rather than killing an unrelated process.
-- **Local AI gateway is down:** confirm Node.js is on `PATH` and
-  `LOCAL_AI_GATEWAY_COMMAND` is configured, then start it with
-  `node scripts/local-ai-gateway/server.mjs` for research-only university work, or restart the web
-  app to have `start.sh` manage it. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` when it is not needed.
+- **Local AI gateway is down:** if the sibling external gateway copy exists, start it with
+  `node server.mjs` from `../ai-proxy/local-ai-gateway`; otherwise confirm Node.js is on `PATH` and
+  `LOCAL_AI_GATEWAY_COMMAND` is configured, then start the in-repository adapter with
+  `node scripts/local-ai-gateway/server.mjs`. Restart the web app to have `start.sh` manage the
+  adapter, or set `ET_DISABLE_LOCAL_AI_GATEWAY=1` when it is not needed.
 - **Research worker cannot start:** verify PostgreSQL first. The launcher installs the required
   transition-period game-service artifact before it starts the standalone worker.

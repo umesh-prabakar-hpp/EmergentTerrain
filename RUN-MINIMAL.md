@@ -79,7 +79,14 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 
 ## 6. University research without the game
 
-Run this in one terminal when the university workflow should use the local AI provider:
+Run this in one terminal when the sibling local AI gateway copy exists:
+
+```bash
+cd "$(dirname "$(git rev-parse --show-toplevel)")/ai-proxy/local-ai-gateway"
+node server.mjs
+```
+
+Otherwise run this in one terminal:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
