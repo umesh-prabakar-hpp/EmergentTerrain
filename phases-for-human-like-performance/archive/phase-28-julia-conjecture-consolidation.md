@@ -27,8 +27,7 @@ and no in-process fallback.**
   sidecar. (Also fixed `ConjectureVerifierTest`, which had been silently NPE-ing
   on `main` since the §28.2 delegate refactor — it never wired a delegate.)
 
-Promoted from `reference-conjecture-engines.md` §
-"Decisions — Julia consolidation (2026-05-22)" Slice 1.
+This decision established the sidecar-only compute boundary.
 
 **§28.6 prose decision (2026-05-23): approach B — JVM composes from
 sidecar `detail`.** The §28.6a/b split below offered two ways to get the
@@ -539,7 +538,7 @@ shared pattern (~2-2.5 days each including parity test).
 
 **Operational win:** zero new sidecars (everything lands on the
 existing julia-math-sidecar). Eliminates the upcoming Python
-subprocess type from Phase 25 and the FPLLL native binary from
+subprocess type from Phase 25 and the native LLL binary from
 Phase 26 by establishing the "this lives in the sidecar" pattern
 before those phases start.
 

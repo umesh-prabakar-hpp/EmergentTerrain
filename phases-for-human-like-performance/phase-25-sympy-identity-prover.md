@@ -15,10 +15,8 @@ dependency on Phase 22 sidecar satisfied (`julia.enabled: true`).
 > Original DRAFT framing below is retained as historical context.
 >
 > Prior status: DRAFT. Not started. **Depended on Phase 22**
-> (Julia sidecar) per the 2026-05-22 consolidation decision — see
-> `reference-conjecture-engines.md` § "Decisions — Julia consolidation
-> (2026-05-22)". Phase 24 (PySR) need not have shipped, but the sidecar
-> must be live.
+> (Julia sidecar) under the 2026-05-22 consolidation decision. Phase 24
+> (PySR) need not have shipped, but the sidecar must be live.
 
 ---
 

@@ -53,14 +53,11 @@ sweep rows into candidate laws — symbolic regression. PySR
 Julia-native, which means it can run inside the existing
 `julia-math-sidecar` rather than spawning a new runtime.
 
-**Why this engine, not AI Feynman.** AI Feynman trains a neural net
-per recursion level — it needs reliable GPU we don't have. PySR is
-multi-population genetic programming over expression trees, runs on
-CPU with configurable population × iteration budgets, and gives a
-Pareto front of (accuracy, complexity) candidates. AI Feynman is the
-better tool in the limit but PySR captures most of the value at a
-fraction of the compute. See `reference-conjecture-engines.md` for
-the full comparison.
+**Why this engine.** PySR is multi-population genetic programming over
+expression trees, runs on CPU with configurable population × iteration
+budgets, and gives a Pareto front of (accuracy, complexity) candidates.
+It fits the existing Julia sidecar without adding another runtime or a
+reliable-GPU requirement.
 
 **Scoping note.** This phase ships **the regressor as a tool**, not a
 new paper kind. Surfacing PySR results as a publishable conjecture

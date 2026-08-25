@@ -8,13 +8,12 @@ the pass is wired but not yet driving narration.)*
 
 > **Flag-name note (2026-06-04):** body sections below predate the
 > Julia-consolidation pivot and still reference `app.recognise.*`
-> (the abandoned subprocess/FPLLL design). The live flag namespace is
+> (the abandoned subprocess/native-LLL design). The live flag namespace is
 > `app.julia.recognise.*` (LLL sub-flag `app.julia.recognise.lll.enabled`,
 > deliberately OFF, per-paper opt-in).
 
-Bundles three closely-
-related engines from `reference-conjecture-engines.md` into one
-phase because they all answer variants of the same question:
+Bundles three closely-related recognition paths into one phase because they
+all answer variants of the same question:
 **"this number / sequence the refinement just produced — is it
 something already known?"**
 
@@ -34,9 +33,7 @@ something already known?"**
 
 **All three recognition engines now host inside the Julia sidecar
 (`julia-math-sidecar`, port 8088). No Python subprocess spawned from
-the JVM. No FPLLL native binary.** See
-`reference-conjecture-engines.md` § "Decisions — Julia consolidation
-(2026-05-22)" for the framing.
+the JVM. No native LLL binary.**
 
 Specifically:
 
@@ -46,7 +43,7 @@ Specifically:
   reference run. The sections labelled "PslqRecogniserClient + mpmath
   subprocess" in §26.2 below describe the **historical** plan and do
   not reflect the current direction.
-- **LLL:** `Nemo.jl` wraps FLINT's LLL — no FPLLL build, no
+- **LLL:** `Nemo.jl` wraps FLINT's LLL — no native LLL build, no
   `scripts/lll_recogniser/` C++ binary, no subprocess dependency.
   Replaces §26.3's "wrapped through a small C++ binary" plan
   outright. §26.3 becomes a sidecar endpoint behind
@@ -74,7 +71,7 @@ via the same HTTP shape `JuliaMathClient` uses; safety isolation
 off), with sub-flags `app.julia.recognise.lll.enabled` for the LLL
 layer. Matches the flag-gated-dormant pattern.
 
-**Effort impact:** roughly neutral. Saves the FPLLL build/distribute
+**Effort impact:** roughly neutral. Saves the native-LLL build/distribute
 work (~1 day) and the JVM-side subprocess plumbing for two engines
 (~0.5 day), but pays for native PSLQ in Julia (~1 day). Net ~6-7
 days, LLL included — slightly under the original "~8.5 with LLL"
@@ -105,7 +102,7 @@ Three engines layered cheapest-first:
    transforms + database lookup, sub-second.
 2. **PSLQ via mpmath** (real-constant input) — integer-relation
    search against a basis of known constants, seconds.
-3. **LLL via FPLLL** (deeper constant search, optional) — lattice
+3. **LLL** (deeper constant search, optional) — lattice
    reduction for closed-form recovery when PSLQ alone is
    insufficient.
 
@@ -135,9 +132,8 @@ What Phase 26 explicitly does **not** add:
 - A public OEIS submission flow. The recognition is **input-side**
   (use OEIS to identify) not **output-side** (submit new
   sequences). Submitting is a manual operator decision.
-- The Ramanujan Machine / continued-fraction search. Per
-  `reference-conjecture-engines.md`, that engine wants cluster
-  compute; out of scope for this phase.
+- Continued-fraction search. It needs cluster-scale compute and is out of
+  scope for this phase.
 - Plouffe's Inverter web service. Network round-trip + uncertain
   TOS; PSLQ in-process covers the same surface for our basis sets.
 - Heavy LLL work (cryptanalysis-sized lattices). LLL stays at
@@ -160,7 +156,7 @@ ResearchNarrationService.maybeRefineComputation
                               │      → {constant_name?, integer_relation?, basis_used?}
                               │
                               └── if PSLQ returns "none" but value has ≥30 digits:
-                                     LllRecogniserClient → FPLLL
+                                     LllRecogniserClient → native LLL
                                      → {polynomial_root?, minimal_polynomial?}
 
 ConstantRecognitionService → returns RecognitionResult:
@@ -176,10 +172,8 @@ Persistence:
 
 **OEIS Superseeker.** Two implementations possible:
 
-1. **Local script** — clone `github.com/oeis/oeisdata` (~150 MB
-   stripe-down to b-files only), reimplement Superseeker's standard
-   transforms (binomial, Möbius, Euler, differences, partial sums)
-   in Python; query offline.
+1. **Local cache** — retain only query results and required metadata in
+   Postgres; do not clone a third-party sequence corpus into this repository.
 2. **HTTP** — call `https://oeis.org/search` / `/transforms`
    endpoints; rate-limited per OEIS TOS (best-effort, ~1 req/sec).
 
@@ -199,7 +193,7 @@ JSON in, JSON out, RLIMIT-bounded. Default basis sets:
 The professor stage chooses the basis by paper domain. Per-call
 PSLQ at 200-digit precision over an 8-element basis runs in ~1s.
 
-**LLL via FPLLL.** Wrapped through a small C++ binary at
+**LLL via a native binary.** The historical plan wrapped a small C++ binary at
 `scripts/lll_recogniser/`, called as a subprocess. Input is the real
 value + degree bound; output is the minimal polynomial (when one
 exists with rational coefficients in the requested degree) plus the
@@ -274,15 +268,14 @@ populate.
 
 **Effort:** ~1.5 days.
 
-### 26.3 — `LllRecogniserClient` + FPLLL binary (optional, gated)
+### 26.3 — `LllRecogniserClient` + native LLL binary (optional, gated)
 
 **Files:**
-- `scripts/lll_recogniser/recognize.cpp` — small C++ program
-  linking FPLLL. Reads `{value, degreeBound, precisionDigits}`,
+- `scripts/lll_recogniser/recognize.cpp` — small C++ program for lattice
+  reduction. Reads `{value, degreeBound, precisionDigits}`,
   attempts minimal-polynomial recovery via LLL-reduced basis,
   emits `{ok, minPolyCoeffs?, residual?, wallMs}`.
-- `scripts/lll_recogniser/Makefile` — build with
-  `-lfplll -lmpfr -lgmp`.
+- `scripts/lll_recogniser/Makefile` — historical native build recipe.
 - `scripts/lll_recogniser/test/` — golden cases: `√2 + √3`
   recognises as root of `x⁴ − 10x² + 1`; a random transcendental
   returns `none`; degree-bound enforcement.
@@ -397,11 +390,9 @@ worse than no recognition at all.
    help advanced math papers. Hold off in v1; add per-paper
    audit data on what's missing.
 
-3. **LLL binary distribution.** FPLLL needs to be built or
-   installed on the deployment host. Document a `dnf install
-   fplll-devel` step (Fedora) or apt equivalent. Skip the LLL
-   slice if the operator doesn't want the dependency — the flag
-   is off by default precisely for this reason.
+3. **LLL binary distribution.** A native implementation would need to be
+   built or installed on the deployment host. Skip that historical slice if
+   the operator does not want an extra dependency; the flag is off by default.
 
 4. **Precision floor for PSLQ input.** PSLQ needs ~30 digits to be
    meaningful on a small basis; the refinement step today returns
@@ -435,7 +426,7 @@ optional and removes ~2 days if deferred.
 
 **Operational tax:** Python + mpmath on the deployment host (same
 runtime as Phase 25, so no incremental cost if 25 ships first).
-Optional FPLLL native dependency for LLL. Postgres has two new
+Optional native dependency for LLL. Postgres has two new
 tables (`oeis_cache`, `recognitions`). One more outbound HTTP
 endpoint to monitor (`oeis.org`).
 

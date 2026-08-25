@@ -23,7 +23,7 @@ borrow before it is built.
 | Source | Mechanism | Relevance to 30.5 |
 |---|---|---|
 | **DreamCoder** (Ellis et al.) | wake/sleep loop: solve tasks, then *abstract* reusable library primitives from solutions via compression (MDL) | the canonical vocabulary-growth engine; 30.5's MDL admission is a slice of its "sleep-abstraction" phase |
-| **AI-Feynman** / grammar-expanding symbolic regression | search spaces that add productions/operators, not just fill a fixed grammar | how to let the *grammar* grow, not just the formula |
+| Grammar-expanding symbolic regression | search spaces that add productions/operators, not just fill a fixed grammar | how to let the *grammar* grow, not just the formula |
 | **Quality-Diversity** (MAP-Elites, POET) | maintain a diverse archive, don't collapse to one objective; co-evolve problems + solutions | dovetails with ET anti-stagnation ([[project_frontier_discovery_feedback_design]]); guards against vocabulary collapse |
 | **SINDy / Cranmer symbolic-from-deep-learning** (already cited by the paper) | sparse identification of governing equations; symbolic extraction with inductive bias | compression-penalized morphisms; relates to 30.2 residual probe |
 | **Library-learning follow-ups** (Stitch, LAPS, Lilo — DreamCoder lineage) | faster/LLM-guided abstraction discovery | the practical, recent end; LLM *proposes* abstractions, compression *admits* them — ET-shaped |

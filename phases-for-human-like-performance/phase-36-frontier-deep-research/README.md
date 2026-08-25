@@ -201,32 +201,6 @@ An empirical claim requires all applicable evidence:
 No topic earns a relaxed standard. Computational novelty means a new, executed and differentiated
 experiment—not merely a different prose description of a prior local measurement.
 
-## Arbor reference assessment
-
-The reference clone is at:
-
-`/opt/apps/ide/vscode/ai/reference-from-github/Arbor`
-
-Analyzed revision: `65ffcc8fdf23a64a781940e6a3cfb6369d6d887e` (2026-07-11).
-
-Arbor is an autonomous-optimization system built around a persistent Idea Tree, a Coordinator
-that chooses branches, and isolated Executors that return real evidence. Its most relevant ideas
-for Phase 36 are:
-
-| Arbor pattern | Phase 36 adaptation | Decision |
-|---|---|---|
-| Persisted hypothesis tree with status, result, insight, score, and retries | Per-room hypothesis tree with plans, chunks, evidence, and classifications | Adopt conceptually |
-| Coordinator selects branches; executor runs one concrete experiment | Proposal/critic stage selects a plan; bounded executor performs only that plan | Adopt |
-| Backpropagated insights and pruned branches | Persist failures and lessons to avoid repeated failed/clone experiments | Adopt |
-| Checkpoint/resume and event stream | Resume incomplete chunk jobs and expose queue/compute timings | Adopt |
-| Dev/test promotion discipline | Calibration/holdout-window and counterexample separation | Adopt, domain-adapted |
-| Per-idea Git worktrees and guarded code merges | Immutable experiment artifacts and result records | Do not copy literally; most EmergentTerrain papers do not modify source code |
-| External novelty search | Existing validated local Phase 35 retrieval plus `read_reference` gate | Keep local approach; do not bypass evidence policy |
-
-Arbor is reference material, not a runtime dependency. Phase 36 must use the application’s own
-Spring lifecycle, deterministic classification, literature guardrails, and sidecar interfaces.
-Do not copy its benchmark claims or introduce an unchecked external search path.
-
 ## Budget option
 
 The global run budget is `$5.00` and 350 calls. It enters drain at `$2.20`,
@@ -282,7 +256,5 @@ increase is considered.
 
 ## References
 
-- Arbor repository: <https://github.com/RUC-NLPIR/Arbor>
-- Arbor paper: <https://arxiv.org/abs/2606.11926>
 - Existing Phase 35 retrieval work:
   [`../phase-35-fts-retrieval-efficiency/README.md`](../phase-35-fts-retrieval-efficiency/README.md)
