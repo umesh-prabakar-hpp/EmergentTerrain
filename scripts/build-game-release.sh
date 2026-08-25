@@ -40,10 +40,11 @@ rm -rf "$stage" "$archive"
 
 # Install the reactor artifacts first so research-contract is copied into the release lib/
 # directory alongside every other runtime dependency. Tests run by default; callers who have
-# already completed validation may explicitly opt out with ET_RELEASE_SKIP_TESTS=1.
+# already completed validation may explicitly opt out of test compilation and execution with
+# ET_RELEASE_SKIP_TESTS=1.
 maven_args=( -f "$repo_root/pom.xml" -pl apps/game-service -am install )
 if [[ "${ET_RELEASE_SKIP_TESTS:-0}" == "1" ]]; then
-  maven_args+=( -DskipTests )
+  maven_args+=( -Dmaven.test.skip=true )
 fi
 mvn "${maven_args[@]}"
 
