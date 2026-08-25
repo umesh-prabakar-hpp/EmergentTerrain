@@ -1,0 +1,242 @@
+# Run EmergentTerrain
+
+This guide starts the project using its supported launchers. Begin with the web app or the
+research-only service; the GPU engine, Julia sidecars, LLM proxies, and literature indexes are
+optional unless you are working on their specific features.
+
+For a command-only reference, see [RUN-MINIMAL.md](RUN-MINIMAL.md). For scope, safety boundaries,
+and the repository map, start with the [README](README.md).
+
+## 1. Prerequisites
+
+Required for the main services:
+
+- Java 21
+- Maven
+- PostgreSQL
+- `curl`, `psql`, and `pg_isready` for the status check
+
+Required only for optional components:
+
+- Rust/Cargo, `protoc`, and Vulkan userspace for the GPU engine
+- Julia for the math sidecars
+- Node.js and the Codex CLI for the local local-ai-gateway
+
+On Fedora, the bootstrap helper installs the local prerequisites and initializes the development
+PostgreSQL databases:
+
+```bash
+cd /path/to/EmergentTerrain
+bash ./scripts/setup-fedora-prereqs.sh
+```
+
+Fedora's native repositories do not provide the supported Java 21 package. Install Temurin 21 as
+described in [AGENTS.md](AGENTS.md), then select it for this shell:
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+After a fresh checkout, restore execute permissions if needed:
+
+```bash
+chmod +x scripts/*.sh scripts/*.py
+chmod +x engines/gpu-engine/scripts/*.sh
+chmod +x services/julia-math-sidecar/scripts/*.sh
+```
+
+Check the local dependencies before starting anything. A down optional service is expected at this
+point, so the command deliberately permits a nonzero status:
+
+```bash
+./scripts/status-related-apps.sh || true
+```
+
+## 2. Run the web app
+
+From the repository root:
+
+```bash
+./scripts/start.sh
+```
+
+The launcher stops a previous managed app/proxy set, starts the local local-ai-gateway when
+Node.js and a `codex login` session are available, performs a clean Maven build, and starts the game
+on <http://127.0.0.1:8081/>. The proxy is optional: set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip it.
+
+Verify startup and inspect logs:
+
+```bash
+./scripts/status-related-apps.sh || true
+tail -F logs/et-app.log logs/maven-stdout.log logs/codex-proxy.log
+```
+
+Stop the managed web app and its managed proxies:
+
+```bash
+./scripts/stop.sh
+```
+
+For foreground debugging, use `./scripts/start.sh --foreground`.
+
+## 3. Run research without the game
+
+The research worker serves API v1 on port `8082`, requires PostgreSQL, and runs in the current
+terminal. It does not start the game UI, WebSocket stack, GPU engine, or subscription proxies.
+
+### Safe migration audit
+
+This mode imports and checkpoints lifecycle context, then records read-only parity observations. It
+does not call the legacy university workflow or write game state.
+
+```bash
+APP_UNIVERSITY_ENABLED=false \
+RESEARCH_LIFECYCLE_SHADOW_ENABLED=true \
+RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
+./scripts/start-research-service.sh
+```
+
+### University research workflow
+
+This transition-period path can use the configured LLM provider chain and write research artifacts.
+Use it only when that is intended; it is not the safe audit path above.
+
+```bash
+APP_UNIVERSITY_ENABLED=true \
+RESEARCH_LIFECYCLE_SHADOW_ONLY=false \
+./scripts/start-research-service.sh
+```
+
+In another terminal, verify the worker:
+
+```bash
+./scripts/status-related-apps.sh || true
+```
+
+Use `Ctrl-C` in the worker terminal to stop it. See
+[apps/research-service/README.md](apps/research-service/README.md) for remote game-context mode,
+API authentication, durable work intake, and Phase 42 ownership boundaries.
+
+## 4. Optional services
+
+Start each optional service in its own terminal. Use them only when the feature you are testing
+requires them.
+
+### Rust GPU engine
+
+```bash
+./engines/gpu-engine/scripts/start.sh
+```
+
+It listens on `127.0.0.1:50051` by default. Use `--foreground` while debugging or `--debug` for a
+debug Cargo build. Stop it with:
+
+```bash
+./engines/gpu-engine/scripts/stop.sh
+```
+
+### Julia math sidecar
+
+```bash
+JULIA_NUM_THREADS=4 ET_DISCOVER_EXEC=1 \
+./services/julia-math-sidecar/scripts/start.sh
+```
+
+This listens on `127.0.0.1:8088`. `ET_DISCOVER_EXEC=1` enables opt-in discovery execution; omit it
+when that capability is not needed. Stop it with:
+
+```bash
+./services/julia-math-sidecar/scripts/stop.sh
+```
+
+### PyCall and literature-grounding sidecar
+
+```bash
+ET_GROUND_SUBJECTS=mathematics,msc:11 \
+./services/julia-math-sidecar/scripts/start-py-sidecar.sh
+```
+
+This single-threaded companion listens on `127.0.0.1:8089`. The subject gate is optional; omit
+`ET_GROUND_SUBJECTS` to leave it disabled. It is also stopped with the Julia sidecar's `stop.sh`.
+
+### Optional legacy AI gateway
+
+The legacy AI gateway remains disabled by default. Start it only for rollback testing:
+
+```bash
+ET_ENABLE_LEGACY_AI_GATEWAY=1 ./scripts/start.sh
+```
+
+## 5. Status and logs
+
+Always use the read-only status script to determine runtime state:
+
+```bash
+./scripts/status-related-apps.sh
+```
+
+It checks PostgreSQL with an authenticated query and reports the game, research service, local
+proxies, Julia sidecars, and GPU listener. It prints each detected service's PID and command plus a
+preferred start command when absent. It may exit nonzero when components you deliberately have not
+started, notably the Julia sidecars or GPU engine, are down; use `|| true` when inspecting a partial
+runtime.
+
+To follow all usual logs at once:
+
+```bash
+tail -F \
+  logs/et-app.log \
+  logs/maven-stdout.log \
+  logs/codex-proxy.log \
+  services/julia-math-sidecar/logs/sidecar.log \
+  services/julia-math-sidecar/logs/py-sidecar.log \
+  engines/gpu-engine/logs/gpu-engine.log
+```
+
+`tail -F` tolerates services that have not yet created their log file and continues across log
+rotation.
+
+## 6. Build and test
+
+Run Java checks from the repository root:
+
+```bash
+mvn -f apps/game-service/pom.xml -DskipTests package
+mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+```
+
+Run Rust checks when changing the GPU engine:
+
+```bash
+cargo test --manifest-path engines/gpu-engine/Cargo.toml
+```
+
+For the real two-process GPU smoke test and packaged performance comparison, see
+[AGENTS.md](AGENTS.md). Do not use `spring-boot:run` or `cargo run` as substitutes for the
+documented release-performance workflow.
+
+## 7. Optional literature and review workflows
+
+Literature corpora and SQLite/FTS indexes are large, separately licensed, and not required to run
+the game or safe research audit. Their preparation, provenance, and acceptance requirements are in
+[CORPUS.md](CORPUS.md), [RUN-MINIMAL.md](RUN-MINIMAL.md), and the relevant phase documentation.
+Do not commit downloaded corpora, generated papers, logs, or runtime output.
+
+For maintainers using the local Codex skills, the paper-review and phase-review workflows are
+documented in `skills/paper-review/` and `skills/phase-review/`. They review evidence and planning;
+they do not grant permission to mutate gameplay state or treat AI narration as evidence.
+
+## 8. Troubleshooting
+
+- **PostgreSQL is down or unauthenticated:** start PostgreSQL, verify the configured `PG_URL`,
+  `PG_USER`, and `PG_PASSWORD`, then rerun the status script.
+- **Java is wrong:** export the Temurin 21 `JAVA_HOME` shown above before running Maven. The launch
+  script can fall back to a locally installed JDK when `JAVA_HOME` is invalid, but Java 21 is the
+  supported runtime.
+- **Port already in use:** use the status script to identify the listener and its command. Stop it
+  using that service's documented launcher rather than killing an unrelated process.
+- **local AI gateway is down:** run `codex login`, confirm Node.js is on `PATH`, then restart the web app;
+  or set `ET_DISABLE_LOCAL_AI_GATEWAY=1` when the bridge is not needed.
+- **Research worker cannot start:** verify PostgreSQL first. The launcher installs the required
+  transition-period game-service artifact before it starts the standalone worker.
