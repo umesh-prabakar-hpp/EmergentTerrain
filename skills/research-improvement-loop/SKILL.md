@@ -68,7 +68,7 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
 - Review only paper IDs absent from `research/<room>/reviews/paper-index.md`.
 - Maintain the split review layout (`CURRENT.md`, immutable run record, compact paper index, and
   issue ledger); never append the frozen root `REVIEW_REPORT.md`.
-- Regenerate `docs/archive/paper-literature-key-map.md` after every review.
+- Regenerate `docs/review/paper-literature-key-map.md` after every review.
 - Complete bounded current-run literature discovery, provenance staging, deduplication, and safe
   separate-index import as required by `paper-review`. A staged source is not paper evidence until
   a later normal search → read → accepted assessment → Related Work chain uses it.

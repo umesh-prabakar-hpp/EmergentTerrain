@@ -595,7 +595,7 @@ app:
     # per-provider budget/rate caps live inline (merged into Budget/
     # TokenBudgetProperties at startup).
     providers:
-      # Local compatible AI gateway; see docs/archive/subscription-providers.md.
+      # Local compatible AI gateway; see docs/operations/local-ai-gateway.md.
       local-ai:
         base-url: http://127.0.0.1:8788/v1
         api-key: local-ai-gateway

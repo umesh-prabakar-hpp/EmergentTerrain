@@ -141,7 +141,7 @@ run `./scripts/build-game-release.sh` from a clean checkout. It writes a Git-ign
 `apps/game-service/target/release/` with a plain application JAR and separate, replaceable
 dependency JARs under `lib/`, plus the exact Symja LGPL source JARs and checksums under
 `sources/third-party/`; it does not add JARs to this repository. See
-[docs/archive/release-distribution.md](docs/archive/release-distribution.md) and
+[docs/release/README.md](docs/release/README.md) and
 [THIRD_PARTY_SOURCE_MANIFEST.md](THIRD_PARTY_SOURCE_MANIFEST.md) for the release procedure and
 review requirements.
 
@@ -429,7 +429,7 @@ only intend to shut down.
 
 Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the optional gateway, or
 `ET_LOCAL_AI_GATEWAY_DIR=/absolute/path/to/local-ai-gateway` to use another
-gateway location. See [`docs/archive/subscription-providers.md`](docs/archive/subscription-providers.md)
+gateway location. See [`docs/operations/local-ai-gateway.md`](docs/operations/local-ai-gateway.md)
 for the command protocol, connection, verification, and troubleshooting guide.
 The active local AI pool permits two concurrent requests. A full research narration has a
 90-minute wall-clock deadline; its stale-draft reaper is 100 minutes, so the
@@ -534,7 +534,7 @@ citation must produce a temporary artifact-backed candidate bundle. It makes no
 LLM request, database write, or persistent research output.
 
 After every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`.
-It regenerates [the paper-to-literature key map](docs/archive/paper-literature-key-map.md) from current
+It regenerates [the paper-to-literature key map](docs/review/paper-literature-key-map.md) from current
 and archived final artifacts under `research/`, plus standalone final artifacts under
 `apps/research-service/research/`, retaining only keys that were safely issued, successfully read,
 and cited in the corresponding Related Work section. Search hits, unread sources, failed reads, and
@@ -644,9 +644,9 @@ bash ./scripts/test-setup-fedora-prereqs.sh
 
 ## Scientific Integrity Pipeline
 
-> **Flow diagram:** `docs/archive/paper-creation-flow.md` shows both paper-producing paths (conjecture
+> **Flow diagram:** `docs/architecture/paper-creation-flow.md` shows both paper-producing paths (conjecture
 > investigation + discovery/frontier) end-to-end. Latest integrity/throughput fixes:
-> `docs/archive/2026-06-04-pipeline-hardening.md`.
+> `docs/architecture/pipeline-hardening.md`.
 
 Research papers go through a deterministic integrity layer before any LLM narration call, and a multi-step quality pipeline that uses additional LLM calls to improve per-paper quality:
 
@@ -723,7 +723,7 @@ manifests remain locally indexable but are non-exportable by default. Run
 `--export-manifest /path/to/staging-manifest.json` when an export would include source text. It
 rejects tracked raw corpus/index/staged source data, and that export mode rejects unknown and
 arXiv non-exclusive sources. See
-[the literature data policy](docs/archive/literature-data-licenses.md) for the UW CC BY-SA corpus, the
+[the literature data policy](docs/policies/literature-data-licenses.md) for the UW CC BY-SA corpus, the
 Marin C-UDA corpus, and redistribution conditions.
 
 **Prime-gap study protocol** — `cramer_gap_ratio` is a finite, window-dependent extreme-value
@@ -799,12 +799,12 @@ Honest by construction: it does **not** resolve Mertens (the failure regime ~10�
 
 In-repo specs and design notes under `docs/`:
 
-- [`paper-creation-flow.md`](docs/archive/paper-creation-flow.md) — end-to-end flow diagram: conjecture-investigation + discovery/frontier paths and their shared narration → validation → publish tail.
-- [`2026-06-04-pipeline-hardening.md`](docs/archive/2026-06-04-pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
+- [`paper-creation-flow.md`](docs/architecture/paper-creation-flow.md) — end-to-end flow diagram: conjecture-investigation + discovery/frontier paths and their shared narration → validation → publish tail.
+- [`2026-06-04-pipeline-hardening.md`](docs/architecture/pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
 - [`phase-34-computational-publication/README.md`](docs/phases/phase-34-computational-publication/README.md) — publication tiers, artifact/provenance rules, current SQLite adapter checkpoint, and the remaining live-activation checklist.
 - [`phase-35-fts-retrieval-efficiency/README.md`](docs/phases/phase-35-fts-retrieval-efficiency/README.md) — performance-preserving FTS5 retrieval plan, evidence invariants, acceptance suite, and rollout/rollback criteria.
 - [`phase-38-frontier-paper-candidate/README.md`](docs/phases/phase-38-frontier-paper-candidate/README.md) — frontier-candidate standard and the implemented Mertens finite-envelope protocol.
-- [`research-puzzle-spec.md`](docs/archive/research-puzzle-spec.md) · [`bot-lifecycle-spec.md`](docs/archive/bot-lifecycle-spec.md) · [`constitutional-terrain-phase1.md`](docs/archive/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/archive/llm-cost-analysis.md)
+- [`research-puzzle-spec.md`](docs/architecture/research-puzzle.md) · [`bot-lifecycle-spec.md`](docs/architecture/bot-lifecycle.md) · [`constitutional-terrain-phase1.md`](docs/archive/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/archive/llm-cost-analysis.md)
 
 Phase-30 conjecture/discovery design + tracking: `docs/phases/phase-30-conjecture/`.
 

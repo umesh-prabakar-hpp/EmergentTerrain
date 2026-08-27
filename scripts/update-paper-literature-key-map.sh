@@ -6,9 +6,9 @@
 set -euo pipefail
 
 repo_root=$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)
-output_path=${1:-"$repo_root/docs/archive/paper-literature-key-map.md"}
+output_path=${1:-"$repo_root/docs/review/paper-literature-key-map.md"}
+output_dir=$(dirname "$output_path")
 research_roots=(
-  "$repo_root/research"
   "$repo_root/apps/research-service/research"
 )
 
@@ -31,8 +31,8 @@ cited in that paper's `## Related Work` section. It is intentionally stricter th
 output: a retrieval hit, unread key, failed read, or uncited source is not retained here.
 
 The paper markdown and `evidence/tool-trace.json` in the linked artifact are the source of truth.
-The generator scans artifacts under `research/` (including its archive) and
-`apps/research-service/research/`.
+The generator scans artifacts under `apps/research-service/research/`, including
+the migrated legacy-root and archive trees.
 Regenerate after each paper-review pass with:
 
 ```bash
@@ -71,8 +71,9 @@ EOF
         basis="issued + read + cited + assessed relevant"
       fi
       artifact_rel=${artifact_dir#"$repo_root"/}
-      printf '| `%s` | `%s` | %s | [%s](../%s) |\n' \
-        "$paper_id" "$key" "$basis" "$artifact_rel" "$artifact_rel"
+      artifact_link=$(realpath --relative-to="$output_dir" "$artifact_dir")
+      printf '| `%s` | `%s` | %s | [%s](%s) |\n' \
+        "$paper_id" "$key" "$basis" "$artifact_rel" "$artifact_link"
       found=1
     done <<<"$search_keys"
   done < <(

@@ -87,7 +87,7 @@ install -m 0644 "$repo_root/docs/release/licenses/GNU-LGPL-3.0.txt" "$stage/lice
 install -m 0644 "$repo_root/docs/release/licenses/README.md" "$stage/licenses/README.md"
 install -m 0644 "$repo_root/docs/release/sbom/maven.cdx.json" "$stage/sbom/maven.cdx.json"
 install -m 0644 "$repo_root/docs/release/sbom/cargo.cdx.json" "$stage/sbom/cargo.cdx.json"
-install -m 0644 "$repo_root/docs/archive/release-distribution.md" "$stage/SOURCE-AND-BUILD.md"
+install -m 0644 "$repo_root/docs/release/README.md" "$stage/SOURCE-AND-BUILD.md"
 
 copy_jar_notices "$stage/lib" "$stage/licenses/from-jars"
 copy_symja_sources "$stage/sources/third-party"

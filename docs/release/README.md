@@ -11,7 +11,7 @@ First regenerate the inventories, review the changes, and commit them:
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/generate-sbom.sh
-git add sbom
+git add docs/release/sbom
 git commit -m "chore: refresh release SBOMs"
 ```
 

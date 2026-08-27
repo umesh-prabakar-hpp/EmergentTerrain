@@ -32,6 +32,6 @@ identified by the dependency's own license.
 ```
 
 Then review the changed inventories, this report, and
-[`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) before producing any distributable image.
+[`../THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md) before producing any distributable image.
 Commit the reviewed inventories, then build the release from that clean commit with
 `./scripts/build-game-release.sh`.

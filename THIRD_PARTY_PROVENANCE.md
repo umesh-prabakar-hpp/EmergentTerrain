@@ -33,7 +33,7 @@ documentation, figures, datasets, or model weights, add an entry above with the 
 revision, license, scope, and required notices.
 
 The phase plans no longer retain full-text paper PDFs or raw corpus text. They link to the original
-source instead. Literature/download rules are in [`docs/archive/literature-data-licenses.md`](docs/archive/literature-data-licenses.md).
+source instead. Literature/download rules are in [`docs/policies/literature-data-licenses.md`](docs/policies/literature-data-licenses.md).
 
 ## Release checklist
 
