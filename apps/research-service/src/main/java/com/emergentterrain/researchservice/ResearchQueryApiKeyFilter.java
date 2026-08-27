@@ -38,7 +38,9 @@ public final class ResearchQueryApiKeyFilter extends OncePerRequestFilter {
         }
         var authentication = new UsernamePasswordAuthenticationToken(
                 "game-service", null, List.of(new SimpleGrantedAuthority("ROLE_RESEARCH_QUERY")));
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+        var context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
         filterChain.doFilter(request, response);
     }
 

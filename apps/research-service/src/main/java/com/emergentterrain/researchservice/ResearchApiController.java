@@ -24,13 +24,13 @@ public class ResearchApiController {
 
     @GetMapping("/papers")
     public ResponseEntity<List<ResearchPaperSummary>> papers(
-            @PathVariable UUID roomId,
-            @RequestParam(defaultValue = "50") int limit) {
+            @PathVariable("roomId") UUID roomId,
+            @RequestParam(name = "limit", defaultValue = "50") int limit) {
         return ResponseEntity.ok(research.papers(roomId, limit));
     }
 
     @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> stats(@PathVariable UUID roomId) {
+    public ResponseEntity<Map<String, Object>> stats(@PathVariable("roomId") UUID roomId) {
         return ResponseEntity.ok(research.stats(roomId));
     }
 }
