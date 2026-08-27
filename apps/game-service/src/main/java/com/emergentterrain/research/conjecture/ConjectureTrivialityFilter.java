@@ -8,7 +8,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Phase 30 Wave 1 (phases-for-human-like-performance/phase-30-conjecture/
+ * Phase 30 Wave 1 (docs/phases/phase-30-conjecture/
  * IMPLEMENTATION-ORDER.md) — structural triviality + dedup for freshly-seeded
  * inequalities, complementing the confirmation-based knob filter
  * ({@link ConjectureEngine#filterKnobRestatements}). Deterministic on

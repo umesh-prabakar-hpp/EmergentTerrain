@@ -19,7 +19,7 @@ import jakarta.annotation.PostConstruct;
  * Java-side default both stay {@code true} — flag-off is the rollback path
  * for the rewrites, not the day-to-day behaviour.
  *
- * <p>See {@code phases-for-human-like-performance/phase-19-sandbox-friction.md}
+ * <p>See {@code docs/phases/phase-19-sandbox-friction.md}
  * Open Question 2 (process-wide vs per-room) and the Rollback section.
  */
 @Component

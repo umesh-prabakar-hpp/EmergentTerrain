@@ -23,6 +23,6 @@ For the three Symja LGPL-3.0 JARs, the release builder also packages the exact m
 JARs under `sources/third-party/`, a SHA-256 file, and
 `licenses/THIRD_PARTY_SOURCE_MANIFEST.md`. Keep those artifacts matched to the runtime JAR version.
 
-The exact versions and hashes are in `sbom/maven.cdx.json` packaged with each release. Before a
+The exact versions and hashes are in `docs/release/sbom/maven.cdx.json` packaged with each release. Before a
 release, review whether its runtime closure has changed and update this table rather than assuming
 the choice applies to a new version.

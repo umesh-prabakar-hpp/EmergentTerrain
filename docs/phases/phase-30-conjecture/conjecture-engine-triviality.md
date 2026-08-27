@@ -159,7 +159,7 @@ unverified, matching the "no mechanism" finding above.
 ## 7. Update — structural-trivializer fixes shipped (2026-06-04)
 
 A `/paper-review`-driven session shipped several of the §5.3 engine-level, domain-neutral trivializer
-gates (full set + commit refs: [`../../docs/2026-06-04-pipeline-hardening.md`](../../docs/2026-06-04-pipeline-hardening.md)).
+gates (full set + commit refs: [`../../archive/2026-06-04-pipeline-hardening.md`](../../archive/2026-06-04-pipeline-hardening.md)).
 Most relevant to this note:
 
 - **Window-geometry-LHS exclusion.** A newer degenerate shape had appeared — a window-geometry scalar

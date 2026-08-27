@@ -4,7 +4,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Phase 30 Wave 1 (phases-for-human-like-performance/phase-30-conjecture/
+ * Phase 30 Wave 1 (docs/phases/phase-30-conjecture/
  * IMPLEMENTATION-ORDER.md) — dimensional-consistency gate. Complements
  * {@link ConjectureTrivialityFilter}; deterministic on {@code (lhs, rhs, k)}.
  *

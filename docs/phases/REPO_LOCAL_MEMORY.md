@@ -46,7 +46,7 @@ Notable repo facts from the focused review:
 ### Phase 33
 
 Phase 33 is closed and archived. The authoritative closeout is
-`phases-for-human-like-performance/archive/phase-33-human-paper-gap.md`.
+`docs/phases/archive/phase-33-human-paper-gap.md`.
 
 Closing state:
 

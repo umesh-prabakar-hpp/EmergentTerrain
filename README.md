@@ -120,7 +120,7 @@ startup. Keep the research service and game in separate terminals when running b
 | `engines/gpu-engine/` | Rust/WGPU terrain engine, normally on port 50051 |
 | `services/julia-math-sidecar/` | Optional Julia computation and Python/grounding sidecars |
 | `scripts/` | Supported launch, stop, setup, status, and data-preparation helpers |
-| `phases-for-human-like-performance/` | Migration plans, evidence, and remaining work by phase |
+| `docs/phases/` | Migration plans, evidence, and remaining work by phase |
 
 ## Build, test, and contribute
 
@@ -141,7 +141,7 @@ run `./scripts/build-game-release.sh` from a clean checkout. It writes a Git-ign
 `apps/game-service/target/release/` with a plain application JAR and separate, replaceable
 dependency JARs under `lib/`, plus the exact Symja LGPL source JARs and checksums under
 `sources/third-party/`; it does not add JARs to this repository. See
-[docs/release-distribution.md](docs/release-distribution.md) and
+[docs/archive/release-distribution.md](docs/archive/release-distribution.md) and
 [THIRD_PARTY_SOURCE_MANIFEST.md](THIRD_PARTY_SOURCE_MANIFEST.md) for the release procedure and
 review requirements.
 
@@ -160,7 +160,7 @@ Unless a file states otherwise, EmergentTerrain code and project documentation a
 network-facing versions to offer their corresponding source to users. Third-party data, downloaded
 papers, model weights, dependencies, and generated research artifacts retain their own terms; see
 [NOTICE](NOTICE), [THIRD_PARTY_PROVENANCE.md](THIRD_PARTY_PROVENANCE.md), and
-[sbom/README.md](sbom/README.md). Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
+[docs/release/sbom/README.md](docs/release/sbom/README.md). Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
 For responsible disclosure, see [SECURITY.md](SECURITY.md).
 
 ## Stack
@@ -429,7 +429,7 @@ only intend to shut down.
 
 Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the optional gateway, or
 `ET_LOCAL_AI_GATEWAY_DIR=/absolute/path/to/local-ai-gateway` to use another
-gateway location. See [`docs/subscription-providers.md`](docs/subscription-providers.md)
+gateway location. See [`docs/archive/subscription-providers.md`](docs/archive/subscription-providers.md)
 for the command protocol, connection, verification, and troubleshooting guide.
 The active local AI pool permits two concurrent requests. A full research narration has a
 90-minute wall-clock deadline; its stale-draft reaper is 100 minutes, so the
@@ -534,7 +534,7 @@ citation must produce a temporary artifact-backed candidate bundle. It makes no
 LLM request, database write, or persistent research output.
 
 After every paper-review pass, run `./scripts/update-paper-literature-key-map.sh`.
-It regenerates [the paper-to-literature key map](docs/paper-literature-key-map.md) from current
+It regenerates [the paper-to-literature key map](docs/archive/paper-literature-key-map.md) from current
 and archived final artifacts under `research/`, plus standalone final artifacts under
 `apps/research-service/research/`, retaining only keys that were safely issued, successfully read,
 and cited in the corresponding Related Work section. Search hits, unread sources, failed reads, and
@@ -644,9 +644,9 @@ bash ./scripts/test-setup-fedora-prereqs.sh
 
 ## Scientific Integrity Pipeline
 
-> **Flow diagram:** `docs/paper-creation-flow.md` shows both paper-producing paths (conjecture
+> **Flow diagram:** `docs/archive/paper-creation-flow.md` shows both paper-producing paths (conjecture
 > investigation + discovery/frontier) end-to-end. Latest integrity/throughput fixes:
-> `docs/2026-06-04-pipeline-hardening.md`.
+> `docs/archive/2026-06-04-pipeline-hardening.md`.
 
 Research papers go through a deterministic integrity layer before any LLM narration call, and a multi-step quality pipeline that uses additional LLM calls to improve per-paper quality:
 
@@ -693,7 +693,7 @@ rebuilding the large primary Phase 34 FTS index. When
 screened matches under the same planner/title gates; raw FTS ranks are not compared across
 databases. A screened hit still needs the ordinary issued-key → `read_reference` → Related Work
 chain before it supports a citation or publication label. See the
-[Phase 37 design](phases-for-human-like-performance/phase-37-paper-review-screened-literature/README.md)
+[Phase 37 design](docs/phases/phase-37-paper-review-screened-literature/README.md)
 for provenance and rollout rules.
 
 The paper-review skill performs this safe incremental import. To diagnose a deferred import or
@@ -723,7 +723,7 @@ manifests remain locally indexable but are non-exportable by default. Run
 `--export-manifest /path/to/staging-manifest.json` when an export would include source text. It
 rejects tracked raw corpus/index/staged source data, and that export mode rejects unknown and
 arXiv non-exclusive sources. See
-[the literature data policy](docs/literature-data-licenses.md) for the UW CC BY-SA corpus, the
+[the literature data policy](docs/archive/literature-data-licenses.md) for the UW CC BY-SA corpus, the
 Marin C-UDA corpus, and redistribution conditions.
 
 **Prime-gap study protocol** — `cramer_gap_ratio` is a finite, window-dependent extreme-value
@@ -737,7 +737,7 @@ not an affine frontier relation. New investigations lock `verify_oscillation` wi
 The selected trace must contain every non-ladder call or it remains `NEEDS_REVISION`; normal
 search → read → Related Work source grounding remains required. This supports only a finite-window
 measurement, never a proof of an asymptotic Mertens/RH statement or a claim of field novelty. See
-[`phase-38-frontier-paper-candidate`](phases-for-human-like-performance/phase-38-frontier-paper-candidate/README.md).
+[`phase-38-frontier-paper-candidate`](docs/phases/phase-38-frontier-paper-candidate/README.md).
 
 **Deterministic post-search read** — when the Phase 34/35 adapter has issued relevance-safe
 `HF...` evidence but the professor omitted every `read_reference` call,
@@ -787,7 +787,7 @@ Stats endpoint (`getStats`) now reports: `totalPublished`, `positiveResults`, `n
 
 ## Self-Verifying Discovery & Frontier Escalation (Phase 30)
 
-A substrate that lets the system *compute and verify* numeric results beyond the precomputed sieve, and push a bound's frontier autonomously — never trusting an unverified value. Flipped **ON** and live (`app.research.discovery.*`; design docs in `phases-for-human-like-performance/phase-30-conjecture/`). **Live result (2026-05-31):** an autonomous run ratcheted the Mertens frontier **2×10⁶ → 2×10⁸** (100× past the sieve), banking 3 LLM-generated, moat-validated methods and 4 boundary events — `M(10⁸)=1928` (the known value) confirms the moat.
+A substrate that lets the system *compute and verify* numeric results beyond the precomputed sieve, and push a bound's frontier autonomously — never trusting an unverified value. Flipped **ON** and live (`app.research.discovery.*`; design docs in `docs/phases/phase-30-conjecture/`). **Live result (2026-05-31):** an autonomous run ratcheted the Mertens frontier **2×10⁶ → 2×10⁸** (100× past the sieve), banking 3 LLM-generated, moat-validated methods and 4 boundary events — `M(10⁸)=1928` (the known value) confirms the moat.
 
 - **Runtime self-verifying execution** — an LLM proposes a numeric method (e.g. the Mertens function `M(x)` for `x > 2,000,000`); it runs in an isolated subprocess sandbox (AST allowlist + `ulimit`/`timeout`) via the sidecar `/discover/validate` endpoint, and its output is trusted *only* after exact agreement with a trusted oracle on the overlap range `[1, 2,000,000]`. Generate → validate → repair, with provenance tagging ("computed, not established"). The endpoint executes model-authored code, so it is gated by `ET_DISCOVER_EXEC=1` on the sidecar (see [RUN.md](RUN.md)) plus `runtimeExecEnabled` + a per-invariant tool gate.
 - **Frontier-escalation loop with feedback-driven discovery** — escalates a holding bound (e.g. the Mertens conjecture `|M(x)| < √x`) across scales. A scale that **can't be computed (OOM/timeout) feeds back to the LLM rather than ending the run** — it sees the failure (and the persisted boundaries from prior runs) and self-corrects to a *reachable* x; we **inform, never clamp**. It **forecasts its own compute stall** (power-law cost fit → compute frontier `x_c`) and on repeated failure **pivots** to a verifiable branch (B3 proxy reformulation / B4 predictive model) or the honest **analytic boundary**. Pluggable step policies (`default | adaptive | llm`), **counterexample bisection**, a **generalized proxy oracle** (any linear-combination summatory over μ/ω/Ω/τ), and tunable budgets (`maxRepairAttempts`, `frontierCpuSeconds`/`frontierWallSeconds`, `frontierEscalationMaxRounds`). Trust travels with every value (`FULL` / `VALIDATED_PROXY` / `MODEL_FIT` / `LITERATURE_ONLY`) and is never laundered.
@@ -799,14 +799,14 @@ Honest by construction: it does **not** resolve Mertens (the failure regime ~10�
 
 In-repo specs and design notes under `docs/`:
 
-- [`paper-creation-flow.md`](docs/paper-creation-flow.md) — end-to-end flow diagram: conjecture-investigation + discovery/frontier paths and their shared narration → validation → publish tail.
-- [`2026-06-04-pipeline-hardening.md`](docs/2026-06-04-pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
-- [`phase-34-computational-publication/README.md`](phases-for-human-like-performance/phase-34-computational-publication/README.md) — publication tiers, artifact/provenance rules, current SQLite adapter checkpoint, and the remaining live-activation checklist.
-- [`phase-35-fts-retrieval-efficiency/README.md`](phases-for-human-like-performance/phase-35-fts-retrieval-efficiency/README.md) — performance-preserving FTS5 retrieval plan, evidence invariants, acceptance suite, and rollout/rollback criteria.
-- [`phase-38-frontier-paper-candidate/README.md`](phases-for-human-like-performance/phase-38-frontier-paper-candidate/README.md) — frontier-candidate standard and the implemented Mertens finite-envelope protocol.
-- [`research-puzzle-spec.md`](docs/research-puzzle-spec.md) · [`bot-lifecycle-spec.md`](docs/bot-lifecycle-spec.md) · [`constitutional-terrain-phase1.md`](docs/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/llm-cost-analysis.md)
+- [`paper-creation-flow.md`](docs/archive/paper-creation-flow.md) — end-to-end flow diagram: conjecture-investigation + discovery/frontier paths and their shared narration → validation → publish tail.
+- [`2026-06-04-pipeline-hardening.md`](docs/archive/2026-06-04-pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
+- [`phase-34-computational-publication/README.md`](docs/phases/phase-34-computational-publication/README.md) — publication tiers, artifact/provenance rules, current SQLite adapter checkpoint, and the remaining live-activation checklist.
+- [`phase-35-fts-retrieval-efficiency/README.md`](docs/phases/phase-35-fts-retrieval-efficiency/README.md) — performance-preserving FTS5 retrieval plan, evidence invariants, acceptance suite, and rollout/rollback criteria.
+- [`phase-38-frontier-paper-candidate/README.md`](docs/phases/phase-38-frontier-paper-candidate/README.md) — frontier-candidate standard and the implemented Mertens finite-envelope protocol.
+- [`research-puzzle-spec.md`](docs/archive/research-puzzle-spec.md) · [`bot-lifecycle-spec.md`](docs/archive/bot-lifecycle-spec.md) · [`constitutional-terrain-phase1.md`](docs/archive/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/archive/llm-cost-analysis.md)
 
-Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performance/phase-30-conjecture/`.
+Phase-30 conjecture/discovery design + tracking: `docs/phases/phase-30-conjecture/`.
 
 ## Tests (summary)
 - **Java/Mockito on sandboxed hosts** — run Maven with the project JDK
@@ -985,7 +985,7 @@ See `apps/game-service/src/main/resources/application.yml` for game-service sett
 - `PG_PERF_URL`, `PG_PERF_USER`, `PG_PERF_PASSWORD` for the perf profile datasource
 
 ## Constitutional Terrain
-- Current implementation notes live in `docs/constitutional-terrain-phase1.md`.
+- Current implementation notes live in `docs/archive/constitutional-terrain-phase1.md`.
 - Machine-readable constitutional rules live in `apps/game-service/src/main/resources/government/constitution-rules.json`.
 - That constitution file contains structured content, not just a version string: Articles I-VII plus Amendments I-XXVII each carry a title, category, trigger, enforcement rule, and affected systems used by runtime doctrine and summary generation.
 - Runtime history output is append-only and written under `simulation-history/` with subfolders for:

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 repo_root=$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)
-output_path=${1:-"$repo_root/docs/paper-literature-key-map.md"}
+output_path=${1:-"$repo_root/docs/archive/paper-literature-key-map.md"}
 research_roots=(
   "$repo_root/research"
   "$repo_root/apps/research-service/research"

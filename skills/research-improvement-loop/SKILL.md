@@ -68,7 +68,7 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
 - Review only paper IDs absent from `research/<room>/reviews/paper-index.md`.
 - Maintain the split review layout (`CURRENT.md`, immutable run record, compact paper index, and
   issue ledger); never append the frozen root `REVIEW_REPORT.md`.
-- Regenerate `docs/paper-literature-key-map.md` after every review.
+- Regenerate `docs/archive/paper-literature-key-map.md` after every review.
 - Complete bounded current-run literature discovery, provenance staging, deduplication, and safe
   separate-index import as required by `paper-review`. A staged source is not paper evidence until
   a later normal search → read → accepted assessment → Related Work chain uses it.
@@ -114,7 +114,7 @@ timeout does not trigger this rule.
   Related Work, publication labels, or artifact-writing behavior.
 - Update `README.md` and `AGENTS.md` whenever setup, runtime behavior, or performance workflow
   changes.
-- Create a new `phases-for-human-like-performance/phase-<n>-<slug>/README.md` when a change
+- Create a new `docs/phases/phase-<n>-<slug>/README.md` when a change
   introduces a durable research-quality capability, protocol, architecture, or acceptance policy.
   Otherwise update the applicable existing phase document. Record the motivation, scoped design,
   success criteria, validation evidence, and explicit resolution status (`PROPOSED`, `IMPLEMENTED`,

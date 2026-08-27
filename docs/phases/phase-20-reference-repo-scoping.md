@@ -810,7 +810,7 @@ the deletion PR is mechanical:
 | **Delete** | `src/test/java/com/emergentterrain/service/CerebrasPoolParseTest.java` | Only test that constructs the concrete class |
 | **Edit** | `src/main/resources/application.yml` | Uncomment the `providers.cerebras:` block (now the active path); remove the `app.ai.cerebras.*` legacy block (`enabled`, `apiKey`, `baseUrl`, `preferredModels`, `role`, `legacy-pool` flag); remove the `legacy-pool` comment paragraph |
 | **Edit** | `src/main/java/com/emergentterrain/llm/LlmCallContext.java` | Drop `CerebrasPool` from the javadoc list (cosmetic) |
-| **Edit** | `phases-for-human-like-performance/phase-20-reference-repo-scoping.md` | Mark Cerebras line in this checklist as ✅ DELETED; trim Cerebras-specific notes from §20.11 status section |
+| **Edit** | `docs/phases/phase-20-reference-repo-scoping.md` | Mark Cerebras line in this checklist as ✅ DELETED; trim Cerebras-specific notes from §20.11 status section |
 
 Production references to `CerebrasPool` (the class) are zero outside
 the class itself — verified with

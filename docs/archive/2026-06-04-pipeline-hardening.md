@@ -6,7 +6,7 @@ verified live across successive app restarts. The pipeline went from **0 papers/
 starvation) and majority **Reject/NULL** artifacts to **~80% publishing** with coherent abstentions
 on the rest.
 
-See `docs/paper-creation-flow.md` for the end-to-end diagram these changes touch.
+See `paper-creation-flow.md` for the end-to-end diagram these changes touch.
 
 ## Changes
 
@@ -18,7 +18,7 @@ See `docs/paper-creation-flow.md` for the end-to-end diagram these changes touch
 | `d240001` | UniversityService + ResearchNarrationService | NULL_RESULT downgrade rewrote findings/conclusion to "the hypothesis remains untested" — false against a *populated* trace, and self-contradictory (panels scored honesty ~0.03). Reword to abstain around the untraceable prose numbers ("no result is claimed; computation in Methods trace"), clear of every `CONCLUSION_NULL` phrase. Demotion decision unchanged. |
 | `e56851b` | GenericOpenAICompatPool + LlmConcurrencyLimiter | The pool gated every LLM call on an unbounded `Semaphore.acquire()` over `parallelism=2` permits, shared with the civic simulation (~1–2 calls/sec). A sandbox intent-review blocked ~38 min → synchronous research cycle stalled → 0 papers. New limiter: **(A)** bounded wait (≤ requestTimeout, then throw) and **(B)** reserve ≥1 permit for role-tagged research calls so a non-priority flood can't lock the pipeline out. |
 | `e60e7eb` | ResearchNarrationService (FIRST_PASS_METRIC_GUARD_RULE) | The narrator injected untraceable prose constants (textbook values like 1/ln 2, round-number "close to 5") that `NumericalConsistencyValidator` nulled — 4 of 7 papers one batch. The already-active first-pass guard was too narrow (quality-score/optimum only); broadened to bar any figure not in the tool output. |
-| `82645e9` | docs                     | `docs/paper-creation-flow.md` — combined conjecture-investigation + discovery/frontier flow diagram. |
+| `82645e9` | docs                     | `paper-creation-flow.md` — combined conjecture-investigation + discovery/frontier flow diagram. |
 
 ## Verified outcomes (across restarts)
 

@@ -16,7 +16,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Phase 30 Wave 2 (phases-for-human-like-performance/phase-30-conjecture/
+ * Phase 30 Wave 2 (docs/phases/phase-30-conjecture/
  * IMPLEMENTATION-ORDER.md) — the derivation graph: findings-as-nodes
  * ({@link DerivationNode}) with typed input/output ports and DERIVES_FROM
  * provenance edges. The pivot substrate that later waves traverse:

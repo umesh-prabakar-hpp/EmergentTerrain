@@ -428,7 +428,7 @@ end
 # =====================================================================
 # Phase 30 — cumulative Mertens function M(x) beyond NT_MAX_N
 # =====================================================================
-# Spike: phases-for-human-like-performance/phase-30-conjecture/
+# Spike: docs/phases/phase-30-conjecture/
 #        segmented-mertens-spike.md
 #
 # Two paths to M(x) = Σ_{n=1}^{x} μ(n):

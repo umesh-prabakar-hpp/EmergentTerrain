@@ -17,7 +17,7 @@ Git submodules.
 
 The project operator represents that they hold the right to license these project-authored sources
 under this repository's AGPL-3.0-or-later license. Their dependencies remain separately licensed;
-see [`sbom/README.md`](sbom/README.md).
+see [`docs/release/sbom/README.md`](docs/release/sbom/README.md).
 
 ## Adapted external material
 
@@ -33,7 +33,7 @@ documentation, figures, datasets, or model weights, add an entry above with the 
 revision, license, scope, and required notices.
 
 The phase plans no longer retain full-text paper PDFs or raw corpus text. They link to the original
-source instead. Literature/download rules are in [`docs/literature-data-licenses.md`](docs/literature-data-licenses.md).
+source instead. Literature/download rules are in [`docs/archive/literature-data-licenses.md`](docs/archive/literature-data-licenses.md).
 
 ## Release checklist
 
@@ -41,7 +41,7 @@ Before a release, verify that:
 
 1. every copied or adapted item is listed here and has its required notice;
 2. generated research, LLM traces, logs, and corpus downloads are absent from Git;
-3. [`sbom/README.md`](sbom/README.md) inventories have been regenerated, reviewed, and committed;
+3. [`docs/release/sbom/README.md`](docs/release/sbom/README.md) inventories have been regenerated, reviewed, and committed;
 4. `./scripts/build-game-release.sh` was run from that clean commit, preserving the matching source
    archive and separate replaceable runtime JARs; and
 5. license terms are reviewed for the exact binaries, containers, data, and model weights being distributed.

@@ -58,7 +58,7 @@ Before publishing, regenerate the SBOMs and review:
 - `licenses/THIRD_PARTY_SOURCE_MANIFEST.md` and `sources/third-party/SHA256SUMS`
 - `licenses/DEPENDENCY_LICENSE_CHOICES.md`
 - `licenses/from-jars/`
-- `sbom/maven.cdx.json` and `sbom/cargo.cdx.json`
+- `docs/release/sbom/maven.cdx.json` and `docs/release/sbom/cargo.cdx.json`
 
 The release mechanism supports replacement and collects evidence; it does not make an independent
 legal conclusion about a changed dependency set.

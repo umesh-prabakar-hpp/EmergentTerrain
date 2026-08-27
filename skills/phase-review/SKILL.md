@@ -1,6 +1,6 @@
 ---
 name: phase-review
-description: Audit EmergentTerrain phase-tracking documentation and summarize genuinely open work. Use when asked to review phases, phase status, pending phase items, flag flips, acceptance evidence, or documentation drift under phases-for-human-like-performance, including nested phase directories such as Phase 42.
+description: Audit EmergentTerrain phase-tracking documentation and summarize genuinely open work. Use when asked to review phases, phase status, pending phase items, flag flips, acceptance evidence, or documentation drift under docs/phases, including nested phase directories such as Phase 42.
 ---
 
 # Phase Review
@@ -14,7 +14,7 @@ optionally archive only fully closed documents.
 /phase-review [<phase_dir>] [--out <path>] [--no-archive]
 ```
 
-- Default `<phase_dir>`: `phases-for-human-like-performance/`.
+- Default `<phase_dir>`: `docs/phases/`.
 - Walk every `*.md` recursively, including nested phase directories. Skip every `archive/` subtree
   unless explicitly requested.
 - `--out` writes the terminal summary to a markdown file.

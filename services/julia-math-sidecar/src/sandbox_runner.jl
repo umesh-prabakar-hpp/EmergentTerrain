@@ -3,7 +3,7 @@
 # LLM-authored numeric Julia, gated by an AST allowlist + an isolated
 # subprocess under OS resource limits.
 #
-# Scope: phases-for-human-like-performance/phase-30-conjecture/
+# Scope: docs/phases/phase-30-conjecture/
 #        runtime-self-verifying-execution.md
 #
 # DORMANT / flag-gated OFF. This file is NOT `include`d by

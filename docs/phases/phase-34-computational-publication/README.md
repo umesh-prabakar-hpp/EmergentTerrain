@@ -82,7 +82,7 @@ load-bearing literature claim.
 The corpus downloads and resulting indexes are local data, not AGPL project content. The UW
 dataset is CC BY-SA 4.0; Marin's Markdownified ar5iv data is C-UDA-1.0 and is restricted to
 computational use. Do not copy either corpus or its derived SQLite index into Git or a source
-release. See [the literature data policy](../../docs/literature-data-licenses.md).
+release. See [the literature data policy](../../archive/literature-data-licenses.md).
 
 ## Import and index preparation
 

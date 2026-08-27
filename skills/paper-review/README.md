@@ -72,7 +72,7 @@ python3 scripts/validate-paper-review-issue-ledger.py \
 1. Read `reviews/paper-index.md` and review only new IDs.
 2. Inspect the app run that produced the batch and correlate current logs only.
 3. Write the immutable run record, then replace `CURRENT.md` and update the paper index/ledger.
-4. Regenerate `docs/paper-literature-key-map.md` with
+4. Regenerate `docs/archive/paper-literature-key-map.md` with
    `./scripts/update-paper-literature-key-map.sh`; it covers `research/` (including archive) and
    standalone `apps/research-service/research/` artifacts.
 5. Run bounded staged-text discovery/import as defined by the skill. A staged source is not paper

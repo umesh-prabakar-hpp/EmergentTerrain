@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Phase 30 Wave 3 (phases-for-human-like-performance/phase-30-conjecture/
+ * Phase 30 Wave 3 (docs/phases/phase-30-conjecture/
  * IMPLEMENTATION-ORDER.md) — quality-diversity archive (the external-frameworks
  * pattern #1). Keeps exactly <b>one elite per behavioral cell</b>: items are
  * binned by a {@code cellKey} descriptor, and within a cell only the highest

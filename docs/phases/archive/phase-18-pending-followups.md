@@ -272,7 +272,7 @@ done. Skip on re-read unless verifying the audit.
 | phase-17 analyses follow-ons | Sandbox pre-scan, hypothesis-carryover, JSON-schema revision, temperature plumbing | DONE | Commits `c919a19`, `7c4b45e`, `2ac020d`, `6cc1636` |
 
 **Audit completeness:** Every unchecked box in every phase doc under
-`phases-for-human-like-performance/` (excluding `.claude/worktrees/`)
+`docs/phases/` (excluding `.claude/worktrees/`)
 was visited. If a future review finds an item not covered above,
 update this table rather than starting a new tracking doc.
 

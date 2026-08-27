@@ -595,7 +595,7 @@ app:
     # per-provider budget/rate caps live inline (merged into Budget/
     # TokenBudgetProperties at startup).
     providers:
-      # Local compatible AI gateway; see docs/subscription-providers.md.
+      # Local compatible AI gateway; see docs/archive/subscription-providers.md.
       local-ai:
         base-url: http://127.0.0.1:8788/v1
         api-key: local-ai-gateway
@@ -2275,7 +2275,7 @@ app:
     # 1d-1f parser changes (single-statement bodies, break/continue as
     # keywords, comma-separated var decls) are NOT gated — they are pure
     # grammar additions with no rollback contract.
-    # See phases-for-human-like-performance/phase-19-sandbox-friction.md
+    # See docs/phases/phase-19-sandbox-friction.md
     # (Rollback section + Open Q2).
     sandbox:
       relaxed-grammar:
@@ -2301,7 +2301,7 @@ app:
     # bean, builds the smallest-prime-factor sieve up to n=1.05M at startup
     # (~200ms), and runs the seed/refute/tighten engine on a schedule.
     # The 'math' domain is the only one wired today; physics/materials
-    # are Phase 23.7. See phases-for-human-like-performance/phase-23-conjecture-driven-novelty.md.
+    # are Phase 23.7. See docs/phases/phase-23-conjecture-driven-novelty.md.
     conjectureMiner:
       enabled: true        # 2026-05-29: flipped false→true to exercise the Phase 23 conjecture-investigation publish path end-to-end (verification run). Requires the math sidecar (8088) up BEFORE app start. Rollback: false.
       intervalMs: 300000   # 5 min between mining passes; idempotent against the DB

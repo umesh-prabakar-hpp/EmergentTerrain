@@ -3,7 +3,7 @@
 The literature-grounding corpus and its auxiliary stores. Data lives **outside the repo** under
 `~/.emergentterrain/corpus-nt/` (built by `scripts/*`, see RUN.md §0); the repo ships the *builders*,
 plus one committed derived asset (`src/main/resources/msc-map.jsonl.gz`). §-refs point to
-`phases-for-human-like-performance/phase-32-manuscript-grounding/`.
+`docs/phases/phase-32-manuscript-grounding/`.
 
 ## 1. Download inventory
 

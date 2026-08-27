@@ -297,7 +297,7 @@ instead of to the in-process Symja library. The sidecar is opt-in via
 
 Tracked in [`phase-22-julia-math-sidecar.md`][p22] in EmergentTerrain.
 
-[p22]: ../../phases-for-human-like-performance/phase-22-julia-math-sidecar.md
+[p22]: ../../docs/phases/phase-22-julia-math-sidecar.md
 
 - **0.1 (this release)** — HTTP server, `/eval`/`/solve`/`/nsolve`/`/integrate`/`/sweep`/`/healthz`/`/metrics`, safety filter, timeout wrapper, smoke tests. Phase 22.1.
 - **0.2** — Spring `JuliaMathClient` bean on the EmergentTerrain side, opt-in via `app.julia.enabled`. Phase 22.2.
@@ -311,5 +311,5 @@ Tracked in [`phase-22-julia-math-sidecar.md`][p22] in EmergentTerrain.
 
 This sidecar is project-authored code included in the EmergentTerrain monorepo and is licensed
 under the repository's [AGPL-3.0-or-later license](../../LICENSE). Its Julia dependencies retain
-their own licenses; see [`../../sbom/README.md`](../../sbom/README.md) before distributing a
+their own licenses; see [`../../docs/release/sbom/README.md`](../../docs/release/sbom/README.md) before distributing a
 binary or container.

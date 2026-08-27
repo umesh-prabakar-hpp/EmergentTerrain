@@ -49,7 +49,7 @@ New manifests use schema v3: retained sources must record a license kind, HTTPS 
 reviewed redistribution decision. Legacy manifests remain locally indexable as unknown,
 non-exportable sources. Before a source archive includes staged text, run
 `python3 scripts/check-literature-release.py --export-manifest <manifest>`; it rejects unknown and
-arXiv non-exclusive sources. See [the literature data policy](../../docs/literature-data-licenses.md).
+arXiv non-exclusive sources. See [the literature data policy](../../archive/literature-data-licenses.md).
 
 ### Metadata repair
 

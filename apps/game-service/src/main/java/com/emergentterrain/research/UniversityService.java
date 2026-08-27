@@ -506,7 +506,7 @@ public class UniversityService {
      * Wave 1 shadow validator ({@code app.research.manifest.validator-mode})
      * and is the substrate the validator ladder's number-tracing eventually
      * consolidates onto. See
-     * {@code phases-for-human-like-performance/phase-32-manuscript-grounding/}.
+     * {@code docs/phases/phase-32-manuscript-grounding/}.
      * Default OFF; capture failures never affect publication.
      */
     @org.springframework.beans.factory.annotation.Value(

@@ -192,7 +192,7 @@ public class ResearchCycleService {
      * posing a beyond-sieve claim no tool can validate would be vacuous (extending
      * Path B to them needs a new oracle — Path A). Default OFF; flag-gated rollout
      * matching the rest of this service. See
-     * phases-for-human-like-performance/phase-30-conjecture/frontier-escalation-loop.md.
+     * docs/phases/phase-30-conjecture/frontier-escalation-loop.md.
      */
     private volatile boolean conjectureFrontierFramingEnabled = false;
 

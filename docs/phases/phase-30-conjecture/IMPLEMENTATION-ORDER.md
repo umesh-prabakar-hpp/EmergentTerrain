@@ -238,7 +238,7 @@ hardening alongside the waves above — window-geometry-LHS exclusion (Wave-1 tr
 see [`conjecture-engine-triviality.md`](conjecture-engine-triviality.md) §7), NULL_RESULT
 coherent-abstention wording, comma-grouped / leading-`+` validator repairs, priority-reserved LLM-pool
 concurrency (fixed civic-flood starvation), and broadened first-pass prose-constant grounding. Full set
-+ commit refs + live-verified outcomes: [`../../docs/2026-06-04-pipeline-hardening.md`](../../docs/2026-06-04-pipeline-hardening.md).
++ commit refs + live-verified outcomes: [`../../archive/2026-06-04-pipeline-hardening.md`](../../archive/2026-06-04-pipeline-hardening.md).
 These are the §5.3 "gate out trivializers" + production plumbing; per the calibration note, *generation*
 (Waves 5/7 content) remains the standing blocker, not gating.
 

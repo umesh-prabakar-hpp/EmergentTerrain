@@ -87,7 +87,7 @@ python3 scripts/validate-paper-review-issue-ledger.py \
 
 ## Literature-Key Map
 
-After every review pass, regenerate `docs/paper-literature-key-map.md` from the project root:
+After every review pass, regenerate `docs/archive/paper-literature-key-map.md` from the project root:
 
 ```bash
 ./scripts/update-paper-literature-key-map.sh

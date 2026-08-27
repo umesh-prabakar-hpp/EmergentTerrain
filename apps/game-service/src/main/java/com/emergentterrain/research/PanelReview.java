@@ -16,7 +16,7 @@ import java.util.Optional;
  * handled the call; the rest of the fields come from the reviewer LLM's JSON.
  *
  * <p>The shape mirrors the spec entry under F7 in
- * {@code phases-for-human-like-performance/phase-7-multi-provider-and-math-expansion.md}:
+ * {@code docs/phases/phase-7-multi-provider-and-math-expansion.md}:
  * grades on four axes, lists of which trace entries the reviewer judged
  * load-bearing vs. omitted, contradictions between the prose and the trace,
  * and free-form recommendations for the revision turn.

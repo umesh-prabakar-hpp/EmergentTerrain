@@ -69,7 +69,7 @@ down. Claude remains intentionally dormant.
    validation. Check `application.yml` for live flags before changing behavior,
    preserve the 15-second Julia conjecture timeout, and use actual recorded
    queue/compute/transport timing before considering deadline or concurrency
-   changes. See `docs/2026-07-22-live-validation-blockers.md` for the earlier
+   changes. See `2026-07-22-live-validation-blockers.md` for the earlier
    validation record and its Phase 35 resolution.
 
 ## Guardrails
