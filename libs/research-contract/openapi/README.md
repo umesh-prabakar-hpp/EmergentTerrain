@@ -1,6 +1,7 @@
 # Research API v1
 
-`openapi.yaml` is the stable game-to-research read contract introduced by Phase 42.
+`openapi.yaml` is the stable game-to-research read contract introduced by Phase 42. It is stored
+beside the shared DTO module so Java types and the language-neutral HTTP contract evolve together.
 
 During the compatibility stage, the game process serves both the legacy browser paths and the v1
 paths through an in-process adapter. Set `app.research-api.mode=remote` and

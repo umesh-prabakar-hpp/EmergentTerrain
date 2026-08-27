@@ -121,9 +121,9 @@ class ResearchWorkApiContractTest {
     }
 
     private static Path openApi() {
-        Path root = Path.of("contracts", "research-api", "openapi.yaml");
+        Path root = Path.of("libs", "research-contract", "openapi", "openapi.yaml");
         if (Files.isRegularFile(root)) return root;
-        return Path.of("..", "..", "contracts", "research-api", "openapi.yaml");
+        return Path.of("..", "..", "libs", "research-contract", "openapi", "openapi.yaml");
     }
 
     private static List<String> fieldNames(JsonNode node) {

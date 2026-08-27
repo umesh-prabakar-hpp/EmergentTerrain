@@ -116,7 +116,7 @@ startup. Keep the research service and game in separate terminals when running b
 | `apps/game-service/` | Spring Boot game, web UI, gameplay simulation, and transition-period research code |
 | `apps/research-service/` | Standalone research API and worker, normally on port 8082 |
 | `libs/research-contract/` | Spring-free DTOs shared across the game/research boundary |
-| `contracts/research-api/` | Versioned OpenAPI contract for game-facing research reads and work handoff |
+| `libs/research-contract/openapi/` | Versioned OpenAPI contract for game-facing research reads and work handoff |
 | `engines/gpu-engine/` | Rust/WGPU terrain engine, normally on port 50051 |
 | `services/julia-math-sidecar/` | Optional Julia computation and Python/grounding sidecars |
 | `scripts/` | Supported launch, stop, setup, status, and data-preparation helpers |
@@ -180,7 +180,7 @@ while it is being extracted, but the research runtime does not scan or start gam
 `libs/research-contract/` owns Java DTOs shared by both services; it deliberately has no Spring,
 game, or persistence dependency.
 The game-facing research reads are available through the versioned
-[`contracts/research-api/openapi.yaml`](contracts/research-api/openapi.yaml) contract; the current
+[`libs/research-contract/openapi/openapi.yaml`](libs/research-contract/openapi/openapi.yaml) contract; the current
 default is the co-located implementation (`app.research-api.mode=local`).
 
 The old sibling clones are not needed to run this checkout and are deliberately not deleted by the

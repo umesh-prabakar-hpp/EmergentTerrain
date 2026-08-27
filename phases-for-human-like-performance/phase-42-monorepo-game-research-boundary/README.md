@@ -7,7 +7,7 @@
 - The GPU engine and Julia math sidecar are imported beneath this repository with their source
   histories preserved in the main Git graph.
 - Top-level GPU, setup, performance, and related-service scripts now default to the monorepo paths.
-- `contracts/research-api/openapi.yaml` defines the stable v1 read, durable-work, and display-only
+- `libs/research-contract/openapi/openapi.yaml` defines the stable v1 read, durable-work, and display-only
   result surfaces, including their separate API-key headers.
 - `libs/research-contract/` contains the corresponding Spring-free Java paper-summary DTO, used by
   both services instead of duplicate application-local response classes.

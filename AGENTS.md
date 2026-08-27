@@ -8,7 +8,7 @@ Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 - Shared Java API DTOs: `libs/research-contract/`
 - Rust GPU engine: `engines/gpu-engine/`
 - Julia/Python math sidecar: `services/julia-math-sidecar/`
-- Research API contract: `contracts/research-api/openapi.yaml`
+- Research API contract: `libs/research-contract/openapi/openapi.yaml`
 
 The GPU engine and Julia sidecar histories are imported into this monorepo from project-owned local
 repositories; their origin and import evidence are recorded in `THIRD_PARTY_PROVENANCE.md`. Do not

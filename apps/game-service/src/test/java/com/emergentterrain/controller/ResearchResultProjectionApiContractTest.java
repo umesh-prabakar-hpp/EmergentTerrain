@@ -87,7 +87,8 @@ class ResearchResultProjectionApiContractTest {
     }
 
     private static Path openApi() {
-        Path root = Path.of("contracts", "research-api", "openapi.yaml");
-        return Files.isRegularFile(root) ? root : Path.of("..", "..", "contracts", "research-api", "openapi.yaml");
+        Path root = Path.of("libs", "research-contract", "openapi", "openapi.yaml");
+        return Files.isRegularFile(root) ? root
+                : Path.of("..", "..", "libs", "research-contract", "openapi", "openapi.yaml");
     }
 }
