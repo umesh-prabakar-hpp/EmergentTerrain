@@ -25,7 +25,7 @@ the existing `scripts/{start,stop}.sh`.
 | `auto_sweep.py` | Restart-based automation: writes Spring `.properties` overrides, drives `scripts/{start,stop}.sh`, polls `/actuator/health`, soaks, dumps. Gated on `--yes`. |
 | `run.py` | CLI. |
 
-Outputs (store, dumps, override files) land under `research/graffiti/`,
+Outputs (store, dumps, override files) land under `apps/research-service/research/graffiti/`,
 which is gitignored — generated state stays out of the repo.
 
 ## Three invocation modes
@@ -37,7 +37,7 @@ or bare `[{...}, {...}]` lists of points.
 
 ```bash
 python3 scripts/graffiti/run.py \
-    --runs-dir research/graffiti/dumps \
+    --runs-dir apps/research-service/research/graffiti/dumps \
     --reset
 ```
 
@@ -67,7 +67,7 @@ rooms with different configs already running). The spec just lists where
 the dumps are:
 
 ```jsonc
-// research/graffiti/sweeps/pressure-scale.json
+// apps/research-service/research/graffiti/sweeps/pressure-scale.json
 {
   "knobs": ["app.government.feedback.pressure.trustPenaltyScale"],
   "configs": [
@@ -96,7 +96,7 @@ the dumps are:
 Paths in `runs[].path` are resolved relative to the spec file's directory.
 
 ```bash
-python3 scripts/graffiti/run.py --sweep research/graffiti/sweeps/pressure-scale.json --reset
+python3 scripts/graffiti/run.py --sweep apps/research-service/research/graffiti/sweeps/pressure-scale.json --reset
 ```
 
 **3b. Auto-sweep — let the driver restart the app.** Add an `auto` block
@@ -111,7 +111,7 @@ soaks, dumps, runs `scripts/stop.sh`, repeats.
     "room": "<room UUID with an active government>",
     "soak_seconds": 120,
     "window_minutes": 30,
-    "dump_dir": "research/graffiti/dumps/auto",
+    "dump_dir": "apps/research-service/research/graffiti/dumps/auto",
     "repo_root": ".",
     "boot_timeout_seconds": 180,
     "base_url": "http://localhost:8081",
@@ -127,7 +127,7 @@ soaks, dumps, runs `scripts/stop.sh`, repeats.
 ```
 
 ```bash
-python3 scripts/graffiti/run.py --sweep research/graffiti/sweeps/auto-pressure.json --reset --yes
+python3 scripts/graffiti/run.py --sweep apps/research-service/research/graffiti/sweeps/auto-pressure.json --reset --yes
 ```
 
 Wall time ≈ `len(configs) × (boot + soak + stop)`. For 3 configs at 120 s
@@ -147,7 +147,7 @@ to add ancillary properties that aren't on a knob axis.
     "room":                string,   // required (UUID)
     "soak_seconds":        int,      // default 90; bump for fuller trend
     "window_minutes":      int,      // default 30; how much trend history to fetch
-    "dump_dir":            string,   // default research/graffiti/dumps/auto
+    "dump_dir":            string,   // default apps/research-service/research/graffiti/dumps/auto
     "repo_root":           string,   // default = spec file's directory
     "start_script":        string,   // default ./scripts/start.sh
     "stop_script":         string,   // default ./scripts/stop.sh
@@ -216,7 +216,7 @@ The retired/dropped counts are printed separately:
 knob-restatement filter dropped 93 conjecture(s)
 ```
 
-The persisted store (`research/graffiti/store.json` by default) keeps
+The persisted store (`apps/research-service/research/graffiti/store.json` by default) keeps
 witness records for every refutation so you can audit which tick broke
 which conjecture.
 
@@ -241,16 +241,16 @@ which conjecture.
 
 ```bash
 # Replay dumps you already have
-python3 scripts/graffiti/run.py --runs-dir research/graffiti/dumps --reset
+python3 scripts/graffiti/run.py --runs-dir apps/research-service/research/graffiti/dumps --reset
 
 # One ad-hoc fetch from a live app
 python3 scripts/graffiti/run.py --room <uuid> --token <token>
 
 # Sweep over pre-existing dumps with knob axes
-python3 scripts/graffiti/run.py --sweep research/graffiti/sweeps/<name>.json --reset
+python3 scripts/graffiti/run.py --sweep apps/research-service/research/graffiti/sweeps/<name>.json --reset
 
 # Auto-sweep (restarts the app per config)
-python3 scripts/graffiti/run.py --sweep research/graffiti/sweeps/<auto-name>.json --reset --yes
+python3 scripts/graffiti/run.py --sweep apps/research-service/research/graffiti/sweeps/<auto-name>.json --reset --yes
 
 # Override store path
 python3 scripts/graffiti/run.py --sweep <spec> --store /tmp/store.json

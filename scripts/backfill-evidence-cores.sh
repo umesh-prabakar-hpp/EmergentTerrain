@@ -2,7 +2,7 @@
 # =====================================================================
 # scripts/backfill-evidence-cores.sh — Phase 33 L2 supply side
 # =====================================================================
-# Scans research/ (papers + llm-traces) for the [W...] keys that
+# Scans the research-service artifact tree (papers + llm-traces) for the [W...] keys that
 # search_literature actually returned, and fetches ar5iv HTML cores for
 # exactly those works into cores-html/. Converts the ~2% read_reference
 # hit rate into near-certainty for recurring EVIDENCE matches.
@@ -12,13 +12,14 @@
 #
 # Usage: OPENALEX_MAILTO=you@x ./scripts/backfill-evidence-cores.sh
 # Env: CORPUS_DIR (default ~/.emergentterrain/corpus-nt)
-#      RESEARCH_DIR (default ./research), CREDIT_CEILING (default 0.50)
+#      RESEARCH_DIR (default apps/research-service/research), CREDIT_CEILING (default 0.50)
 # =====================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+export RESEARCH_DIR="${RESEARCH_DIR:-$REPO_ROOT/apps/research-service/research}"
 
 if pgrep -f 'spring-boot:run' >/dev/null 2>&1; then
   echo "ET app is running — refusing to mvn compile under a live JVM." >&2

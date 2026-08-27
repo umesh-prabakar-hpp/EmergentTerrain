@@ -36,7 +36,8 @@ Thumbs.db
 # Local env
 .env
 /sample-output/
-/research/
+# Root-level research output is deliberately not ignored: it is a misconfiguration. Runtime
+# artifacts belong under apps/game-service/research/ or apps/research-service/research/.
 /logs/
 /logs-archive-*/
 /simulation-history/**

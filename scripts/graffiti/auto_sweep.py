@@ -39,7 +39,7 @@ class AutoConfig:
     health_url: str = "http://localhost:8081/actuator/health"
     boot_timeout_seconds: int = 180
     window_minutes: int = 30          # narrow window so the trend reflects the soak, not history
-    dump_dir: str = "research/graffiti/dumps/auto"
+    dump_dir: str = "apps/research-service/research/graffiti/dumps/auto"
     start_script: str = "./scripts/start.sh"
     stop_script: str = "./scripts/stop.sh"
     repo_root: str = "."

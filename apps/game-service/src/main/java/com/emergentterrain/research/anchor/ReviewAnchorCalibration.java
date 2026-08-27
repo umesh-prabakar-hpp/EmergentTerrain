@@ -1,6 +1,7 @@
 package com.emergentterrain.research.anchor;
 
 import com.emergentterrain.service.LlmRouter;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -30,7 +31,7 @@ import java.util.stream.Stream;
  *
  * <p>Deploy bar (gates the {@code review-anchor.enabled} flip): binary
  * accuracy ≥ 0.80 AND Reject-recall ≥ 0.90 (a missed Reject is the expensive
- * error). Results CSV: {@code research/review-anchor-calibration.csv}.
+ * error). Results CSV: {@code app.university.researchOutputDir/review-anchor-calibration.csv}.
  */
 @Component
 public class ReviewAnchorCalibration implements ApplicationRunner {
@@ -38,9 +39,12 @@ public class ReviewAnchorCalibration implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(ReviewAnchorCalibration.class);
 
     private final LlmRouter router;
+    private final Path researchRoot;
 
-    public ReviewAnchorCalibration(LlmRouter router) {
+    public ReviewAnchorCalibration(LlmRouter router,
+                                   @Value("${app.university.researchOutputDir:research}") String researchOutputDir) {
         this.router = router;
+        this.researchRoot = Path.of(researchOutputDir);
     }
 
     @Override
@@ -49,7 +53,7 @@ public class ReviewAnchorCalibration implements ApplicationRunner {
             return;
         }
         try {
-            runCalibration(Path.of("research"));
+            runCalibration(researchRoot);
         } catch (Exception e) {
             log.error("review-anchor calibration failed: {}", e.getMessage(), e);
         }
@@ -125,7 +129,7 @@ public class ReviewAnchorCalibration implements ApplicationRunner {
 
     /** Locate a paper's markdown across live room dirs and archived snapshots. */
     static Optional<String> findPaperMarkdown(Path researchRoot, String paperId) {
-        try (Stream<Path> walk = Files.walk(researchRoot, 3)) {
+        try (Stream<Path> walk = Files.walk(researchRoot, 4)) {
             return walk.filter(p -> {
                         String name = p.getFileName().toString();
                         return name.endsWith("_" + paperId + ".md");

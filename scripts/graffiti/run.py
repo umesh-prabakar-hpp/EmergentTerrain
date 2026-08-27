@@ -2,16 +2,16 @@
 
 Usage:
   # Seed from a directory of trend dumps:
-  python scripts/graffiti/run.py --runs-dir research/graffiti/dumps
+  python scripts/graffiti/run.py --runs-dir apps/research-service/research/graffiti/dumps
 
   # Update the existing store with one new dump:
-  python scripts/graffiti/run.py --runs-dir research/graffiti/dumps/new-batch
+  python scripts/graffiti/run.py --runs-dir apps/research-service/research/graffiti/dumps/new-batch
 
   # Fetch live from the running app and store one run:
   python scripts/graffiti/run.py --room <room-id> --token <signed-token>
 
-Store lives at research/graffiti/store.json by default (under the ignored
-research/ tree, so the generated state stays out of git).
+Store lives at apps/research-service/research/graffiti/store.json by default
+(under the ignored research-service runtime-artifact tree).
 """
 
 from __future__ import annotations
@@ -30,7 +30,8 @@ import sweep as sweep_mod
 
 
 DEFAULT_STORE = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "research", "graffiti", "store.json")
+    os.path.join(os.path.dirname(__file__), "..", "..", "apps", "research-service", "research",
+                 "graffiti", "store.json")
 )
 
 

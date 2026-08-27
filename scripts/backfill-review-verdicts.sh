@@ -9,13 +9,19 @@
 #
 # Idempotent: rows are keyed (paperId,source); re-runs replace the file from
 # scratch (sources are immutable snapshots, so a full rebuild IS the safe
-# append). Read-only over research/; writes only the CSV.
+# append). Read-only over the research-service artifact tree; writes only the CSV.
 #
 # Usage: scripts/backfill-review-verdicts.sh [research_root] [out_csv]
 set -euo pipefail
 
-ROOT="${1:-research}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="${1:-$REPO_ROOT/apps/research-service/research}"
 OUT="${2:-$ROOT/review-verdicts.csv}"
+SEARCH_ROOTS=("$ROOT")
+if [[ -d "$ROOT/legacy-root" ]]; then
+    SEARCH_ROOTS+=("$ROOT/legacy-root")
+fi
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
@@ -66,33 +72,35 @@ harvest() {
 }
 
 count=0
-# Archived room snapshots (immutable), oldest first for stable ordering.
-while IFS= read -r report; do
-    src="$(basename "$(dirname "$report")")"
-    harvest "$report" "$src"
-    count=$((count+1))
-done < <(find "$ROOT/archive" -maxdepth 2 -name REVIEW_REPORT.md 2>/dev/null | sort)
+for search_root in "${SEARCH_ROOTS[@]}"; do
+    # Archived room snapshots (immutable), oldest first for stable ordering.
+    while IFS= read -r report; do
+        src="$(basename "$(dirname "$report")")"
+        harvest "$report" "$src"
+        count=$((count+1))
+    done < <(find "$search_root/archive" -maxdepth 2 -name REVIEW_REPORT.md 2>/dev/null | sort)
 
-# Split-layout archive indexes. A room may retain its legacy report as a frozen snapshot;
-# de-duplicate rows below by (paperId, source) once the CSV is rebuilt.
-while IFS= read -r report; do
-    src="$(basename "$(dirname "$(dirname "$report")")")"
-    harvest "$report" "$src"
-    count=$((count+1))
-done < <(find "$ROOT/archive" -maxdepth 3 -path '*/reviews/paper-index.md' -print 2>/dev/null | sort)
+    # Split-layout archive indexes. A room may retain its legacy report as a frozen snapshot;
+    # de-duplicate rows below by (paperId, source) once the CSV is rebuilt.
+    while IFS= read -r report; do
+        src="$(basename "$(dirname "$(dirname "$report")")")"
+        harvest "$report" "$src"
+        count=$((count+1))
+    done < <(find "$search_root/archive" -maxdepth 3 -path '*/reviews/paper-index.md' -print 2>/dev/null | sort)
 
-# Live room reports (will be re-harvested from archive after the next reset).
-while IFS= read -r report; do
-    src="live-$(basename "$(dirname "$report")")"
-    harvest "$report" "$src"
-    count=$((count+1))
-done < <(find "$ROOT" -maxdepth 2 -not -path "$ROOT/archive/*" -name REVIEW_REPORT.md 2>/dev/null | sort)
+    # Live room reports (will be re-harvested from archive after the next reset).
+    while IFS= read -r report; do
+        src="live-$(basename "$(dirname "$report")")"
+        harvest "$report" "$src"
+        count=$((count+1))
+    done < <(find "$search_root" -maxdepth 2 -not -path "$search_root/archive/*" -name REVIEW_REPORT.md 2>/dev/null | sort)
 
-while IFS= read -r report; do
-    src="live-$(basename "$(dirname "$(dirname "$report")")")"
-    harvest "$report" "$src"
-    count=$((count+1))
-done < <(find "$ROOT" -maxdepth 3 -not -path "$ROOT/archive/*" -path '*/reviews/paper-index.md' -print 2>/dev/null | sort)
+    while IFS= read -r report; do
+        src="live-$(basename "$(dirname "$(dirname "$report")")")"
+        harvest "$report" "$src"
+        count=$((count+1))
+    done < <(find "$search_root" -maxdepth 3 -not -path "$search_root/archive/*" -path '*/reviews/paper-index.md' -print 2>/dev/null | sort)
+done
 
 dedup="$(mktemp)"
 awk '

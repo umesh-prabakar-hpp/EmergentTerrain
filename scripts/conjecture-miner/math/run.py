@@ -12,7 +12,7 @@ Knob axis   = window_size, so the Spearman filter can drop conjectures
 
 Usage:
   python3 scripts/conjecture-miner/math/run.py
-  python3 scripts/conjecture-miner/math/run.py --out research/conjectures-math.json --reset
+  python3 scripts/conjecture-miner/math/run.py --out apps/research-service/research/conjectures-math.json --reset
 """
 
 from __future__ import annotations
@@ -43,7 +43,8 @@ RUNS = [
 
 
 DEFAULT_OUT = os.path.normpath(
-    os.path.join(_HERE, "..", "..", "..", "research", "conjectures-math.json")
+    os.path.join(_HERE, "..", "..", "..", "apps", "research-service", "research",
+                 "conjectures-math.json")
 )
 
 

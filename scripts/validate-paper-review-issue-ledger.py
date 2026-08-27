@@ -11,6 +11,11 @@ from pathlib import Path
 STATES = {"NEW", "CARRIED_OVER", "RESOLVED", "REGRESSED", "NOT_RECHECKED"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:T[0-2]\d:[0-5]\d(?::[0-5]\d)?(?:Z|[+-]\d\d:\d\d)?)?$")
 ISSUE_ID = re.compile(r"^PR-\d{8}-\d{2}$")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RESEARCH_ROOT = REPO_ROOT / "apps/research-service/research"
+DEFAULT_LEDGER = RESEARCH_ROOT / "reviews/issue-ledger.md"
+if not DEFAULT_LEDGER.is_file():
+    DEFAULT_LEDGER = RESEARCH_ROOT / "legacy-root/reviews/issue-ledger.md"
 
 
 def cells(line: str) -> list[str]:
@@ -20,7 +25,7 @@ def cells(line: str) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ledger", nargs="?", type=Path,
-                        default=Path("research/reviews/issue-ledger.md"))
+                        default=DEFAULT_LEDGER)
     args = parser.parse_args()
     path = args.ledger.expanduser().resolve()
     if not path.is_file():

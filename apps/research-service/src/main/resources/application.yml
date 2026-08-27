@@ -20,6 +20,10 @@ spring:
       # Research owns only the tables declared in this module's schema.sql during the transition.
       mode: always
 app:
+  university:
+    # The launcher exports an absolute module-owned path. The fallback keeps direct module runs
+    # local to this module instead of writing a root-level repository research/ tree.
+    researchOutputDir: ${RESEARCH_OUTPUT_DIR:research}
   research-service:
     # Required by game-owned remote papers/stats reads. Keep this separate from work, context,
     # and result-delivery keys; browser clients never receive it.
