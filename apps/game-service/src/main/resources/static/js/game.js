@@ -3452,8 +3452,19 @@ async function fetchResearchData() {
       fetch(`/room/${roomId}/research/stats`),
       fetch(`/room/${roomId}/research/papers?limit=100`)
     ]);
-    if (statsRes.ok) renderResearchStats(await statsRes.json());
-    if (papersRes.ok) renderPapers(await papersRes.json());
+    if (!statsRes.ok || !papersRes.ok) {
+      if (researchStatsEl) researchStatsEl.textContent = 'Research service unavailable.';
+      if (papersListEl) papersListEl.innerHTML = '';
+      return;
+    }
+    const stats = await statsRes.json();
+    if (stats && stats.status === 'DISABLED') {
+      renderResearchStats(stats);
+      if (papersListEl) papersListEl.innerHTML = '<div class="paper-empty">University research is disabled.</div>';
+      return;
+    }
+    renderResearchStats(stats);
+    renderPapers(await papersRes.json());
   } catch (e) {
     if (researchStatsEl) researchStatsEl.textContent = 'Research data unavailable.';
   }
@@ -3461,6 +3472,10 @@ async function fetchResearchData() {
 
 function renderResearchStats(stats) {
   if (!researchStatsEl || !stats) return;
+  if (stats.status === 'DISABLED') {
+    researchStatsEl.textContent = stats.message || 'University research is disabled.';
+    return;
+  }
   const byDomain = stats.byDomain || {};
   const domainParts = Object.entries(byDomain)
     .map(([d, n]) => `<span class="domain-badge domain-${d.toLowerCase()}">${d.charAt(0) + d.slice(1).toLowerCase()} ${n}</span>`)

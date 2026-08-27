@@ -52,6 +52,8 @@ app:
   research-api:
     mode: local
     base-url: ${RESEARCH_API_BASE_URL:http://127.0.0.1:8082}
+    # Required in remote mode. This stays in the game process; browser clients never receive it.
+    query-api-key: ${RESEARCH_QUERY_API_KEY:}
     # `outbox` writes generic research work durably, then delivers it to the research service.
     # Set the same nonempty value on research-service's RESEARCH_WORK_API_KEY.
     work-api-key: ${RESEARCH_WORK_API_KEY:}

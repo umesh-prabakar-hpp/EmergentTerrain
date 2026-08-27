@@ -21,6 +21,9 @@ spring:
       mode: always
 app:
   research-service:
+    # Required by game-owned remote papers/stats reads. Keep this separate from work, context,
+    # and result-delivery keys; browser clients never receive it.
+    query-api-key: ${RESEARCH_QUERY_API_KEY:}
     # Required by POST /api/v1/research/work. The game-owned outbox relay sends this value.
     work-api-key: ${RESEARCH_WORK_API_KEY:}
     work-interval-ms: ${RESEARCH_WORK_INTERVAL_MS:1000}

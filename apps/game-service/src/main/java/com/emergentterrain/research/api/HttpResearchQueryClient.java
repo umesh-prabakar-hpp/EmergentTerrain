@@ -15,11 +15,18 @@ import java.util.UUID;
 @ConditionalOnProperty(name = "app.research-api.mode", havingValue = "remote")
 public class HttpResearchQueryClient implements ResearchQueryClient {
 
+    static final String QUERY_KEY_HEADER = "X-Research-Query-Key";
+
     private final RestClient restClient;
 
     public HttpResearchQueryClient(RestClient.Builder builder,
                                    ResearchApiProperties properties) {
-        this.restClient = builder.baseUrl(properties.baseUrl()).build();
+        if (properties.queryApiKey().isBlank()) {
+            throw new IllegalStateException("RESEARCH_QUERY_API_KEY is required when app.research-api.mode=remote");
+        }
+        this.restClient = builder.baseUrl(properties.baseUrl())
+                .defaultHeader(QUERY_KEY_HEADER, properties.queryApiKey())
+                .build();
     }
 
     @Override

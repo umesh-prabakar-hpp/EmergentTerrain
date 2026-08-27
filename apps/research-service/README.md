@@ -14,6 +14,7 @@ Then start the game process with:
 
 ```bash
 RESEARCH_API_BASE_URL=http://127.0.0.1:8082 \
+  RESEARCH_QUERY_API_KEY=shared-query-credential \
   mvn -f apps/game-service/pom.xml spring-boot:run \
   -Dspring-boot.run.arguments="--app.research-api.mode=remote --app.university.enabled=false"
 ```
@@ -22,6 +23,10 @@ Set the game process to `app.research-api.mode=remote` when it should display th
 results. In that mode it does not create `ResearchTickGateway`, so only this process runs research
 ticks. The service reads persisted room bot and government state during this transitional stage;
 the next extraction replaces that shared-database read with a versioned game-state snapshot API.
+Set the same nonempty `RESEARCH_QUERY_API_KEY` on the research-service process. The game adds it
+only to its internal papers/stats requests as `X-Research-Query-Key`; browser clients continue to
+call the game-owned `/room/**` endpoints and never receive this credential. The research service
+rejects missing or invalid query keys with `401`.
 
 Each completed room tick is checkpointed in the research-owned
 `research_service_checkpoints` table. After a restart the worker resumes above both its last
