@@ -98,7 +98,40 @@ rm ~/.emergentterrain/secrets.json
 The app reads the sealed file automatically. A shell-exported secret still takes precedence. To run
 without the encrypted store, explicitly set `APP_SECRETS_ENABLED=false` for that launch.
 
-## 2. Start the Julia sidecars
+## 2. Download papers and build the literature index
+
+Download the theorem-search corpus:
+
+```bash
+./scripts/bootstrap-hf-math-literature.sh
+```
+
+For full-text papers, download the complementary corpus:
+
+```bash
+HF_DATASET=marin-community/ar5iv-no-problem-markdown \
+  ./scripts/bootstrap-hf-math-literature.sh
+```
+
+Build the local SQLite/FTS5 index:
+
+```bash
+python3 -m pip install --user pyarrow
+
+./scripts/prepare-hf-math-index.py --stage metadata
+./scripts/prepare-hf-math-index.py --stage theorems
+./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20
+```
+
+After a complete immutable import, optimize the index:
+
+```bash
+./scripts/prepare-hf-math-index.py --stage optimize
+```
+
+The index is stored under `~/.emergentterrain/indexes/math-literature/`.
+
+## 3. Start the Julia sidecars
 
 Start each sidecar in its own terminal. Start the main Julia sidecar first, then start the
 single-threaded PyCall/grounding companion in a second terminal.
@@ -162,7 +195,7 @@ Stop both Julia sidecars with:
 ./services/julia-math-sidecar/scripts/stop.sh
 ```
 
-## 3. Run research without the game
+## 4. Run research without the game
 
 The research worker serves API v1 on port `8082`, requires PostgreSQL, and runs in the current
 terminal. It does not start the game UI, WebSocket stack, GPU engine, or subscription proxies.
@@ -229,7 +262,7 @@ Use `Ctrl-C` in the worker terminal to stop it. See
 [apps/research-service/README.md](apps/research-service/README.md) for remote game-context mode,
 API authentication, durable work intake, and Phase 42 ownership boundaries.
 
-## 4. Additional services
+## 5. Additional services
 
 Start each service in its own terminal when the feature you are testing requires it.
 
@@ -246,7 +279,7 @@ debug Cargo build. Stop it with:
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-## 5. Run the web app
+## 6. Run the web app
 
 From the repository root:
 
@@ -261,7 +294,7 @@ The launcher stops a previous managed app/gateway set, starts the local AI gatew
 
 For foreground debugging, use `./scripts/start.sh --foreground`.
 
-## 6. Status and logs
+## 7. Status and logs
 
 Always use the read-only status script to determine runtime state:
 
@@ -295,7 +328,7 @@ When finished, stop the managed web app and its managed proxies:
 ./scripts/stop.sh
 ```
 
-## 7. Build and test
+## 8. Build and test
 
 Run Java checks from the repository root:
 
@@ -314,18 +347,17 @@ For the real two-process GPU smoke test and packaged performance comparison, see
 [AGENTS.md](AGENTS.md). Do not use `spring-boot:run` or `cargo run` as substitutes for the
 documented release-performance workflow.
 
-## 8. Optional literature and review workflows
+## 9. Review workflows
 
-Literature corpora and SQLite/FTS indexes are large, separately licensed, and not required to run
-the game or safe research audit. Their preparation, provenance, and acceptance requirements are in
-[CORPUS.md](CORPUS.md), [RUN-MINIMAL.md](RUN-MINIMAL.md), and the relevant phase documentation.
-Do not commit downloaded corpora, generated papers, logs, or runtime output.
+For literature provenance, licensing, and acceptance requirements, see [CORPUS.md](CORPUS.md) and
+the relevant phase documentation. Do not commit downloaded corpora, generated papers, logs, or
+runtime output.
 
 For maintainers using the local Codex skills, the paper-review and phase-review workflows are
 documented in `skills/paper-review/` and `skills/phase-review/`. They review evidence and planning;
 they do not grant permission to mutate gameplay state or treat AI narration as evidence.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 - **PostgreSQL is down or unauthenticated:** start PostgreSQL, verify the configured `PG_URL`,
   `PG_USER`, and `PG_PASSWORD`, then rerun the status script.

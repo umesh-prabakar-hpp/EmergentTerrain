@@ -25,14 +25,49 @@ cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
-## 3. First-time Julia sidecar setup
+## 3. Download papers and build the literature index
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/bootstrap-hf-math-literature.sh
+```
+
+For full-text papers:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+HF_DATASET=marin-community/ar5iv-no-problem-markdown \
+  ./scripts/bootstrap-hf-math-literature.sh
+```
+
+Build the local SQLite/FTS5 index:
+
+```bash
+python3 -m pip install --user pyarrow
+
+cd "$(git rev-parse --show-toplevel)"
+./scripts/prepare-hf-math-index.py --stage metadata
+./scripts/prepare-hf-math-index.py --stage theorems
+./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20
+```
+
+After a complete immutable import:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/prepare-hf-math-index.py --stage optimize
+```
+
+The index is stored under `~/.emergentterrain/indexes/math-literature/`.
+
+## 4. First-time Julia sidecar setup
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"/services/julia-math-sidecar
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-## 4. Julia math sidecar
+## 5. Julia math sidecar
 
 Run this in its own terminal before starting the web app:
 
@@ -56,7 +91,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./services/julia-math-sidecar/scripts/stop.sh
 ```
 
-## 5. PyCall and grounding sidecar
+## 6. PyCall and grounding sidecar
 
 After the main Julia sidecar is listening, run this in a second terminal:
 
@@ -80,7 +115,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./services/julia-math-sidecar/scripts/stop.sh
 ```
 
-## 6. Research audit without the game
+## 7. Research audit without the game
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -90,7 +125,7 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 ./scripts/start-research-service.sh
 ```
 
-## 7. University research without the game
+## 8. University research without the game
 
 Run this in one terminal when the sibling local AI gateway copy exists:
 
@@ -126,7 +161,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/stop-local-ai-gateway.sh
 ```
 
-## 8. GPU engine
+## 9. GPU engine
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -138,14 +173,14 @@ cd "$(git rev-parse --show-toplevel)"
 ./engines/gpu-engine/scripts/stop.sh
 ```
 
-## 9. Web app
+## 10. Web app
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/start.sh
 ```
 
-## 10. Web app with local AI gateway
+## 11. Web app with local AI gateway
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -153,7 +188,7 @@ LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
 ./scripts/start.sh
 ```
 
-## 11. Status and logs
+## 12. Status and logs
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -176,7 +211,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/stop.sh
 ```
 
-## 12. Build and test
+## 13. Build and test
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
