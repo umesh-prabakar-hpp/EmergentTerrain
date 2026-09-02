@@ -17,8 +17,8 @@ Options:
   --gpu-repo PATH                Rust GPU repo path. Default: engines/gpu-engine in this monorepo
   --skip-packages                Skip dnf package installation
   --skip-postgres                Skip PostgreSQL init/start/password/database setup
-  --skip-node-deps               Skip npm install in the Java repo
-  --skip-playwright              Skip npx playwright install chromium
+  --skip-node-deps               Skip npm install for optional browser UI tests
+  --skip-playwright              Skip Playwright Chromium installation
   --skip-verify                  Skip final toolchain verification output
   -h, --help                     Show this help
 EOF
@@ -39,6 +39,7 @@ sql_escape_literal() {
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
+ui_tests_dir="$repo_root/scripts/ui-tests"
 
 postgres_password="NewStrongPasswordHere"
 app_db="emergentterrain"
@@ -181,18 +182,18 @@ if [[ $skip_postgres -eq 0 ]]; then
   done
 fi
 
-if [[ $skip_node_deps -eq 0 && -f "$repo_root/package.json" ]]; then
-  echo "Installing npm dependencies..."
+if [[ $skip_node_deps -eq 0 && -f "$ui_tests_dir/package.json" ]]; then
+  echo "Installing optional browser UI-test dependencies..."
   (
-    cd "$repo_root"
-    npm install
+    cd "$ui_tests_dir"
+    npm ci
   )
 fi
 
-if [[ $skip_playwright -eq 0 && -f "$repo_root/package.json" ]]; then
+if [[ $skip_playwright -eq 0 && -f "$ui_tests_dir/package.json" ]]; then
   echo "Installing Playwright Chromium..."
   (
-    cd "$repo_root"
+    cd "$ui_tests_dir"
     npx playwright install chromium
   )
 fi

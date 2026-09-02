@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 // UI test: measure minimap travel smoothness (movement update rate + move latency).
 // Usage:
-//   START_APP=true node scripts/minimap-travel-smoothness-test.js
+//   START_APP=true node scripts/ui-tests/minimap-travel-smoothness-test.js
 //
 // Optional:
 //   BASE_URL=http://localhost:8080/game/test?debugMinimap=1
@@ -12,8 +12,8 @@
 //   SAMPLE_INTERVAL_MS=200
 //
 // Requires Playwright installed:
-//   npm i -D playwright
-//   npx playwright install chromium
+//   cd scripts/ui-tests && npm ci
+//   cd scripts/ui-tests && npx playwright install chromium
 
 const { chromium } = require('playwright');
 const { spawn } = require('child_process');

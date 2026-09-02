@@ -1,12 +1,12 @@
 /* eslint-disable no-console */
 // UI smoke test for minimap route rendering.
 // Usage (app must be running):
-//   npm i -D playwright
-//   npx playwright install chromium
-//   node scripts/minimap-route-ui-test.js
+//   cd scripts/ui-tests && npm ci
+//   cd scripts/ui-tests && npx playwright install chromium
+//   node scripts/ui-tests/minimap-route-ui-test.js
 //
 // Optional:
-//   BASE_URL=http://localhost:8080 node scripts/minimap-route-ui-test.js
+//   BASE_URL=http://localhost:8080 node scripts/ui-tests/minimap-route-ui-test.js
 
 const { chromium } = require('playwright');
 const { spawn } = require('child_process');

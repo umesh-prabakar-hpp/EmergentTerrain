@@ -23,8 +23,7 @@
 Thumbs.db
 
 # Node
-/node_modules/
-/package-lock.json
+/scripts/ui-tests/node_modules/
 /npm-debug.log*
 /yarn.lock
 /pnpm-lock.yaml

@@ -1,4 +1,6 @@
 {
+  "name": "emergentterrain-ui-tests",
+  "private": true,
   "devDependencies": {
     "playwright": "^1.58.2"
   }
