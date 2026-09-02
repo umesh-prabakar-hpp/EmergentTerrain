@@ -1,7 +1,7 @@
 # Pipeline hardening — 2026-06-04 (room b72c4e10 review-driven fixes)
 
 A session of `/paper-review`-driven fixes to the conjecture/discovery → paper pipeline. Each was
-root-caused from the live `logs/et-app.log` + the published papers, fixed with a unit test, and
+root-caused from the live `.runtime/logs/et-app.log` + the published papers, fixed with a unit test, and
 verified live across successive app restarts. The pipeline went from **0 papers/run** (LLM-pool
 starvation) and majority **Reject/NULL** artifacts to **~80% publishing** with coherent abstentions
 on the rest.

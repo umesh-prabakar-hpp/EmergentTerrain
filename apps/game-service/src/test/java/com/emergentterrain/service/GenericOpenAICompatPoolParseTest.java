@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Unit tests for {@link GenericOpenAICompatPool#parseRetryAfterMs} covering the
  * four error-body shapes the parser is expected to handle plus the fallback /
  * floor behaviour. Driven by 2026-05-20 corpus evidence in
- * {@code logs/et-app.log}: Groq's {@code "269.999999ms"} TPM-window form was
+ * {@code .runtime/logs/et-app.log}: Groq's {@code "269.999999ms"} TPM-window form was
  * silently falling through to {@code INITIAL_BACKOFF_MS} (10s) because the
  * prior parser only recognised {@code s}-suffixed seconds.
  */

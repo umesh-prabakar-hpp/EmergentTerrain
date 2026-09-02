@@ -352,7 +352,7 @@ Phase 35 timeout
 ```
 
 `LiteratureTimeoutRecoveryQueue` persists jobs under
-`simulation-history/research-literature-recovery/`; a process restart reloads the journal and
+`.runtime/runtime-history/research-literature-recovery/`; a process restart reloads the journal and
 re-arms any retry that was in flight. The job records the original claim, two proposed subject
 anchors, relation/rationale, pre-backfill index fingerprint, retry state, and a compact
 `ReworkDraftSnapshot`. It never serializes a live entity graph.
@@ -362,7 +362,7 @@ The worker is configured by:
 ```yaml
 app.research.literature.timeout-recovery:
   enabled: true
-  state-dir: simulation-history/research-literature-recovery
+  state-dir: .runtime/runtime-history/research-literature-recovery
   max-discovery-attempts: 3
   max-queue-size: 100
   poll-interval-ms: 60000

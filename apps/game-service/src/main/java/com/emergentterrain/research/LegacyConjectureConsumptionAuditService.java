@@ -39,7 +39,7 @@ public class LegacyConjectureConsumptionAuditService {
     @Autowired
     public LegacyConjectureConsumptionAuditService(ObjectMapper objectMapper,
                                                    @Value("${app.research.conjecture-consumption-audit.enabled:false}") boolean enabled,
-                                                   @Value("${app.research.conjecture-consumption-audit.journal-root:simulation-history/research-queue-consumption}") String journalRoot) {
+                                                   @Value("${app.research.conjecture-consumption-audit.journal-root:.runtime/runtime-history/research-queue-consumption}") String journalRoot) {
         this(objectMapper, enabled, Path.of(journalRoot));
     }
 

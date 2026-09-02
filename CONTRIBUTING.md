@@ -34,8 +34,8 @@ This avoids implementing a proposal that conflicts with an in-progress phase pla
 
 ## Project-specific expectations
 
-- Do not commit credentials, API keys, downloaded corpora, papers, model weights, logs, Maven
-  `target/` directories, `sample-output/`, or generated runtime/research data.
+- Do not commit credentials, API keys, downloaded corpora, papers, model weights, `.runtime/` data,
+  Maven `target/` directories, or generated runtime/research data.
 - Update `README.md` and `AGENTS.md` together when a supported behavior, setup workflow, or
   performance workflow changes.
 - For changes across the game/research boundary, keep the OpenAPI contract, shared DTOs, validation,

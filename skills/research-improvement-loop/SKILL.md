@@ -23,7 +23,7 @@ toward that standard; never mistake fluent prose, a positive score, or a workflo
 3. Use `./scripts/status-related-apps.sh` for every runtime-state check. Do not substitute
    ad-hoc process or port probes.
 4. Preserve unrelated dirty-worktree changes. Never commit generated `target/`, test reports, or
-   `sample-output/` outputs.
+   `.runtime/test-artifacts/` outputs.
 5. Before any literature import, confirm no primary or screened-index writer is active. Never run
    two SQLite/FTS importers concurrently.
 

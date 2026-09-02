@@ -37,7 +37,9 @@ if ([string]::IsNullOrWhiteSpace($GpuRepo)) {
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$outputDir = Join-Path $repoRoot "sample-output/gpu-e2e-$timestamp"
+$runtimeRoot = if ([string]::IsNullOrWhiteSpace($env:ET_RUNTIME_DIR)) { Join-Path $repoRoot ".runtime" } else { $env:ET_RUNTIME_DIR }
+$testArtifactsRoot = if ([string]::IsNullOrWhiteSpace($env:ET_TEST_ARTIFACTS_DIR)) { Join-Path $runtimeRoot "test-artifacts" } else { $env:ET_TEST_ARTIFACTS_DIR }
+$outputDir = Join-Path $testArtifactsRoot "gpu-e2e-$timestamp"
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 $gpuLog = Join-Path $outputDir "gpu-engine.log"
 $gpuErrLog = Join-Path $outputDir "gpu-engine.err.log"

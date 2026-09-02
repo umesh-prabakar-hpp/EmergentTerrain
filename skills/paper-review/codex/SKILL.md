@@ -211,7 +211,7 @@ Find the project root by walking up from `<research_dir>` until a marker appears
 
 Standard log locations:
 
-- Main app: `<root>/logs/et-app.log`, or newest non-archive `*.log` in `<root>/logs/`.
+- Main app: `<root>/.runtime/logs/et-app.log`, or newest non-archive `*.log` in `<root>/.runtime/logs/`.
 - Julia: `<root>/services/julia-math-sidecar/logs/sidecar.log`.
 - GPU: `<root>/engines/gpu-engine/logs/gpu-engine.log` and `.err.log` peer.
 

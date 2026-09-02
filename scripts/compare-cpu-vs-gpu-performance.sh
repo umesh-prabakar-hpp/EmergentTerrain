@@ -12,7 +12,7 @@ Options:
   --maven-cmd CMD                   Maven command. Defaults to $MAVEN_CMD or mvn
   --java-repo PATH                  Java repo path. Default: repository root derived from this script
   --gpu-repo PATH                   GPU repo path. Default: engines/gpu-engine in this monorepo
-  --report-dir PATH                 Report output directory. Defaults to sample-output/perf-report-<timestamp>
+  --report-dir PATH                 Report output directory. Defaults to .runtime/test-artifacts/perf-report-<timestamp>
   --build-artifacts                 Force rebuild of the Spring Boot jar and Rust release binary
   -h, --help                        Show this help
 EOF
@@ -109,7 +109,8 @@ java_cmd="$java_home/bin/java"
 jar_cmd="$java_home/bin/jar"
 jar_path="$java_repo/apps/game-service/target/game-service-0.0.1-SNAPSHOT-boot.jar"
 gpu_exe="$gpu_repo/target/release/emergent_terrain_gpu_engine"
-output_root="$java_repo/sample-output"
+runtime_root="${ET_RUNTIME_DIR:-$java_repo/.runtime}"
+output_root="${ET_TEST_ARTIFACTS_DIR:-$runtime_root/test-artifacts}"
 mkdir -p "$output_root"
 if [[ -z "$report_dir" ]]; then
   report_dir="$output_root/perf-report-$(date +%Y%m%d-%H%M%S)"

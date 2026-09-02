@@ -20,7 +20,7 @@ public class SimulationHistoryWriter {
     private final ExecutorService writer = Executors.newSingleThreadExecutor();
 
     public SimulationHistoryWriter(ObjectMapper objectMapper,
-                                   @Value("${app.simulationHistory.root:simulation-history}") String rootPath) {
+                                   @Value("${app.simulationHistory.root:.runtime/runtime-history}") String rootPath) {
         this.objectMapper = objectMapper;
         this.root = Path.of(rootPath);
         ensureDirectories();

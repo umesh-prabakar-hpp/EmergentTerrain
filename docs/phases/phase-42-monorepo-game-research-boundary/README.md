@@ -385,7 +385,7 @@ They have not. The conservative weighted accounting below is the current plannin
 
 - Preserve the commit history of every imported repository.
 - Do not leave nested Git repositories inside the final monorepo.
-- Keep generated outputs, `target/`, `sample-output/`, local databases, secrets, and dependency
+- Keep generated outputs, `target/`, `.runtime/test-artifacts/`, local databases, secrets, and dependency
   directories out of Git imports.
 - Do not change the existing GPU, Julia, Python-sidecar, or proxy runtime contracts as an incidental
   consequence of directory moves.

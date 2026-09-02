@@ -41,7 +41,7 @@ public class RangePreservingChunkExecutor {
     @Autowired
     public RangePreservingChunkExecutor(
             ObjectMapper mapper,
-            @Value("${app.simulationHistory.root:simulation-history}") String simulationHistoryRoot,
+            @Value("${app.simulationHistory.root:.runtime/runtime-history}") String simulationHistoryRoot,
             @Value("${app.research.experiments.range-chunking.chunk-size:50000}") int chunkSize,
             @Value("${app.research.experiments.range-chunking.enabled:false}") boolean enabled) {
         this(mapper, Path.of(simulationHistoryRoot).resolve("research-experiments"), chunkSize, enabled);

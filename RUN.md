@@ -56,6 +56,19 @@ point, so the command deliberately permits a nonzero status:
 ./scripts/status-related-apps.sh || true
 ```
 
+### Runtime data location
+
+The checkout keeps generated runtime data in `.runtime/`: disposable test artifacts, durable
+simulation/research history, and root application logs. To keep durable data outside the checkout,
+set an absolute runtime root before invoking a launcher:
+
+```bash
+export ET_RUNTIME_DIR=/var/lib/emergentterrain
+```
+
+`ET_RUNTIME_HISTORY_DIR`, `ET_RUNTIME_LOG_DIR`, and `ET_TEST_ARTIFACTS_DIR` can override the
+individual subdirectories when needed.
+
 ### Encrypted provider secrets
 
 The current game-service configuration enables the local encrypted secret store. If a configured
@@ -265,9 +278,9 @@ To follow all usual logs at once:
 
 ```bash
 tail -F \
-  logs/et-app.log \
-  logs/maven-stdout.log \
-  logs/local-ai-gateway.log \
+  .runtime/logs/et-app.log \
+  .runtime/logs/maven-stdout.log \
+  .runtime/logs/local-ai-gateway.log \
   services/julia-math-sidecar/logs/sidecar.log \
   services/julia-math-sidecar/logs/py-sidecar.log \
   engines/gpu-engine/logs/gpu-engine.log

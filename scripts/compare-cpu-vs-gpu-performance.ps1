@@ -49,7 +49,8 @@ $env:PATH = "$javaBinDir$pathSeparator$env:PATH"
 
 $jarPath = Join-Path $JavaRepo "apps/game-service/target/game-service-0.0.1-SNAPSHOT-boot.jar"
 $gpuExe = Join-Path $GpuRepo "target/release/$gpuBinary"
-$outputRoot = Join-Path $JavaRepo "sample-output"
+$runtimeRoot = if ([string]::IsNullOrWhiteSpace($env:ET_RUNTIME_DIR)) { Join-Path $JavaRepo ".runtime" } else { $env:ET_RUNTIME_DIR }
+$outputRoot = if ([string]::IsNullOrWhiteSpace($env:ET_TEST_ARTIFACTS_DIR)) { Join-Path $runtimeRoot "test-artifacts" } else { $env:ET_TEST_ARTIFACTS_DIR }
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
 function Test-TcpPort {

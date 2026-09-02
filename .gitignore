@@ -35,6 +35,9 @@ Thumbs.db
 
 # Local env
 .env
+/.runtime/
+# Legacy local paths from before the `.runtime/` consolidation. Keep these ignored so an
+# interrupted local migration never exposes generated data as untracked source files.
 /sample-output/
 # Root-level research output is deliberately not ignored: it is a misconfiguration. Runtime
 # artifacts belong under apps/game-service/research/ or apps/research-service/research/.

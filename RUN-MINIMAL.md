@@ -12,6 +12,12 @@ export PATH="$JAVA_HOME/bin:$PATH"
 ./scripts/status-related-apps.sh || true
 ```
 
+Runtime files are stored in `.runtime/`. To use an external location instead:
+
+```bash
+export ET_RUNTIME_DIR=/var/lib/emergentterrain
+```
+
 ## 2. Fedora bootstrap
 
 ```bash
@@ -157,9 +163,9 @@ cd "$(git rev-parse --show-toplevel)"
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 tail -F \
-  logs/et-app.log \
-  logs/maven-stdout.log \
-  logs/local-ai-gateway.log \
+  .runtime/logs/et-app.log \
+  .runtime/logs/maven-stdout.log \
+  .runtime/logs/local-ai-gateway.log \
   services/julia-math-sidecar/logs/sidecar.log \
   services/julia-math-sidecar/logs/py-sidecar.log \
   engines/gpu-engine/logs/gpu-engine.log

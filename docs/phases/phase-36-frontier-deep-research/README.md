@@ -16,7 +16,7 @@ fail-soft deadline. The durable proposal/critic/hypothesis-tree loop remains lat
 ## Implemented vertical slice (2026-07-20)
 
 `RangePreservingChunkExecutor` journals exact density jobs under
-`simulation-history/research-experiments/`, outside the restart-cleared `research/<room>/` tree.
+`.runtime/runtime-history/research-experiments/`, outside the restart-cleared `research/<room>/` tree.
 For each supported count-weighted density ladder window wider than
 `app.research.experiments.range-chunking.chunk-size` (currently 50,000), it records the immutable
 logical interval, ordered chunks, every terminal chunk result, attempt count, and queue / Julia

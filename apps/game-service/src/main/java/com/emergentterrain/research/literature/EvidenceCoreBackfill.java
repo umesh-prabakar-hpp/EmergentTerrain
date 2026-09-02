@@ -47,8 +47,10 @@ public final class EvidenceCoreBackfill {
         Path corpus = Path.of(env("CORPUS_DIR",
                 System.getProperty("user.home") + "/.emergentterrain/corpus-nt"));
         Path research = Path.of(env("RESEARCH_DIR", "research"));
+        String runtimeRoot = env("ET_RUNTIME_DIR", ".runtime");
         Path recovery = Path.of(env("LITERATURE_RECOVERY_DIR",
-                "simulation-history/research-literature-recovery"));
+                env("RESEARCH_LITERATURE_RECOVERY_DIR",
+                        runtimeRoot + "/runtime-history/research-literature-recovery")));
         Path out = corpus.resolve("cores-html");
         Files.createDirectories(out);
         Path pdfDir = corpus.resolve("cores");

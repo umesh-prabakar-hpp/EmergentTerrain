@@ -12,8 +12,8 @@
 #   - exports JAVA_HOME to the dnf-installed JDK 25 path
 #   - launches the game-service Maven module in the background via nohup so the
 #     JVM cannot inherit stale compiled classes from an earlier worktree state
-#   - redirects Maven/JVM stdout to logs/maven-stdout.log
-#     (the Spring app's own log lives in logs/et-app.log via logback;
+#   - redirects Maven/JVM stdout to .runtime/logs/maven-stdout.log
+#     (the Spring app's own log lives in .runtime/logs/et-app.log via logback;
 #      maven-stdout.log only captures startup banner + compile errors)
 #   - prints the parent PID and the tail commands so you can verify
 #     the app booted
@@ -61,8 +61,10 @@ if [ -z "${JAVA_HOME:-}" ] || [ ! -x "${JAVA_HOME}/bin/java" ]; then
 fi
 export JAVA_HOME
 
-mkdir -p "$REPO_ROOT/logs"
-STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
+RUNTIME_ROOT="${ET_RUNTIME_DIR:-$REPO_ROOT/.runtime}"
+RUNTIME_LOG_DIR="${ET_RUNTIME_LOG_DIR:-$RUNTIME_ROOT/logs}"
+mkdir -p "$RUNTIME_LOG_DIR"
+STDOUT_LOG="$RUNTIME_LOG_DIR/maven-stdout.log"
 
 # ---------------------------------------------------------------------
 # Local AI gateway.
@@ -72,7 +74,7 @@ STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
 # ---------------------------------------------------------------------
 LOCAL_AI_GATEWAY_DIR="${ET_LOCAL_AI_GATEWAY_DIR:-$REPO_ROOT/scripts/local-ai-gateway}"
 LOCAL_AI_GATEWAY_PATTERN="local-ai-gateway/server.mjs"
-LOCAL_AI_GATEWAY_LOG="$REPO_ROOT/logs/local-ai-gateway.log"
+LOCAL_AI_GATEWAY_LOG="$RUNTIME_LOG_DIR/local-ai-gateway.log"
 start_local_ai_gateway() {
     : > "$LOCAL_AI_GATEWAY_LOG"
     nohup node "$LOCAL_AI_GATEWAY_DIR/server.mjs" >> "$LOCAL_AI_GATEWAY_LOG" 2>&1 &
@@ -122,8 +124,8 @@ LAUNCHER_PID=$!
 echo "EmergentTerrain: launcher PID $LAUNCHER_PID (the actual JVM spawns ~30s later)"
 echo
 echo "Tail logs:"
-echo "  tail -f logs/et-app.log         # Spring's logback file"
-echo "  tail -f logs/maven-stdout.log   # Maven + JVM startup banner"
+echo "  tail -f $RUNTIME_LOG_DIR/et-app.log         # Spring's logback file"
+echo "  tail -f $RUNTIME_LOG_DIR/maven-stdout.log   # Maven + JVM startup banner"
 echo
 echo "Wait for ready:"
 echo "  until curl -fsS http://localhost:8081/actuator/health >/dev/null; do sleep 1; done"

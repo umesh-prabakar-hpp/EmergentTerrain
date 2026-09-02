@@ -132,7 +132,7 @@ mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
 ```
 
 For Rust engine changes, run `cargo test --manifest-path engines/gpu-engine/Cargo.toml`. Generated
-runtime data, logs, Maven `target/` directories, and `sample-output/` are local artifacts and
+runtime data in `.runtime/`, Maven `target/` directories, and test artifacts are local artifacts and
 should not be committed. Before opening a contribution, keep a change focused, describe any
 runtime/configuration impact, and update the relevant documentation.
 
@@ -303,7 +303,7 @@ matches the same frozen draft/request/fingerprint; if controlled failure evidenc
 also match. The query is not wired to compose, publish, deliver, or alter a planning result.
 Set `app.research.conjecture-consumption-audit.enabled=true` only for a controlled legacy-cycle
 audit. After the existing legacy queue marks a conjecture investigated, the game writes one
-restart-idempotent, game-owned event under `simulation-history/research-queue-consumption/`. This
+restart-idempotent, game-owned event under `.runtime/runtime-history/research-queue-consumption/`. This
 does not select, route, or expose the live queue to research. While the audit is enabled, the
 authenticated research-context snapshot carries only a bounded, contiguous post-consumption event
 window with a process epoch and sequence range. A changed epoch or unavailable sequence is
@@ -341,7 +341,7 @@ numeric match is ineligible unless its complete supported comparison envelope is
 - Pending votes now render as a live WebGPU influence field with staged pressure, propagation waves, and server-sent proposal / tile-transition deltas
 - The browser now uses WebGPU for all world rendering layers: terrain, bots/players, proposal fields, transitions, particles, and the minimap
 - Highways now emerge from repeated long-distance bot movement and exploration pressure. Ordinary terrain proposals no longer clear them, and unused corridors decay over time so roads do not take over the map.
-- Constitutional simulation now spans the first three runtime slices: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, executive orders and court review can intervene, office roles are assigned to bots, and append-only records are written under `simulation-history/`
+- Constitutional simulation now spans the first three runtime slices: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, executive orders and court review can intervene, office roles are assigned to bots, and append-only records are written under `.runtime/runtime-history/`
 - Government trend history is now stored server-side and fetched on demand through `/room/{roomId}/government-trend`; recent points stay at per-tick resolution for 6 hours, then compact to 1-minute, 5-minute, and 15-minute buckets as they age.
 - The game sidebar now renders that government trend history as an on-demand chart with trust/service/state-trust lines, action load, budget mix, and event markers; it loads only when the government panel is shown and refreshes manually from the UI.
 - The in-game trend card now has an `Open` action that launches `/game/government-trend` in a new tab for a larger interactive chart with hover tooltips, series toggles, and adaptive vertical scaling so small trust/service changes do not disappear into a flat `0..1` baseline.
@@ -658,7 +658,7 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 5. **Honest null reporting** — NULL_RESULT papers are stored with status `NULL_RESULT` (not PUBLISHED), receive no confidence boost (fixed ×0.92), are excluded from average score calculations, and display a `∅ NULL RESULT` banner in markdown.
 6. **Replication and bridge guards** — null results are excluded from anomaly replication queues and cross-domain knowledge bridging; only positive results are eligible.
 7. **Cross-topic anomaly context** — the formulation prompt surfaces anomalous papers from adjacent topics in the same domain, enabling the LLM to reason across papers when exploring new parameter regions.
-8. **Durable draft identity** — every paper ID is reserved before narration in the append-only ledger at `simulation-history/research-paper-ids/`. Suppressed, timed-out, and interrupted drafts consume an ID even when they create neither a DB row nor a markdown file, so a restart or archived `research/` directory cannot recycle an audit identity. The ledger is allocation metadata only; it is not scientific evidence and never enters publication or promotion decisions.
+8. **Durable draft identity** — every paper ID is reserved before narration in the append-only ledger at `.runtime/runtime-history/research-paper-ids/`. Suppressed, timed-out, and interrupted drafts consume an ID even when they create neither a DB row nor a markdown file, so a restart or archived `research/` directory cannot recycle an audit identity. The ledger is allocation metadata only; it is not scientific evidence and never enters publication or promotion decisions.
 9. **Computational-publication tiers** — workflow status is separate from the reader-facing publication label. Every paper receives an audit bundle under `research/<room>/artifacts/<paper-id>/`; only `PUBLISHED` papers with a locked discovery/confirmation plan, sensitivity and reproduction declarations, an executed trace, and source-grounded related work are labeled artifact-backed computational-paper candidates. The gate requires a successful `read_reference` result for a key returned by `search_literature`, and that same key must appear in the related-work text. `PublicationStateResolver` also keeps the semantic result separate from independent publication deficits: an acquired-but-uncited source, missing sensitivity evidence, or missing independent replication routes a supported result to `NEEDS_REVISION` and stamps the deficits; it never relabels that result as `NULL_RESULT`. A genuine `NULL_RESULT` remains a scientific null while any such deficits remain auditable in its review state and call path. Artifact metadata is written from the final paper label. `./scripts/bootstrap-hf-math-literature.sh` downloads the fast theorem-search corpus by default and records both requested and resolved dataset revisions; set `HF_DATASET=marin-community/ar5iv-no-problem-markdown` for the complementary full-text source used to read and position claims. `python3 -m pip install --user pyarrow` followed by `./scripts/prepare-hf-math-index.py --stage metadata`, `--stage theorems`, and resumable `--stage fulltext --fulltext-shard-limit 20` builds the separate local SQLite/FTS5 staging index under `~/.emergentterrain/indexes/math-literature/`; the shard pass stores source text first and bulk-builds then optimizes `fulltext_fts` only after every shard is committed, avoiding costly per-record FTS rewrites. For an already-complete immutable index, run `./scripts/prepare-hf-math-index.py --stage optimize` once; it merges both theorem and full-text FTS segments and records the completion time without changing documents. It records raw-input SHA-256 values, dataset revisions, and importer provenance and retains broad source data for future subjects while mathematics remains the current query-time scope. The completed-index adapter is enabled through `app.research.literature.phase34-sqlite.enabled`. Its Phase 35 path is explicitly controlled by `app.research.literature.phase34-sqlite.phase35-retrieval.enabled` (currently `true`); it uses limited `ORDER BY rank` FTS5 retrieval, validated exact subject phrases for multi-anchor claims, and `search-timeout-ms` (currently 15 seconds). Each candidate first checks `initial-candidates` (currently 64) and only then widens to the established 512-result range when no evidence is found, so every paper retains the same complete eligibility range under the same fail-soft deadline. Completion logs record elapsed time, attempted candidates, batches, inspected rows, result count, and the last expression without logging passage text. Set the flag to `false` to restore the former Phase 34 all-terms-then-OR query. Both modes return only sources with indexed full text. Full-paper promotions use that same adapter first for their related-work search and up to two source reads; the older BM25/core route is fallback-only. Its fixed claim-set acceptance suite is still required before treating live retrieval as publication-ready. Neither corpus alone proves novelty.
 
 **Literature-timeout recovery** — a Phase 35 timeout is not treated as a no-match. For a locked established target, its reviewed local subject query runs before any first-pass, professor, student, or panel work; a timeout journals the already allocated draft immediately, without manufacturing a partial manuscript. Within a narration, identical semantic searches are cached across best-of-N candidates and resamples. A recovery hold is based only on the selected trace’s final `search_literature` outcome: a later local EVIDENCE or no-match clears an earlier timeout and proceeds through the ordinary evidence/publication gates. With `app.research.literature.timeout-recovery.enabled=true`, an unresolved terminal timeout journals its exact semantic request plus a re-narration snapshot under `simulation-history/research-literature-recovery/`. The asynchronous worker uses the configured OpenAlex client only to record possible open-access backfill targets; `EvidenceCoreBackfill` consumes completed discovery records on its next offline run (override its journal path with `LITERATURE_RECOVERY_DIR`). Those candidates are non-evidentiary and cannot issue an `HF…` key, be cited, or alter a label. After an operator completes the normal offline core/index refresh, the changed index fingerprint releases the held draft through the normal local `search_literature → read_reference → Related Work` path. Do not mutate the SQLite index from this worker.
@@ -768,7 +768,7 @@ between” is not a subject phrase and is dropped before FTS. Its deterministic
 tool: an AI may propose one bounded query kind and two safe anchors, but cannot
 bypass record-evidence or title-anchor validation.
 Each Phase 35 lookup logs its exact FTS expressions, evidence anchors, and
-required title anchors at INFO level in `logs/et-app.log`, enabling a failed
+required title anchors at INFO level in `.runtime/logs/et-app.log`, enabling a failed
 or no-match lookup to be reproduced manually without logging full paper text.
 
 **Quality pipeline (additional LLM calls):**
@@ -826,7 +826,7 @@ Phase-30 conjecture/discovery design + tracking: `docs/phases/phase-30-conjectur
 - `DynamicDirectionalClassificationTest` and `PredicateStudyPreRegistrationTest` — a dynamic predicate study locks its baseline, expected relation, primary range, independent location range, and independently located second-width range before its first census. An `APPROXIMATELY_EQUAL` study also requires a positive absolute `comparisonTolerance`, which is repeated by every registered scan; omitted tolerance prevents new study allocation. Above/below studies are classified by their registered inequality; approximate studies are `SUPPORTED` inside the locked band and `REFUTED` outside it, without a broad post-hoc partial band. Every registered scan must appear in the selected trace, and completed registered confirmation windows cannot be mislabeled as post-hoc or exploratory in final narration. The `abundant`/`perfect` union has a narrow, safe Phase 35 component-subject fallback to `abundant AND density`; it still cannot issue usable evidence without the ordinary indexed-title/full-text, read, relevance-assessment, and Related Work citation checks.
 - `QuestionServedProtocolCloneGuardTest` and `OpenQuestionHarvestServiceTest` — open questions persist their source protocol fingerprint. Serving an exact same-family locked protocol declines the work before it reserves a question, allocates a draft ID, or starts narration; changed protocols, different families, and legacy fingerprint-less rows remain eligible.
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
-- `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
+- `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to an operator-specified directory (normally `.runtime/test-artifacts/`). Expected time: ~3m 15s with the default wait.
 - `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Use `scripts/run-real-gpu-e2e.sh` on Fedora and `pwsh ./scripts/run-real-gpu-e2e.ps1` on Windows. Expected time: ~30-60s after startup.
 - `scripts/compare-cpu-vs-gpu-performance.ps1` runs release-binary CPU-vs-GPU comparisons with the `perf` profile and prints JSON with per-run timings, averages, and GPU-minus-CPU deltas. Use `scripts/compare-cpu-vs-gpu-performance.sh` on Fedora and `pwsh ./scripts/compare-cpu-vs-gpu-performance.ps1` on Windows.
 - `scripts/test-setup-fedora-prereqs.sh` smoke-tests the Fedora bootstrap helper in a no-op mode so setup docs and argument parsing can be verified without reinstalling packages or touching PostgreSQL. Expected time: a few seconds.
@@ -906,7 +906,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/run-real-gpu-e2e.sh
 ```
 
-The script starts the real Rust engine from `engines/gpu-engine/` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output/gpu-e2e-*`.
+The script starts the real Rust engine from `engines/gpu-engine/` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `.runtime/test-artifacts/gpu-e2e-*`.
 
 ### Release perf comparison
 Use the release-binary comparison harness for CPU-vs-GPU timings:
@@ -965,7 +965,7 @@ See `apps/game-service/src/main/resources/application.yml` for game-service sett
 - `app.simulationHistory.root` for append-only civic history output
 - `app.research.experiments.range-chunking.*` for Phase 36's restart-safe Julia scale-ladder
   execution; it preserves every count-weighted density metric's full logical window and journals
-  chunks under `simulation-history/research-experiments/` (enabled at 50,000 integers per chunk).
+  chunks under `.runtime/runtime-history/research-experiments/` (enabled at 50,000 integers per chunk).
   A ladder checks Julia readiness before it schedules a wide request, and each chunk records
   actual queue wait, Julia compute, and transport time separately. Its number-theory requests use
   `app.julia.conjecture.timeoutMs` (15 seconds), not the general Julia timeout; one request timeout
@@ -988,14 +988,14 @@ See `apps/game-service/src/main/resources/application.yml` for game-service sett
 - Current implementation notes live in `docs/archive/constitutional-terrain-phase1.md`.
 - Machine-readable constitutional rules live in `apps/game-service/src/main/resources/government/constitution-rules.json`.
 - That constitution file contains structured content, not just a version string: Articles I-VII plus Amendments I-XXVII each carry a title, category, trigger, enforcement rule, and affected systems used by runtime doctrine and summary generation.
-- Runtime history output is append-only and written under `simulation-history/` with subfolders for:
+- Runtime history output is append-only and written under `.runtime/runtime-history/` with subfolders for:
   - `constitution`
   - `events`
   - `elections`
   - `courts`
   - `legislation`
 - Phase 36 range-chunk journals are separate mutable execution state under
-  `simulation-history/research-experiments/`. The enabled first slice applies to every safely
+  `.runtime/runtime-history/research-experiments/`. The enabled first slice applies to every safely
   count-weighted density CONSTANT scale-ladder metric: a 500,000-wide requested window remains the
   same logical interval, but runs as resumable 50,000-integer chunks. It records queue, Julia
   compute, and transport timings; a partial job cannot support a full-range claim.

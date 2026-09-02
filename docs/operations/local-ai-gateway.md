@@ -24,7 +24,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/start.sh
 curl -fsS http://127.0.0.1:8788/healthz
 curl -fsS http://127.0.0.1:8788/v1/models
-tail -f logs/local-ai-gateway.log
+tail -f .runtime/logs/local-ai-gateway.log
 ```
 
 The app uses the non-secret sentinel `local-ai-gateway`. A missing command or gateway failure falls

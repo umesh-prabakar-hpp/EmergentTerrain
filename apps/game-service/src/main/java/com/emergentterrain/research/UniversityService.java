@@ -316,8 +316,8 @@ public class UniversityService {
     private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
     /** Durable reservation state, deliberately outside archived per-run research output. */
-    @Value("${app.research.paper-id-ledger.dir:simulation-history/research-paper-ids}")
-    private String paperIdLedgerDir = "simulation-history/research-paper-ids";
+    @Value("${app.research.paper-id-ledger.dir:.runtime/runtime-history/research-paper-ids}")
+    private String paperIdLedgerDir = ".runtime/runtime-history/research-paper-ids";
     private volatile PaperIdAllocationLedger paperIdAllocationLedger;
     /** Papers emitted by this JVM only. This deliberately does not reuse {@link #published}, whose
      * per-room cache may be seeded from prior database rows at startup. */

@@ -38,6 +38,10 @@ spring:
 server:
   port: 8081
 app:
+  # Root for local generated runtime data. Override with an absolute ET_RUNTIME_DIR for a
+  # durable service-data location outside the checkout.
+  runtime:
+    root: ${ET_RUNTIME_DIR:.runtime}
   research-context:
     # Required by the internal research-service caller; keep empty to reject unauthenticated calls.
     api-key: ${RESEARCH_CONTEXT_API_KEY:}
@@ -379,7 +383,7 @@ app:
       maxWindowMinutes: 21600
       compactionIntervalMs: 300000
   simulationHistory:
-    root: simulation-history
+    root: ${ET_RUNTIME_HISTORY_DIR:${app.runtime.root}/runtime-history}
   activityLog:
     intervalMs: 30000
   university:
@@ -798,13 +802,13 @@ app:
     # suppressed before publication. It is outside `research/` because that output
     # is archived/reset between runs; do not point it at a disposable run directory.
     paper-id-ledger:
-      dir: simulation-history/research-paper-ids
+      dir: ${RESEARCH_PAPER_ID_LEDGER_DIR:${app.simulationHistory.root}/research-paper-ids}
     conjecture-consumption-audit:
       # Phase 42 queue-consumption evidence only. The legacy cycle writes an idempotent event
       # after it marks a source investigated. When enabled, the context endpoint exposes only a
       # bounded post-consumption audit window; this never selects, routes, or mutates a queue.
       enabled: false
-      journal-root: simulation-history/research-queue-consumption
+      journal-root: ${RESEARCH_CONJECTURE_CONSUMPTION_JOURNAL_ROOT:${app.simulationHistory.root}/research-queue-consumption}
     experiments:
       range-chunking:
         # Phase 36: every count-weighted density CONSTANT ladder window retains its exact logical
@@ -995,7 +999,7 @@ app:
       # offline immutable-index refresh before re-running normal local search.
       timeout-recovery:
         enabled: true
-        state-dir: simulation-history/research-literature-recovery
+        state-dir: ${RESEARCH_LITERATURE_RECOVERY_DIR:${app.simulationHistory.root}/research-literature-recovery}
         max-discovery-attempts: 3
         max-queue-size: 100
         poll-interval-ms: 60000
@@ -2878,7 +2882,7 @@ management:
 
 logging:
   file:
-    name: logs/et-app.log
+    name: ${ET_RUNTIME_LOG_DIR:${app.runtime.root}/logs}/et-app.log
   level:
     org.springframework.boot.context.config: DEBUG
     com.emergentterrain.service.RoomService: INFO

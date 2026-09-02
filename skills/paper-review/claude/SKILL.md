@@ -162,7 +162,7 @@ until a project marker is found: `logs/`, `pom.xml`, `.git`, or `build.gradle`.
 
 Standard locations:
 
-- Main app: `<root>/logs/et-app.log`, or the newest non-archive `*.log` under `<root>/logs/`.
+- Main app: `<root>/.runtime/logs/et-app.log`, or the newest non-archive `*.log` under `<root>/.runtime/logs/`.
 - Julia sidecar: `<root>/services/julia-math-sidecar/logs/sidecar.log`.
 - GPU engine: `<root>/engines/gpu-engine/logs/gpu-engine.log`, plus `.err.log` if present.
 

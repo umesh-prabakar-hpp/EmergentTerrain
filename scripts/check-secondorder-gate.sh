@@ -25,14 +25,14 @@
 # hardcoded, so the check tracks config changes automatically.
 #
 # Usage:   scripts/check-secondorder-gate.sh [APP_LOG] [APPLICATION_YML]
-# Default: scripts/check-secondorder-gate.sh logs/et-app.log apps/game-service/src/main/resources/application.yml
+# Default: scripts/check-secondorder-gate.sh .runtime/logs/et-app.log apps/game-service/src/main/resources/application.yml
 #
 # Exit: 0 = all HARD checks passed   1 = a HARD check FAILED
 #       2 = cannot assess (no finished run in the log)
 
 set -uo pipefail
 
-LOG="${1:-logs/et-app.log}"
+LOG="${1:-.runtime/logs/et-app.log}"
 YAML="${2:-apps/game-service/src/main/resources/application.yml}"
 ORIG_LOG="$LOG"
 

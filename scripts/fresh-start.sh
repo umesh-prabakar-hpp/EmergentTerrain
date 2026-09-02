@@ -97,12 +97,20 @@ echo "Done."
 
 echo ""
 echo "--- Deleting simulation history files ---"
-rm -rf "$APP_DIR"/simulation-history/constitution/*
-rm -rf "$APP_DIR"/simulation-history/courts/*
-rm -rf "$APP_DIR"/simulation-history/elections/*
-rm -rf "$APP_DIR"/simulation-history/events/*
-rm -rf "$APP_DIR"/simulation-history/legislation/*
-rm -f  "$APP_DIR"/simulation-history/constitution-bootstrap-*.json
+runtime_root="${ET_RUNTIME_DIR:-$APP_DIR/.runtime}"
+if [[ "$runtime_root" != /* ]]; then
+  runtime_root="$APP_DIR/$runtime_root"
+fi
+history_root="${ET_RUNTIME_HISTORY_DIR:-$runtime_root/runtime-history}"
+if [[ "$history_root" != /* ]]; then
+  history_root="$APP_DIR/$history_root"
+fi
+rm -rf "$history_root"/constitution/*
+rm -rf "$history_root"/courts/*
+rm -rf "$history_root"/elections/*
+rm -rf "$history_root"/events/*
+rm -rf "$history_root"/legislation/*
+rm -f  "$history_root"/constitution-bootstrap-*.json
 echo "Done."
 
 echo ""

@@ -179,7 +179,7 @@ result may expose only this eligibility status as display-safe provenance; that 
 composition, narration, publication, delivery changes, or any game authority.
 The game-owned `app.research.conjecture-consumption-audit.enabled` journal is default-off. It may
 record an event only after the legacy cycle has marked the exact conjecture investigated, using a
-restart-idempotent file under `simulation-history/research-queue-consumption/`. It must never
+restart-idempotent file under `.runtime/runtime-history/research-queue-consumption/`. It must never
 select, route, expose, or let research mutate the live queue. While enabled, the game context may
 publish only its bounded post-consumption audit window; epoch changes or unavailable sequences are
 inconclusive, so use its events solely to capture remaining consumption/restart cadence before any
@@ -310,7 +310,7 @@ What it proves:
 - a live proposal applies through `rebuild_patch`
 - the engine log contains `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` proof markers
 
-Logs are written under `sample-output/gpu-e2e-*`.
+Logs are written under `.runtime/test-artifacts/gpu-e2e-*`.
 
 Release-binary perf comparison:
 ```bash
@@ -388,10 +388,10 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - Bot civic state now also participates in the government loop via `proceduralState` and `sanctionState`; when adding more individualized enforcement, prefer updating bot civic state and pressure generation together rather than inventing disconnected side records.
 - Civic legal climate is now surfaced through `GovernmentSummary.civicLegalItems` and trend payload counts/shares, so new individualized government layers should generally wire through those before adding another bespoke panel.
 - `src/main/java/com/emergentterrain/gpu/GpuEngineCodec.java` handles tile and bool-grid encoding.
-- `apps/game-service/src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, government feedback thresholds, and `app.government.timeline.*` retention settings.
-- Append-only simulation history is written under `simulation-history/constitution`, `simulation-history/events`, `simulation-history/elections`, `simulation-history/courts`, and `simulation-history/legislation`.
+- `apps/game-service/src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, `.runtime/runtime-history`, government feedback thresholds, and `app.government.timeline.*` retention settings.
+- Append-only simulation history is written under `.runtime/runtime-history/constitution`, `.runtime/runtime-history/events`, `.runtime/runtime-history/elections`, `.runtime/runtime-history/courts`, and `.runtime/runtime-history/legislation`.
 - **Phase 36 range-preserving chunk slice** — `RangePreservingChunkExecutor` journals mutable,
-  restart-safe research execution under `simulation-history/research-experiments/` (not
+  restart-safe research execution under `.runtime/runtime-history/research-experiments/` (not
   `research/<room>/`, which resets). With
   `app.research.experiments.range-chunking.enabled=true`, only the metric-safe
   count-weighted-density CONSTANT scale-ladder paths chunk a wide logical window; their union
@@ -434,7 +434,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   parallel, because SQLite FTS maintenance is a single-writer offline task.
 
 ## Constraints
-- Do not commit local outputs under `sample-output/`.
+- Do not commit local outputs under `.runtime/test-artifacts/`.
 - Do not commit runtime research, LLM traces, service logs, simulation history, or Julia `outputs/`.
   They are machine-local and excluded by `.gitignore`; release evidence belongs in reviewed source
   fixtures or documented, separately licensed artifacts.
@@ -446,7 +446,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - If behavior, setup, or performance workflows change, update both `README.md` and `AGENTS.md` in the same change.
 - **Check `application.yml` for live flag state, not the `@Value` default.** Several flags read `…:false` in the Java `@Value` annotation but are set `true` in YAML (e.g. `first-pass-metric-guard`, `revision-trace-grounding`, the `app.research.discovery.*` flags). A flag's annotation default is not its running value.
 - **Durable paper-ID allocation (2026-07-24)** — every ID is reserved before narration in the
-  append-only `simulation-history/research-paper-ids/<room>.paper-id-allocations.log` ledger.
+  append-only `.runtime/runtime-history/research-paper-ids/<room>.paper-id-allocations.log` ledger.
   Suppressed, timed-out, and interrupted drafts therefore consume an ID even without a DB row or
   markdown file; do not derive the next ID solely from `research/<room>/` or the papers table. The
   ledger is allocation/audit state only and must never seed promotion, evidence, or paper content.

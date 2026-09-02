@@ -117,7 +117,9 @@ require_command kill
 require_command cargo
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
-output_dir="$repo_root/sample-output/gpu-e2e-$timestamp"
+runtime_root="${ET_RUNTIME_DIR:-$repo_root/.runtime}"
+test_artifacts_root="${ET_TEST_ARTIFACTS_DIR:-$runtime_root/test-artifacts}"
+output_dir="$test_artifacts_root/gpu-e2e-$timestamp"
 mkdir -p "$output_dir"
 
 gpu_log="$output_dir/gpu-engine.log"

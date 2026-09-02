@@ -32,7 +32,7 @@ import java.util.function.Consumer;
  * <p>A timed-out local lookup is neither a no-match nor evidence.  The
  * originating paper is therefore held before publication, with its exact
  * semantic search request and a serialization-safe draft snapshot journaled
- * under {@code simulation-history/research-literature-recovery/}.  The worker
+ * under {@code .runtime/runtime-history/research-literature-recovery/}.  The worker
  * may consult OpenAlex only to discover possible open-access backfill targets;
  * those records are expressly non-evidentiary and are never exposed as an
  * {@code HF...} key or citation.  After an operator completes an offline index
@@ -97,7 +97,7 @@ public final class LiteratureTimeoutRecoveryQueue {
     public LiteratureTimeoutRecoveryQueue(
             ObjectMapper objectMapper,
             @Value("${app.research.literature.timeout-recovery.enabled:false}") boolean enabled,
-            @Value("${app.research.literature.timeout-recovery.state-dir:simulation-history/research-literature-recovery}") String stateDir,
+            @Value("${app.research.literature.timeout-recovery.state-dir:.runtime/runtime-history/research-literature-recovery}") String stateDir,
             @Value("${app.research.literature.timeout-recovery.max-discovery-attempts:3}") int maxDiscoveryAttempts,
             @Value("${app.research.literature.timeout-recovery.max-queue-size:100}") int maxQueueSize,
             @Autowired(required = false) OpenAlexClient openAlex,
