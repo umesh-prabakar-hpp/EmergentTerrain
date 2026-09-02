@@ -328,12 +328,19 @@ When finished, stop the managed web app and its managed proxies:
 ./scripts/stop.sh
 ```
 
-## 8. Build and test
+## 8. Build
 
-Run Java checks from the repository root:
+Build the Java game service from the repository root:
 
 ```bash
 mvn -f apps/game-service/pom.xml -DskipTests package
+```
+
+## 9. Test
+
+Run the Java test suite:
+
+```bash
 mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
 ```
 
@@ -347,7 +354,7 @@ For the real two-process GPU smoke test and packaged performance comparison, see
 [AGENTS.md](AGENTS.md). Do not use `spring-boot:run` or `cargo run` as substitutes for the
 documented release-performance workflow.
 
-## 9. Review workflows
+## 10. Review workflows
 
 For literature provenance, licensing, and acceptance requirements, see [CORPUS.md](CORPUS.md) and
 the relevant phase documentation. Do not commit downloaded corpora, generated papers, logs, or
@@ -357,7 +364,7 @@ For maintainers using the local Codex skills, the paper-review and phase-review 
 documented in `skills/paper-review/` and `skills/phase-review/`. They review evidence and planning;
 they do not grant permission to mutate gameplay state or treat AI narration as evidence.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 - **PostgreSQL is down or unauthenticated:** start PostgreSQL, verify the configured `PG_URL`,
   `PG_USER`, and `PG_PASSWORD`, then rerun the status script.

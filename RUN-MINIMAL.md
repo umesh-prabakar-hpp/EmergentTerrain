@@ -211,11 +211,17 @@ cd "$(git rev-parse --show-toplevel)"
 ./scripts/stop.sh
 ```
 
-## 13. Build and test
+## 13. Build
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml -DskipTests package
+```
+
+## 14. Test
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
 mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
 cargo test --manifest-path engines/gpu-engine/Cargo.toml
 ```
