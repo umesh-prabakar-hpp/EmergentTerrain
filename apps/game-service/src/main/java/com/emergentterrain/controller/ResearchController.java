@@ -2,6 +2,7 @@ package com.emergentterrain.controller;
 
 import com.emergentterrain.research.api.ResearchQueryClient;
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClientException;
@@ -36,6 +37,23 @@ public class ResearchController {
         } catch (RestClientException failure) {
             log.warn("Research paper query unavailable roomId={} type={}", roomId,
                     failure.getClass().getSimpleName());
+            return ResponseEntity.status(503).build();
+        }
+    }
+
+    @GetMapping({"/room/{roomId}/research/papers/{paperId}/quality-assessments",
+            "/api/v1/research/rooms/{roomId}/papers/{paperId}/quality-assessments"})
+    public ResponseEntity<List<ResearchQualityAssessmentSummary>> getQualityAssessmentHistory(
+            @PathVariable("roomId") UUID roomId,
+            @PathVariable("paperId") String paperId) {
+        if (researchClient.isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+        try {
+            return ResponseEntity.ok(researchClient.get().getQualityAssessmentHistory(roomId, paperId));
+        } catch (RestClientException failure) {
+            log.warn("Research quality history query unavailable roomId={} paperId={} type={}", roomId,
+                    paperId, failure.getClass().getSimpleName());
             return ResponseEntity.status(503).build();
         }
     }

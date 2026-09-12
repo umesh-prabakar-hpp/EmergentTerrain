@@ -1,6 +1,7 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +28,13 @@ public class ResearchApiController {
             @PathVariable("roomId") UUID roomId,
             @RequestParam(name = "limit", defaultValue = "50") int limit) {
         return ResponseEntity.ok(research.papers(roomId, limit));
+    }
+
+    @GetMapping("/papers/{paperId}/quality-assessments")
+    public ResponseEntity<List<ResearchQualityAssessmentSummary>> qualityAssessmentHistory(
+            @PathVariable("roomId") UUID roomId,
+            @PathVariable("paperId") String paperId) {
+        return ResponseEntity.ok(research.qualityAssessmentHistory(roomId, paperId));
     }
 
     @GetMapping("/stats")

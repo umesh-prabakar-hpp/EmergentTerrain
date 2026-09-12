@@ -1548,6 +1548,25 @@ md-filled-button[disabled] {
   opacity: 0.65;
   margin-bottom: 5px;
 }
+.quality-history-btn {
+  border: 1px solid var(--md-sys-color-outline-variant, #cac4d0);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--md-sys-color-primary, #6750a4);
+  cursor: pointer;
+  font-size: 0.72rem;
+  margin: 2px 0 6px;
+  padding: 3px 7px;
+}
+.quality-history-btn:disabled { cursor: wait; opacity: 0.65; }
+.quality-history {
+  border-left: 2px solid var(--md-sys-color-primary, #6750a4);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  margin: 1px 0 7px;
+  padding: 4px 0 4px 8px;
+}
+.quality-history-entry { margin: 0 0 5px; }
 .paper-hypothesis,
 .paper-findings,
 .paper-conclusion {

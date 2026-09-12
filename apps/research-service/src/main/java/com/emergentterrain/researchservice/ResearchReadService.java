@@ -1,6 +1,7 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,6 +63,28 @@ public class ResearchReadService {
                 LIMIT ?
                 """, (rs, rowNum) -> paperSummary(rs), roomId, boundedLimit);
         return papers;
+    }
+
+    /**
+     * Returns only immutable assessment metadata for a paper belonging to the requested room.
+     * An absent or cross-room paper has the same empty response, so this read cannot enumerate
+     * another room's assessment history.
+     */
+    public List<ResearchQualityAssessmentSummary> qualityAssessmentHistory(UUID roomId, String paperId) {
+        if (paperId == null || paperId.isBlank()) return List.of();
+        Boolean belongsToRoom = jdbc.query("""
+                SELECT EXISTS(
+                    SELECT 1 FROM research_papers WHERE room_id = ? AND paper_id = ?
+                )
+                """, rs -> rs.next() && rs.getBoolean(1), roomId, paperId);
+        if (!Boolean.TRUE.equals(belongsToRoom)) return List.of();
+        return jdbc.query("""
+                SELECT assessment_revision, grade, rubric_version, assessor_model, assessed_at,
+                       evidence_references_json, unmet_requirements_json, contradictions_json
+                FROM research_paper_quality_assessments
+                WHERE paper_id = ?
+                ORDER BY assessment_revision DESC
+                """, (rs, rowNum) -> assessmentSummary(rs), paperId);
     }
 
     public Map<String, Object> stats(UUID roomId) {
@@ -139,6 +162,17 @@ public class ResearchReadService {
                 stringList(rs.getString("quality_contradictions_json")));
     }
 
+    private ResearchQualityAssessmentSummary assessmentSummary(ResultSet rs) throws SQLException {
+        Timestamp assessedAt = rs.getTimestamp("assessed_at");
+        return new ResearchQualityAssessmentSummary(
+                rs.getInt("assessment_revision"), rs.getString("grade"),
+                rs.getString("rubric_version"), rs.getString("assessor_model"),
+                assessedAt == null ? null : assessedAt.toInstant(),
+                boundedStringList(rs.getString("evidence_references_json")),
+                boundedStringList(rs.getString("unmet_requirements_json")),
+                boundedStringList(rs.getString("contradictions_json")));
+    }
+
     private List<String> stringList(String json) {
         try {
             return objectMapper.readValue(json == null ? "[]" : json,
@@ -146,6 +180,10 @@ public class ResearchReadService {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    private List<String> boundedStringList(String json) {
+        return stringList(json).stream().limit(50).toList();
     }
 
     private BotStats botStats(UUID roomId) {

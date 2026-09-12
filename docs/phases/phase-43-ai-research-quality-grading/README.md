@@ -3,7 +3,8 @@
 **Status: IN PROGRESS — durable AI-assessment history, quality-aware duplicate admission, default-on
 note/draft adjudication, finite legacy backfill, and a read-only v1 quality projection are
 implemented. The Research Lab now renders workflow and quality state separately. Independent-
-replication promotion is explicitly deferred.**
+replication promotion is explicitly deferred. The Research Lab can also display the retained
+read-only assessment history for each paper.**
 
 ## Purpose
 
@@ -100,6 +101,12 @@ when no assessment exists. The response exposes the grade, rubric/model provenan
 revision/time, unmet requirements, and contradictions; it does not expose mutable entities,
 prompt text, or any ability to alter an assessment.
 
+`GET /api/v1/research/rooms/{roomId}/papers/{paperId}/quality-assessments` exposes the immutable
+history newest-first. It returns bounded evidence-reference, unmet-requirement, and contradiction
+lists only for a paper in that room; an absent, cross-room, or unassessed paper yields an empty
+list. The Research Lab loads this read-only history on demand. It does not expose prompts,
+research payloads, mutable entities, or a mutation route.
+
 ## Durable assessment record
 
 The research service owns an append-only `research_paper_quality_assessments` record keyed by
@@ -160,7 +167,8 @@ results, or claim novelty merely because it reran.
    each reuse rationale.
 6. Surface workflow status, current quality grade, rubric version, evidence links, and blockers
    separately in the UI and research API. **The v1 API projection and Research Lab workflow/
-   quality display are implemented; evidence links remain a future detail view.**
+   quality display are implemented, including an on-demand immutable assessment-history detail
+   view.**
 7. Define and independently evaluate a public expert benchmark before allowing
    `BEYOND_HUMAN_BENCHMARK`.
 

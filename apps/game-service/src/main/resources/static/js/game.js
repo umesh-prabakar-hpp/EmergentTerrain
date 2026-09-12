@@ -3523,11 +3523,72 @@ function renderPapers(papers) {
       <div class="paper-meta">Workflow: ${p.status || 'UNKNOWN'} · Quality: ${qualityGrade}${quality.rubricVersion ? ` (${quality.rubricVersion})` : ''}</div>
       <div class="paper-meta">Gen ${p.generation || 0} · ${p.methodology || ''} · ${reviewers} reviewer${reviewers !== 1 ? 's' : ''} · Tick ${p.tick || 0}</div>
       ${qualityBlocker ? `<div class="paper-meta">Quality blocker: ${qualityBlocker}</div>` : ''}
+      <button class="quality-history-btn" type="button" data-quality-history-paper-id="${p.paperId || ''}">Quality assessment history</button>
+      <div class="quality-history" data-quality-history-for="${p.paperId || ''}" hidden></div>
       <div class="paper-hypothesis">${p.hypothesis || ''}</div>
       <div class="paper-findings">${p.findings || ''}</div>
       <div class="paper-conclusion">${p.conclusion || ''}</div>
     </div>`;
   }).join('');
+  papersListEl.querySelectorAll('[data-quality-history-paper-id]').forEach(button => {
+    button.addEventListener('click', () => toggleQualityAssessmentHistory(button));
+  });
+}
+
+async function toggleQualityAssessmentHistory(button) {
+  const paperId = button.getAttribute('data-quality-history-paper-id');
+  const historyEl = papersListEl?.querySelector(`[data-quality-history-for="${CSS.escape(paperId || '')}"]`);
+  if (!paperId || !historyEl || !roomId) return;
+  if (!historyEl.hidden) {
+    historyEl.hidden = true;
+    button.textContent = 'Quality assessment history';
+    return;
+  }
+  if (historyEl.dataset.loaded === 'true') {
+    historyEl.hidden = false;
+    button.textContent = 'Hide quality assessment history';
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Loading quality history…';
+  try {
+    const response = await fetch(`/room/${roomId}/research/papers/${encodeURIComponent(paperId)}/quality-assessments`);
+    if (!response.ok) throw new Error('quality history unavailable');
+    renderQualityAssessmentHistory(historyEl, await response.json());
+    historyEl.dataset.loaded = 'true';
+    historyEl.hidden = false;
+    button.textContent = 'Hide quality assessment history';
+  } catch (error) {
+    historyEl.textContent = 'Quality assessment history is unavailable.';
+    historyEl.hidden = false;
+    button.textContent = 'Quality assessment history';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderQualityAssessmentHistory(historyEl, assessments) {
+  historyEl.replaceChildren();
+  if (!Array.isArray(assessments) || assessments.length === 0) {
+    historyEl.textContent = 'No AI quality assessment has been retained for this paper.';
+    return;
+  }
+  assessments.forEach(assessment => {
+    const entry = document.createElement('div');
+    entry.className = 'quality-history-entry';
+    const timestamp = assessment.assessedAt ? new Date(assessment.assessedAt).toLocaleString() : 'time unavailable';
+    entry.textContent = `Revision ${assessment.assessmentRevision}: ${assessment.grade || 'UNKNOWN'} · ${assessment.rubricVersion || 'unknown rubric'} · ${timestamp}`;
+    const appendList = (label, values) => {
+      if (!Array.isArray(values) || values.length === 0) return;
+      const detail = document.createElement('div');
+      detail.textContent = `${label}: ${values.join('; ')}`;
+      entry.appendChild(detail);
+    };
+    appendList('Evidence', assessment.evidenceReferences);
+    appendList('Unmet requirements', assessment.unmetRequirements);
+    appendList('Contradictions', assessment.contradictions);
+    historyEl.appendChild(entry);
+  });
 }
 
 function initBots() {
