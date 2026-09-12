@@ -6,6 +6,7 @@ import com.emergentterrain.research.quality.ResearchPaperQualityAssessment;
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
 import com.emergentterrain.repo.ResearchPaperQualityAssessmentRepository;
 import com.emergentterrain.repo.ResearchPaperRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -67,7 +68,7 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
                 paper.paperId(), paper.roomId(), paper.authorBotId(), paper.domain(), paper.topic(),
                 paper.title(), paper.hypothesis(), paper.methodology(), paper.findings(), paper.conclusion(),
                 List.copyOf(paper.reviewerBotIds()), paper.peerScore(), paper.status(), paper.tick(),
-                paper.generation(), quality(paper.paperId()));
+                paper.generation(), quality(paper.paperId()), protocolReuse(paper.protocolReuseProvenance()));
     }
 
     private ResearchQualitySummary quality(String paperId) {
@@ -90,6 +91,14 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
                 boundedStringList(assessment.evidenceReferencesJson()),
                 boundedStringList(assessment.unmetRequirementsJson()),
                 boundedStringList(assessment.contradictionsJson()));
+    }
+
+    private ResearchProtocolReuseSummary protocolReuse(String json) {
+        try {
+            return objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private List<String> stringList(String json) {

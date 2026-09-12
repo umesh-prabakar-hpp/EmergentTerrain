@@ -414,6 +414,8 @@ components:
         generation: { type: integer, format: int32 }
         quality:
           $ref: '#/components/schemas/ResearchQualitySummary'
+        protocolReuse:
+          $ref: '#/components/schemas/ResearchProtocolReuseSummary'
     ResearchQualitySummary:
       type: object
       required: [grade, rubricVersion, assessorModel, assessmentRevision, unmetRequirements, contradictions]
@@ -454,6 +456,17 @@ components:
           type: array
           maxItems: 50
           items: { type: string }
+    ResearchProtocolReuseSummary:
+      type: object
+      required: [sourcePaperId, sourceProtocolFingerprint, reason, protocolChanged]
+      description: Locked provenance for an allowed exact protocol reuse; it is not a novelty or quality claim.
+      properties:
+        sourcePaperId: { type: string }
+        sourceProtocolFingerprint: { type: string }
+        reason:
+          type: string
+          enum: [OPEN_QUESTION_CONTINUATION, UNSETTLED_IDENTICAL_PROTOCOL]
+        protocolChanged: { type: boolean }
     ResearchStats:
       type: object
       required: [totalPublished, totalRejected, researcherCount, maxGeneration, avgReputation, avgPeerScore, byDomain]

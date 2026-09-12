@@ -4,7 +4,7 @@
 note/draft adjudication, finite legacy backfill, and a read-only v1 quality projection are
 implemented. The Research Lab now renders workflow and quality state separately. Independent-
 replication promotion is explicitly deferred. The Research Lab can also display the retained
-read-only assessment history for each paper.**
+read-only assessment history for each paper. Exact-protocol reuse now has durable provenance.**
 
 ## Purpose
 
@@ -148,6 +148,25 @@ remediation, changed model/provider, or a strengthened protocol revision.  Exact
 stated improvement remains visible to the AI adjudicator and may be graded as a note or rejected
 by review; it is not silently presented as novel.
 
+### Implemented v1 reuse provenance
+
+For the currently implemented conjecture-investigation allocation path, an allowed exact reuse is
+locked into the new pre-registration and persisted with the resulting paper as structured JSON:
+the source paper ID, source protocol fingerprint, a system-derived reason, and whether the
+protocol changed. The only v1 reasons are `OPEN_QUESTION_CONTINUATION` and
+`UNSETTLED_IDENTICAL_PROTOCOL`; neither asserts a stronger evidence range, new literature, or
+novelty that the allocation path cannot prove. The provenance is included as a server-bound input
+to the AI quality assessment. It is evidence only and must not change selection, computation,
+narration, publication, protocol-settlement policy, or quality promotion.
+
+The standard paper read model exposes this provenance when present, and the Research Lab renders
+the source and reason separately from workflow status and quality grade. The remote adapter reads
+the optional database field through PostgreSQL's row-to-JSON projection, so an older transition
+database that does not yet have the field remains readable and simply reports no provenance.
+
+The broader user- or reviewer-declared improvement reasons listed above remain future work. They
+must be separately captured and validated before they are represented as facts.
+
 This rule is about **admission**, not automatic promotion.  It deliberately permits the full
 cycle—computation, narration, review, and persistence—when no human-quality-or-beyond result
 settles the protocol.  It does not permit a cycle to overwrite prior evidence, suppress null
@@ -164,7 +183,9 @@ results, or claim novelty merely because it reran.
    evidence references and disagreement outcome. **The note/draft-only v1 adjudicator is
    implemented; promotion-grade independent replication is deferred.**
 5. Replace the duplicate-protocol guard with the quality-aware admission policy above and record
-   each reuse rationale.
+   each reuse rationale. **The implemented conjecture-investigation exact-reuse path persists
+   source/fingerprint and its limited system-derived reason; broader declared-improvement reasons
+   remain future work.**
 6. Surface workflow status, current quality grade, rubric version, evidence links, and blockers
    separately in the UI and research API. **The v1 API projection and Research Lab workflow/
    quality display are implemented, including an on-demand immutable assessment-history detail

@@ -136,6 +136,7 @@ public class AiResearchQualityAdjudicator {
                 + "CONCLUSION: " + safe(paper.conclusion()) + "\n"
                 + "LOCKED PROTOCOL: " + safe(draft == null || draft.preRegistration() == null
                         ? paper.protocolFingerprint() : draft.preRegistration().mappingNotes()) + "\n"
+                + "PROTOCOL REUSE PROVENANCE: " + protocolReuseProvenance(paper, draft) + "\n"
                 + "COMPUTATION TRACE: " + safe(paper.toolCallTrace()) + "\n"
                 + "RELATED WORK: " + safe(paper.relatedWork()) + "\n"
                 + "REVIEW PANEL: " + safe(paper.panelOutcome()) + "\n"
@@ -166,10 +167,27 @@ public class AiResearchQualityAdjudicator {
                 || !safe(paper.protocolFingerprint()).isBlank()) {
             refs.add("protocol:" + paper.paperId());
         }
+        if ((draft != null && draft.preRegistration() != null
+                && draft.preRegistration().protocolReuseProvenance() != null)
+                || !safe(paper.protocolReuseProvenance()).isBlank()) {
+            refs.add("protocol-reuse:" + paper.paperId());
+        }
         if (!safe(paper.findings()).isBlank()) refs.add("computation:" + paper.paperId());
         if (!safe(paper.conclusion()).isBlank()) refs.add("narration:" + paper.paperId());
         if (!safe(paper.panelOutcome()).isBlank()) refs.add("review-panel:" + paper.paperId());
         return Set.copyOf(refs);
+    }
+
+    private String protocolReuseProvenance(ResearchPaper paper, PaperDraft draft) {
+        if (draft != null && draft.preRegistration() != null
+                && draft.preRegistration().protocolReuseProvenance() != null) {
+            try {
+                return objectMapper.writeValueAsString(draft.preRegistration().protocolReuseProvenance());
+            } catch (Exception impossible) {
+                return "";
+            }
+        }
+        return safe(paper.protocolReuseProvenance());
     }
 
     private String jsonArray(Set<String> values) {

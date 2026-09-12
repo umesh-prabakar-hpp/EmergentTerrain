@@ -3513,6 +3513,7 @@ function renderPapers(papers) {
     const quality = p.quality || { grade: 'UNASSESSED', rubricVersion: '', unmetRequirements: [] };
     const qualityGrade = quality.grade || 'UNASSESSED';
     const qualityBlocker = (quality.unmetRequirements || [])[0];
+    const protocolReuse = p.protocolReuse;
     return `<div class="paper-card">
       <div class="paper-header">
         <span class="domain-badge domain-${(p.domain || '').toLowerCase()}">${p.domain || ''}</span>
@@ -3523,6 +3524,7 @@ function renderPapers(papers) {
       <div class="paper-meta">Workflow: ${p.status || 'UNKNOWN'} · Quality: ${qualityGrade}${quality.rubricVersion ? ` (${quality.rubricVersion})` : ''}</div>
       <div class="paper-meta">Gen ${p.generation || 0} · ${p.methodology || ''} · ${reviewers} reviewer${reviewers !== 1 ? 's' : ''} · Tick ${p.tick || 0}</div>
       ${qualityBlocker ? `<div class="paper-meta">Quality blocker: ${qualityBlocker}</div>` : ''}
+      ${protocolReuse ? `<div class="paper-meta">Protocol reuse: ${protocolReuse.reason || 'RECORDED'} from ${protocolReuse.sourcePaperId || 'unknown source'}${protocolReuse.protocolChanged ? ' (changed)' : ' (exact)'}</div>` : ''}
       <button class="quality-history-btn" type="button" data-quality-history-paper-id="${p.paperId || ''}">Quality assessment history</button>
       <div class="quality-history" data-quality-history-for="${p.paperId || ''}" hidden></div>
       <div class="paper-hypothesis">${p.hypothesis || ''}</div>

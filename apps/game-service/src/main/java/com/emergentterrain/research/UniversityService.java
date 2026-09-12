@@ -2481,6 +2481,8 @@ public class UniversityService {
         paper.setProtocolFingerprint(
                 com.emergentterrain.research.question.QuestionServedProtocolCloneGuard
                         .fingerprint(draft.preRegistration()));
+        paper.setProtocolReuseProvenance(serialiseProtocolReuseProvenance(
+                draft.preRegistration() == null ? null : draft.preRegistration().protocolReuseProvenance()));
         // Phase 7 F7.2 — persist the multi-reviewer panel outcome. The full
         // PanelOutcome is JSON-serialised onto a TEXT column; the composite
         // agreement score is cached into its own DOUBLE column so DISPUTED
@@ -4158,6 +4160,18 @@ public class UniversityService {
             return objectMapper.writeValueAsString(trace);
         } catch (Exception e) {
             log.warn("tool-call trace JSON serialisation failed; persisting null: {}",
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    /** Retains locked protocol-reuse provenance without treating it as a publication claim. */
+    private String serialiseProtocolReuseProvenance(ProtocolReuseProvenance provenance) {
+        if (provenance == null) return null;
+        try {
+            return objectMapper.writeValueAsString(provenance);
+        } catch (Exception e) {
+            log.warn("protocol-reuse provenance JSON serialisation failed; persisting null: {}",
                     e.getMessage());
             return null;
         }

@@ -874,6 +874,37 @@ public class ResearchCycleService {
                             + "AI-assessed human-quality-or-beyond family={} mappingNotes={}",
                     matchingPriorProtocols.size(), conjecture.lhs(), candidateRegistration.mappingNotes());
         }
+        ProtocolReuseProvenance reuseProvenance = null;
+        if (questionProtocolClone && candidateFingerprint != null && !candidateFingerprint.isBlank()) {
+            String sourceFingerprint = matchingPriorProtocols.stream()
+                    .filter(prior -> crossRunContext.question().paperId().equals(prior.paperId()))
+                    .map(ResearchPaper::protocolFingerprint)
+                    .filter(value -> value != null && !value.isBlank())
+                    .findFirst()
+                    .orElse(candidateFingerprint);
+            reuseProvenance = new ProtocolReuseProvenance(
+                    crossRunContext.question().paperId(), sourceFingerprint,
+                    ProtocolReuseProvenance.Reason.OPEN_QUESTION_CONTINUATION, false);
+        } else if (questionProtocolClone) {
+            log.warn("question-serve: allowed protocol reuse has no fingerprint; provenance omitted "
+                            + "family={} sourcePaperId={}",
+                    conjecture.lhs(), crossRunContext.question().paperId());
+        } else if (!matchingPriorProtocols.isEmpty()) {
+            ResearchPaper source = matchingPriorProtocols.stream()
+                    .max(java.util.Comparator.comparing(ResearchPaper::publishedAt,
+                                    java.util.Comparator.nullsFirst(java.time.Instant::compareTo))
+                            .thenComparing(ResearchPaper::paperId))
+                    .orElseThrow();
+            reuseProvenance = new ProtocolReuseProvenance(
+                    source.paperId(), source.protocolFingerprint() == null || source.protocolFingerprint().isBlank()
+                            ? candidateFingerprint : source.protocolFingerprint(),
+                    ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL, false);
+        }
+        if (reuseProvenance != null) {
+            // This amends the locked registration before computation. It is provenance only: the
+            // selection, clone gate, parameters, and narrative workflow remain unchanged.
+            candidateRegistration = candidateRegistration.withProtocolReuseProvenance(reuseProvenance);
+        }
         String paperId = ctx.nextPaperId(roomId);
         reserveQuestion(crossRunContext.question(), paperId);
         // 2026-07-05 (P-b72c-77627773) — under the measurement frame, the findings/conclusion

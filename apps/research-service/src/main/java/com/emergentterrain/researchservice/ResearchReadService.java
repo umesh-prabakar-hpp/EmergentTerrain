@@ -3,6 +3,7 @@ package com.emergentterrain.researchservice;
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,7 +49,8 @@ public class ResearchReadService {
                        quality.assessment_revision AS quality_assessment_revision,
                        quality.assessed_at AS quality_assessed_at,
                        quality.unmet_requirements_json AS quality_unmet_requirements_json,
-                       quality.contradictions_json AS quality_contradictions_json
+                       quality.contradictions_json AS quality_contradictions_json,
+                       to_jsonb(research_papers)->>'protocol_reuse_provenance' AS protocol_reuse_provenance
                 FROM research_papers
                 LEFT JOIN LATERAL (
                     SELECT grade, rubric_version, assessor_model, assessment_revision, assessed_at,
@@ -148,7 +150,7 @@ public class ResearchReadService {
                 rs.getString("status"),
                 rs.getLong("tick"),
                 rs.getInt("generation"),
-                qualitySummary(rs));
+                qualitySummary(rs), protocolReuseSummary(rs.getString("protocol_reuse_provenance")));
     }
 
     private ResearchQualitySummary qualitySummary(ResultSet rs) throws SQLException {
@@ -171,6 +173,14 @@ public class ResearchReadService {
                 boundedStringList(rs.getString("evidence_references_json")),
                 boundedStringList(rs.getString("unmet_requirements_json")),
                 boundedStringList(rs.getString("contradictions_json")));
+    }
+
+    private ResearchProtocolReuseSummary protocolReuseSummary(String json) {
+        try {
+            return objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private List<String> stringList(String json) {

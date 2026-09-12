@@ -16,11 +16,24 @@ public record PreRegistration(
         String prediction,
         String falsificationCondition,
         String mappingNotes,
-        ComputationalStudyPlan computationalStudyPlan
+        ComputationalStudyPlan computationalStudyPlan,
+        ProtocolReuseProvenance protocolReuseProvenance
 ) {
     /** Keeps older callers and persisted rework snapshots source-compatible. */
     public PreRegistration(String hypothesis, String prediction,
                            String falsificationCondition, String mappingNotes) {
-        this(hypothesis, prediction, falsificationCondition, mappingNotes, null);
+        this(hypothesis, prediction, falsificationCondition, mappingNotes, null, null);
+    }
+
+    /** Keeps existing locked computational-study registrations source-compatible. */
+    public PreRegistration(String hypothesis, String prediction,
+                           String falsificationCondition, String mappingNotes,
+                           ComputationalStudyPlan computationalStudyPlan) {
+        this(hypothesis, prediction, falsificationCondition, mappingNotes, computationalStudyPlan, null);
+    }
+
+    public PreRegistration withProtocolReuseProvenance(ProtocolReuseProvenance provenance) {
+        return new PreRegistration(hypothesis, prediction, falsificationCondition, mappingNotes,
+                computationalStudyPlan, provenance);
     }
 }

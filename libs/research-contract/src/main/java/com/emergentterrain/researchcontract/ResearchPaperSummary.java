@@ -25,4 +25,5 @@ public record ResearchPaperSummary(
         String status,
         long tick,
         int generation,
-        ResearchQualitySummary quality) { }
+        ResearchQualitySummary quality,
+        ResearchProtocolReuseSummary protocolReuse) { }
