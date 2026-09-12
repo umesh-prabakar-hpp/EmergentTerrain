@@ -3,7 +3,7 @@
 **Status: IN PROGRESS — durable AI-assessment history, quality-aware duplicate admission, default-on
 note/draft adjudication, finite legacy backfill, and a read-only v1 quality projection are
 implemented. The Research Lab now renders workflow and quality state separately. Independent-
-replication promotion remains pending.**
+replication promotion is explicitly deferred.**
 
 ## Purpose
 
@@ -74,6 +74,20 @@ settled grade. The paper remains persisted if the AI call or structured response
 Human-quality and beyond-human promotion stays unavailable until independent replication and
 benchmark records are present in the evidence bundle.
 
+### Deferred: immutable quality-grade replication evidence
+
+The game already has a legacy anomaly-replication path (`ReplicationService`). It chooses a
+different bot, reruns a deterministic computation, and marks a paper `DISPUTED` when a fixed
+score-gap threshold is exceeded. That remains useful operational research evidence, but it is
+not a Phase 43 independent-replication record: its queue is in memory, it does not preserve an
+append-only paper-linked evidence bundle, it has no protocol-fingerprint/tolerance record, and it
+does not participate in AI quality promotion.
+
+Creating the separate immutable, promotion-grade replication record and its fail-closed validator
+is **deferred**. Do not infer `HUMAN_QUALITY_PAPER` or `BEYOND_HUMAN_BENCHMARK` from the legacy
+replication workflow. The v1 adjudicator remains deliberately limited to `RESEARCH_NOTE` and
+`RESEARCH_DRAFT`.
+
 `./scripts/backfill-research-quality.sh [1..25]` is the separate, finite legacy path. It starts
 no web server, scheduler, research worker, or provider-selection probe; selects only `UNASSESSED`
 outputs; never rewrites an existing assessment; and exits after the requested batch (default one).
@@ -140,7 +154,8 @@ results, or claim novelty merely because it reran.
 3. Backfill legacy outputs conservatively to `UNASSESSED` or evidence-supported
    `RESEARCH_NOTE` only.
 4. Add the AI adjudication after review/replication evidence is available; persist its complete
-   evidence references and disagreement outcome.
+   evidence references and disagreement outcome. **The note/draft-only v1 adjudicator is
+   implemented; promotion-grade independent replication is deferred.**
 5. Replace the duplicate-protocol guard with the quality-aware admission policy above and record
    each reuse rationale.
 6. Surface workflow status, current quality grade, rubric version, evidence links, and blockers
