@@ -799,13 +799,13 @@ app:
   # programs.enabled; Phase 4b auto-staking needs markets.enabled; etc.).
   research:
     quality-adjudication:
-      # Phase 43 AI-led grade assignment. Default-off while v1 observes real output; it may
-      # assign only RESEARCH_NOTE or RESEARCH_DRAFT until independent replication is wired.
-      enabled: ${RESEARCH_QUALITY_ADJUDICATION_ENABLED:false}
+      # Phase 43 AI-led grade assignment for newly persisted outputs. V1 may assign only
+      # RESEARCH_NOTE or RESEARCH_DRAFT until independent replication is wired.
+      enabled: ${RESEARCH_QUALITY_ADJUDICATION_ENABLED:true}
       rubric-version: ${RESEARCH_QUALITY_RUBRIC_VERSION:phase-43-rubric-v1}
       max-evidence-chars: ${RESEARCH_QUALITY_MAX_EVIDENCE_CHARS:12000}
       backfill:
-        # Explicit operator action; each process start assesses a bounded batch of legacy outputs.
+        # Reserved for scripts/backfill-research-quality.sh; never enabled by a normal service run.
         enabled: ${RESEARCH_QUALITY_BACKFILL_ENABLED:false}
         max-papers: ${RESEARCH_QUALITY_BACKFILL_MAX_PAPERS:1}
     # Append-only high-water ledger for every allocated draft ID, including drafts

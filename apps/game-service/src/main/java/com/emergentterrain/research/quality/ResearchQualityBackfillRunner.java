@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
@@ -24,27 +25,36 @@ public class ResearchQualityBackfillRunner {
 
     private final ResearchPaperRepository papers;
     private final AiResearchQualityAdjudicator adjudicator;
+    private final ConfigurableApplicationContext applicationContext;
     private final int maxPapers;
 
     public ResearchQualityBackfillRunner(
             ResearchPaperRepository papers,
             AiResearchQualityAdjudicator adjudicator,
+            ConfigurableApplicationContext applicationContext,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.quality-adjudication.backfill.max-papers:1}")
             int maxPapers) {
         this.papers = papers;
         this.adjudicator = adjudicator;
+        this.applicationContext = applicationContext;
         this.maxPapers = Math.max(1, Math.min(25, maxPapers));
     }
 
     @org.springframework.context.annotation.Bean
     ApplicationRunner phase43QualityBackfill() {
         return args -> {
-            var candidates = papers.findUnassessedForQualityBackfill(PageRequest.of(0, maxPapers));
-            log.info("Phase 43 quality backfill selected {} unassessed output(s), max={}",
-                    candidates.size(), maxPapers);
-            for (var paper : candidates) {
-                adjudicator.adjudicateHistorical(paper);
+            try {
+                var candidates = papers.findUnassessedForQualityBackfill(PageRequest.of(0, maxPapers));
+                log.info("Phase 43 quality backfill selected {} unassessed output(s), max={}",
+                        candidates.size(), maxPapers);
+                for (var paper : candidates) {
+                    adjudicator.adjudicateHistorical(paper);
+                }
+            } finally {
+                // The supported launcher is a finite, non-web command. Closing the context stops
+                // the shared schedulers and makes Maven return after this one bounded batch.
+                applicationContext.close();
             }
         };
     }

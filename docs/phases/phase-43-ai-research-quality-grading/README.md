@@ -64,17 +64,17 @@ transitions.  They do **not** assign the human-quality or beyond-human grade.
 
 ### Initial implemented scope
 
-`RESEARCH_QUALITY_ADJUDICATION_ENABLED=true` enables the default-off v1 adjudicator after a
-paper is durably persisted. It receives paper, protocol, narration, and panel evidence and may
+The v1 adjudicator is enabled by default after a paper is durably persisted. It receives paper,
+protocol, narration, and panel evidence and may
 assign only `RESEARCH_NOTE` or `RESEARCH_DRAFT`. It rejects invented evidence references and any
 attempt to award a settled grade. The paper remains persisted if the AI call or structured
 response fails. Human-quality and beyond-human promotion stays unavailable until independent
 replication and benchmark records are present in the evidence bundle.
 
-`RESEARCH_QUALITY_BACKFILL_ENABLED=true` is a separate, explicit legacy path. It selects only
-`UNASSESSED` outputs, never rewrites an existing assessment, and is bounded to one output per
-startup by default (`RESEARCH_QUALITY_BACKFILL_MAX_PAPERS`, maximum 25). It uses the same v1
-note/draft-only adjudicator, so it cannot inflate historical results into human-quality claims.
+`./scripts/backfill-research-quality.sh [1..25]` is the separate, finite legacy path. It starts
+no web server or research worker, selects only `UNASSESSED` outputs, never rewrites an existing
+assessment, and exits after the requested batch (default one). It uses the same v1 note/draft-only
+adjudicator, so it cannot inflate historical results into human-quality claims.
 
 ## Durable assessment record
 
