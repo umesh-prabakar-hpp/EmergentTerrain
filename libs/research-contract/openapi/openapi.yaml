@@ -50,6 +50,28 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ResearchQualityAssessmentSummary'
+  /api/v1/research/rooms/{roomId}/papers/{paperId}/remediation-assessments:
+    get:
+      operationId: listProtocolReuseRemediationAssessmentHistory
+      description: >
+        Read-only immutable outcomes and bounded evidence references for reviewer-remediation
+        assessments. It does not expose assessor rationale, prompts, mutable entities, or a
+        mutation path.
+      parameters:
+        - $ref: '#/components/parameters/roomId'
+        - name: paperId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Newest immutable assessment revision first; empty when the paper is absent, belongs to another room, or has no remediation assessment.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResearchProtocolReuseRemediationAssessmentSummary'
   /api/v1/research/rooms/{roomId}/stats:
     get:
       operationId: getResearchStats
@@ -486,6 +508,21 @@ components:
           enum: [ADDRESSED, PARTIALLY_ADDRESSED, UNADDRESSED, INCONCLUSIVE]
         assessorModel: { type: string }
         assessedAt: { type: string, format: date-time }
+    ResearchProtocolReuseRemediationAssessmentSummary:
+      type: object
+      required: [assessmentRevision, outcome, assessorModel, assessedAt, evidenceReferences]
+      description: Immutable AI-only remediation assessment metadata without internal rationale.
+      properties:
+        assessmentRevision: { type: integer, format: int32, minimum: 1 }
+        outcome:
+          type: string
+          enum: [ADDRESSED, PARTIALLY_ADDRESSED, UNADDRESSED, INCONCLUSIVE]
+        assessorModel: { type: string }
+        assessedAt: { type: string, format: date-time }
+        evidenceReferences:
+          type: array
+          maxItems: 50
+          items: { type: string }
     ResearchStats:
       type: object
       required: [totalPublished, totalRejected, researcherCount, maxGeneration, avgReputation, avgPeerScore, byDomain]

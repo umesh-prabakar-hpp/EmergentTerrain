@@ -66,6 +66,24 @@ class ResearchQueryApiKeyFilterTest {
     }
 
     @Test
+    void protectsRemediationAssessmentHistoryWithTheDedicatedReadKey() throws Exception {
+        ResearchQueryApiKeyFilter filter = new ResearchQueryApiKeyFilter("query-key");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/api/v1/research/rooms/abc/papers/P-1/remediation-assessments");
+        request.addHeader(ResearchQueryApiKeyFilter.HEADER, "query-key");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting(Object::toString)
+                .containsExactly("ROLE_RESEARCH_QUERY");
+    }
+
+    @Test
     void leavesNonQueryRequestsForTheirOwnCredentialPolicy() throws Exception {
         ResearchQueryApiKeyFilter filter = new ResearchQueryApiKeyFilter("query-key");
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/research/work");

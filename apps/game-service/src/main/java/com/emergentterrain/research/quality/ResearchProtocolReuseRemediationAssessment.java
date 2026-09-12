@@ -46,4 +46,5 @@ public class ResearchProtocolReuseRemediationAssessment {
     public String assessorModel() { return assessorModel; }
     public ProtocolReuseRemediationOutcome outcome() { return outcome; }
     public Instant assessedAt() { return assessedAt; }
+    public String evidenceReferencesJson() { return evidenceReferencesJson; }
 }

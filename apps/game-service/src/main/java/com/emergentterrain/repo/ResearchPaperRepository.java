@@ -53,6 +53,8 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
 
     Optional<ResearchPaper> findByPaperId(String paperId);
 
+    boolean existsByPaperIdAndRoomId(String paperId, UUID roomId);
+
     /** Phase 4 Iter 10 — all papers a bot has authored. */
     List<ResearchPaper> findByAuthorBotId(String authorBotId);
 

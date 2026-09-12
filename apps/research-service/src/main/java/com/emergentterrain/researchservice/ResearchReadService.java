@@ -5,6 +5,7 @@ import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -85,13 +86,7 @@ public class ResearchReadService {
      * another room's assessment history.
      */
     public List<ResearchQualityAssessmentSummary> qualityAssessmentHistory(UUID roomId, String paperId) {
-        if (paperId == null || paperId.isBlank()) return List.of();
-        Boolean belongsToRoom = jdbc.query("""
-                SELECT EXISTS(
-                    SELECT 1 FROM research_papers WHERE room_id = ? AND paper_id = ?
-                )
-                """, rs -> rs.next() && rs.getBoolean(1), roomId, paperId);
-        if (!Boolean.TRUE.equals(belongsToRoom)) return List.of();
+        if (paperId == null || paperId.isBlank() || !belongsToRoom(roomId, paperId)) return List.of();
         return jdbc.query("""
                 SELECT assessment_revision, grade, rubric_version, assessor_model, assessed_at,
                        evidence_references_json, unmet_requirements_json, contradictions_json
@@ -99,6 +94,21 @@ public class ResearchReadService {
                 WHERE paper_id = ?
                 ORDER BY assessment_revision DESC
                 """, (rs, rowNum) -> assessmentSummary(rs), paperId);
+    }
+
+    /**
+     * Returns immutable remediation-assessment metadata only for a paper in this room. Rationale
+     * and source-paper detail remain retained evidence, not paper-summary API fields.
+     */
+    public List<ResearchProtocolReuseRemediationAssessmentSummary> remediationAssessmentHistory(
+            UUID roomId, String paperId) {
+        if (paperId == null || paperId.isBlank() || !belongsToRoom(roomId, paperId)) return List.of();
+        return jdbc.query("""
+                SELECT assessment_revision, outcome, assessor_model, assessed_at, evidence_references_json
+                FROM research_protocol_reuse_remediation_assessments
+                WHERE paper_id = ?
+                ORDER BY assessment_revision DESC
+                """, (rs, rowNum) -> remediationAssessmentSummary(rs), paperId);
     }
 
     public Map<String, Object> stats(UUID roomId) {
@@ -187,6 +197,15 @@ public class ResearchReadService {
                 boundedStringList(rs.getString("contradictions_json")));
     }
 
+    private ResearchProtocolReuseRemediationAssessmentSummary remediationAssessmentSummary(ResultSet rs)
+            throws SQLException {
+        Timestamp assessedAt = rs.getTimestamp("assessed_at");
+        return new ResearchProtocolReuseRemediationAssessmentSummary(
+                rs.getInt("assessment_revision"), rs.getString("outcome"), rs.getString("assessor_model"),
+                assessedAt == null ? null : assessedAt.toInstant(),
+                boundedStringList(rs.getString("evidence_references_json")));
+    }
+
     private ResearchProtocolReuseSummary protocolReuseSummary(String json, ResultSet rs) throws SQLException {
         try {
             ResearchProtocolReuseSummary reuse = objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
@@ -216,6 +235,15 @@ public class ResearchReadService {
 
     private List<String> boundedStringList(String json) {
         return stringList(json).stream().limit(50).toList();
+    }
+
+    private boolean belongsToRoom(UUID roomId, String paperId) {
+        Boolean belongsToRoom = jdbc.query("""
+                SELECT EXISTS(
+                    SELECT 1 FROM research_papers WHERE room_id = ? AND paper_id = ?
+                )
+                """, rs -> rs.next() && rs.getBoolean(1), roomId, paperId);
+        return Boolean.TRUE.equals(belongsToRoom);
     }
 
     private BotStats botStats(UUID roomId) {

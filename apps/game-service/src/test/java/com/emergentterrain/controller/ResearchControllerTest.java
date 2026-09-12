@@ -2,6 +2,7 @@ package com.emergentterrain.controller;
 
 import com.emergentterrain.research.api.ResearchQueryClient;
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +38,14 @@ class ResearchControllerTest {
             }
 
             @Override
+            public List<ResearchProtocolReuseRemediationAssessmentSummary>
+                    getProtocolReuseRemediationAssessmentHistory(UUID requestedRoomId, String paperId) {
+                assertThat(requestedRoomId).isEqualTo(roomId);
+                assertThat(paperId).isEqualTo("P-1");
+                return List.of();
+            }
+
+            @Override
             public Map<String, Object> getStats(UUID requestedRoomId) {
                 assertThat(requestedRoomId).isEqualTo(roomId);
                 return Map.of("totalPublished", 0L);
@@ -50,6 +59,7 @@ class ResearchControllerTest {
         assertThat(controller.getPapers(roomId, -1).getBody()).isEmpty();
         assertThat(observedLimit.get()).isEqualTo(1);
         assertThat(controller.getQualityAssessmentHistory(roomId, "P-1").getBody()).isEmpty();
+        assertThat(controller.getRemediationAssessmentHistory(roomId, "P-1").getBody()).isEmpty();
         assertThat(controller.getStats(roomId).getBody()).containsEntry("totalPublished", 0L);
     }
 
@@ -60,6 +70,7 @@ class ResearchControllerTest {
 
         assertThat(controller.getPapers(roomId, 50).getBody()).isEmpty();
         assertThat(controller.getQualityAssessmentHistory(roomId, "P-1").getBody()).isEmpty();
+        assertThat(controller.getRemediationAssessmentHistory(roomId, "P-1").getBody()).isEmpty();
         assertThat(controller.getStats(roomId).getBody())
                 .containsEntry("status", "DISABLED")
                 .containsEntry("totalPublished", 0L);
@@ -80,6 +91,12 @@ class ResearchControllerTest {
             }
 
             @Override
+            public List<ResearchProtocolReuseRemediationAssessmentSummary>
+                    getProtocolReuseRemediationAssessmentHistory(UUID roomId, String paperId) {
+                throw new ResourceAccessException("offline");
+            }
+
+            @Override
             public Map<String, Object> getStats(UUID roomId) {
                 throw new ResourceAccessException("offline");
             }
@@ -88,6 +105,8 @@ class ResearchControllerTest {
 
         assertThat(controller.getPapers(UUID.randomUUID(), 50).getStatusCode().value()).isEqualTo(503);
         assertThat(controller.getQualityAssessmentHistory(UUID.randomUUID(), "P-1").getStatusCode().value())
+                .isEqualTo(503);
+        assertThat(controller.getRemediationAssessmentHistory(UUID.randomUUID(), "P-1").getStatusCode().value())
                 .isEqualTo(503);
         assertThat(controller.getStats(UUID.randomUUID()).getStatusCode().value()).isEqualTo(503);
     }

@@ -1,6 +1,7 @@
 package com.emergentterrain.research.api;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.ParameterizedTypeReference;
@@ -47,6 +48,16 @@ public class HttpResearchQueryClient implements ResearchQueryClient {
                 .uri("/api/v1/research/rooms/{roomId}/papers/{paperId}/quality-assessments", roomId, paperId)
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<ResearchQualityAssessmentSummary>>() { });
+        return assessments == null ? List.of() : assessments;
+    }
+
+    @Override
+    public List<ResearchProtocolReuseRemediationAssessmentSummary> getProtocolReuseRemediationAssessmentHistory(
+            UUID roomId, String paperId) {
+        List<ResearchProtocolReuseRemediationAssessmentSummary> assessments = restClient.get()
+                .uri("/api/v1/research/rooms/{roomId}/papers/{paperId}/remediation-assessments", roomId, paperId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<ResearchProtocolReuseRemediationAssessmentSummary>>() { });
         return assessments == null ? List.of() : assessments;
     }
 

@@ -184,6 +184,11 @@ workflow and quality. The assessor rationale and evidence detail remain retained
 rather than public paper-summary fields. Displaying an outcome is not a claim of quality promotion
 or a permission to alter the paper, protocol, publication, or game.
 
+The Research Lab also loads immutable remediation-assessment history on demand for a later paper:
+revision, outcome, assessor model/time, and bounded evidence-reference identifiers. The matching
+v1 endpoint returns an empty list for a missing, cross-room, or unassessed paper. It intentionally
+does not expose rationale, prompts, source-paper content, or a mutation route.
+
 This rule is about **admission**, not automatic promotion.  It deliberately permits the full
 cycle—computation, narration, review, and persistence—when no human-quality-or-beyond result
 settles the protocol.  It does not permit a cycle to overwrite prior evidence, suppress null

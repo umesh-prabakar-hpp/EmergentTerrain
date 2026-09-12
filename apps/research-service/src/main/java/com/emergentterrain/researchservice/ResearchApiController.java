@@ -1,6 +1,7 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +36,13 @@ public class ResearchApiController {
             @PathVariable("roomId") UUID roomId,
             @PathVariable("paperId") String paperId) {
         return ResponseEntity.ok(research.qualityAssessmentHistory(roomId, paperId));
+    }
+
+    @GetMapping("/papers/{paperId}/remediation-assessments")
+    public ResponseEntity<List<ResearchProtocolReuseRemediationAssessmentSummary>> remediationAssessmentHistory(
+            @PathVariable("roomId") UUID roomId,
+            @PathVariable("paperId") String paperId) {
+        return ResponseEntity.ok(research.remediationAssessmentHistory(roomId, paperId));
     }
 
     @GetMapping("/stats")

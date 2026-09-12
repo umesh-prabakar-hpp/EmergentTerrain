@@ -8,6 +8,7 @@ import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.repo.ResearchPaperQualityAssessmentRepository;
 import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.ResearchProtocolReuseRemediationAssessmentRepository;
@@ -64,6 +65,15 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
     }
 
     @Override
+    public List<ResearchProtocolReuseRemediationAssessmentSummary> getProtocolReuseRemediationAssessmentHistory(
+            UUID roomId, String paperId) {
+        if (!papers.existsByPaperIdAndRoomId(paperId, roomId)) return List.of();
+        return remediationAssessments.findByPaperIdOrderByAssessmentRevisionDesc(paperId).stream()
+                .map(this::remediationAssessmentSummary)
+                .toList();
+    }
+
+    @Override
     public Map<String, Object> getStats(UUID roomId) {
         return universityService.getStats(roomId);
     }
@@ -115,6 +125,13 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
                         assessment.assessmentRevision(), assessment.outcome().name(), assessment.assessorModel(),
                         assessment.assessedAt()))
                 .orElse(null);
+    }
+
+    private ResearchProtocolReuseRemediationAssessmentSummary remediationAssessmentSummary(
+            com.emergentterrain.research.quality.ResearchProtocolReuseRemediationAssessment assessment) {
+        return new ResearchProtocolReuseRemediationAssessmentSummary(
+                assessment.assessmentRevision(), assessment.outcome().name(), assessment.assessorModel(),
+                assessment.assessedAt(), boundedStringList(assessment.evidenceReferencesJson()));
     }
 
     private List<String> stringList(String json) {

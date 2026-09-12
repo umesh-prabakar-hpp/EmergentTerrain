@@ -3527,6 +3527,7 @@ function renderPapers(papers) {
       ${protocolReuse ? `<div class="paper-meta">Protocol reuse: ${protocolReuse.reason || 'RECORDED'} from ${protocolReuse.sourcePaperId || 'unknown source'}${protocolReuse.protocolChanged ? ' (changed)' : ' (exact)'}</div>` : ''}
       ${protocolReuse && (protocolReuse.requestedRemediations || []).length ? `<div class="paper-meta">Requested remediation: ${(protocolReuse.requestedRemediations || []).join('; ')}</div>` : ''}
       ${protocolReuse?.remediation ? `<div class="paper-meta">Remediation outcome: ${protocolReuse.remediation.outcome || 'INCONCLUSIVE'} (AI assessment)</div>` : ''}
+      ${protocolReuse?.remediation ? `<button class="quality-history-btn" type="button" data-remediation-history-paper-id="${p.paperId || ''}">Remediation assessment history</button><div class="quality-history" data-remediation-history-for="${p.paperId || ''}" hidden></div>` : ''}
       <button class="quality-history-btn" type="button" data-quality-history-paper-id="${p.paperId || ''}">Quality assessment history</button>
       <div class="quality-history" data-quality-history-for="${p.paperId || ''}" hidden></div>
       <div class="paper-hypothesis">${p.hypothesis || ''}</div>
@@ -3536,6 +3537,9 @@ function renderPapers(papers) {
   }).join('');
   papersListEl.querySelectorAll('[data-quality-history-paper-id]').forEach(button => {
     button.addEventListener('click', () => toggleQualityAssessmentHistory(button));
+  });
+  papersListEl.querySelectorAll('[data-remediation-history-paper-id]').forEach(button => {
+    button.addEventListener('click', () => toggleRemediationAssessmentHistory(button));
   });
 }
 
@@ -3591,6 +3595,58 @@ function renderQualityAssessmentHistory(historyEl, assessments) {
     appendList('Evidence', assessment.evidenceReferences);
     appendList('Unmet requirements', assessment.unmetRequirements);
     appendList('Contradictions', assessment.contradictions);
+    historyEl.appendChild(entry);
+  });
+}
+
+async function toggleRemediationAssessmentHistory(button) {
+  const paperId = button.getAttribute('data-remediation-history-paper-id');
+  const historyEl = papersListEl?.querySelector(`[data-remediation-history-for="${CSS.escape(paperId || '')}"]`);
+  if (!paperId || !historyEl || !roomId) return;
+  if (!historyEl.hidden) {
+    historyEl.hidden = true;
+    button.textContent = 'Remediation assessment history';
+    return;
+  }
+  if (historyEl.dataset.loaded === 'true') {
+    historyEl.hidden = false;
+    button.textContent = 'Hide remediation assessment history';
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Loading remediation history…';
+  try {
+    const response = await fetch(`/room/${roomId}/research/papers/${encodeURIComponent(paperId)}/remediation-assessments`);
+    if (!response.ok) throw new Error('remediation history unavailable');
+    renderRemediationAssessmentHistory(historyEl, await response.json());
+    historyEl.dataset.loaded = 'true';
+    historyEl.hidden = false;
+    button.textContent = 'Hide remediation assessment history';
+  } catch (error) {
+    historyEl.textContent = 'Remediation assessment history is unavailable.';
+    historyEl.hidden = false;
+    button.textContent = 'Remediation assessment history';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderRemediationAssessmentHistory(historyEl, assessments) {
+  historyEl.replaceChildren();
+  if (!Array.isArray(assessments) || assessments.length === 0) {
+    historyEl.textContent = 'No remediation assessment has been retained for this paper.';
+    return;
+  }
+  assessments.forEach(assessment => {
+    const entry = document.createElement('div');
+    entry.className = 'quality-history-entry';
+    const timestamp = assessment.assessedAt ? new Date(assessment.assessedAt).toLocaleString() : 'time unavailable';
+    entry.textContent = `Revision ${assessment.assessmentRevision}: ${assessment.outcome || 'INCONCLUSIVE'} · ${assessment.assessorModel || 'unknown assessor'} · ${timestamp}`;
+    if (Array.isArray(assessment.evidenceReferences) && assessment.evidenceReferences.length) {
+      const evidence = document.createElement('div');
+      evidence.textContent = `Evidence: ${assessment.evidenceReferences.join('; ')}`;
+      entry.appendChild(evidence);
+    }
     historyEl.appendChild(entry);
   });
 }

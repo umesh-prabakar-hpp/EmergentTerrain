@@ -1,6 +1,7 @@
 package com.emergentterrain.research.api;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,9 @@ public interface ResearchQueryClient {
     List<ResearchPaperSummary> getPublishedPapers(UUID roomId, int limit);
 
     List<ResearchQualityAssessmentSummary> getQualityAssessmentHistory(UUID roomId, String paperId);
+
+    List<ResearchProtocolReuseRemediationAssessmentSummary> getProtocolReuseRemediationAssessmentHistory(
+            UUID roomId, String paperId);
 
     Map<String, Object> getStats(UUID roomId);
 }
