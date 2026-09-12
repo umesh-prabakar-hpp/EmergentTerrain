@@ -898,10 +898,11 @@ public class ResearchCycleService {
                                     java.util.Comparator.nullsFirst(java.time.Instant::compareTo))
                             .thenComparing(ResearchPaper::paperId))
                     .orElseThrow();
+            ReuseMetadata metadata = reuseMetadata(objectMapper, source);
             reuseProvenance = new ProtocolReuseProvenance(
                     source.paperId(), source.protocolFingerprint() == null || source.protocolFingerprint().isBlank()
                             ? candidateFingerprint : source.protocolFingerprint(),
-                    reuseReason(objectMapper, source), false);
+                    metadata.reason(), false, metadata.requestedRemediations());
         }
         if (reuseProvenance != null) {
             // This amends the locked registration before computation. It is provenance only: the
@@ -1202,20 +1203,43 @@ public class ResearchCycleService {
      * later run addressed it, so it remains provenance rather than a workflow or quality decision.
      */
     static ProtocolReuseProvenance.Reason reuseReason(ObjectMapper objectMapper, ResearchPaper source) {
+        return reuseMetadata(objectMapper, source).reason();
+    }
+
+    static ReuseMetadata reuseMetadata(ObjectMapper objectMapper, ResearchPaper source) {
         if (source == null || source.panelOutcome() == null || source.panelOutcome().isBlank()
                 || objectMapper == null) {
-            return ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL;
+            return ReuseMetadata.unsettled();
         }
         try {
             PanelOutcome panel = objectMapper.readValue(source.panelOutcome(), PanelOutcome.class);
-            int recommendations = panel.recommendations() == null ? 0 : panel.recommendations().size();
-            int contradictions = panel.consensusContradictions() == null ? 0
+            List<String> rawRequests = new ArrayList<>();
+            if (panel.consensusContradictions() != null) {
+                panel.consensusContradictions().forEach(contradiction -> {
+                    if (contradiction != null && contradiction.vsProse() != null
+                            && !contradiction.vsProse().isBlank()) {
+                        rawRequests.add("Resolve consensus contradiction at trace " + contradiction.traceIdx()
+                                + ": " + contradiction.vsProse().strip());
+                    }
+                });
+            }
+            if (panel.recommendations() != null) rawRequests.addAll(panel.recommendations());
+            List<String> requests = rawRequests.stream().filter(value -> value != null && !value.isBlank())
+                    .map(String::strip).limit(5).toList();
+            int recommendationCount = panel.recommendations() == null ? 0 : panel.recommendations().size();
+            int contradictionCount = panel.consensusContradictions() == null ? 0
                     : panel.consensusContradictions().size();
-            return contradictions >= 1 || recommendations >= 2
-                    ? ProtocolReuseProvenance.Reason.REVIEWER_REMEDIATION_REQUESTED
-                    : ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL;
+            return !requests.isEmpty() && (contradictionCount >= 1 || recommendationCount >= 2)
+                    ? new ReuseMetadata(ProtocolReuseProvenance.Reason.REVIEWER_REMEDIATION_REQUESTED, requests)
+                    : ReuseMetadata.unsettled();
         } catch (Exception ignored) {
-            return ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL;
+            return ReuseMetadata.unsettled();
+        }
+    }
+
+    record ReuseMetadata(ProtocolReuseProvenance.Reason reason, List<String> requestedRemediations) {
+        static ReuseMetadata unsettled() {
+            return new ReuseMetadata(ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL, List.of());
         }
     }
 

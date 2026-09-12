@@ -47,9 +47,22 @@ class ProtocolReuseProvenanceTest {
                  "reviews":[],"proposedEvidenceLabel":null}
                 """);
 
-        assertThat(ResearchCycleService.reuseReason(new ObjectMapper(), source))
+        ObjectMapper mapper = new ObjectMapper();
+        assertThat(ResearchCycleService.reuseReason(mapper, source))
                 .isEqualTo(ProtocolReuseProvenance.Reason.REVIEWER_REMEDIATION_REQUESTED);
+        assertThat(ResearchCycleService.reuseMetadata(mapper, source).requestedRemediations())
+                .containsExactly("add a holdout", "cite the baseline");
         assertThat(ResearchCycleService.reuseReason(null, source))
                 .isEqualTo(ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL);
+    }
+
+    @Test
+    void boundsRetainedRemediationRequests() {
+        ProtocolReuseProvenance provenance = new ProtocolReuseProvenance(
+                "P-1", "fingerprint-v1", ProtocolReuseProvenance.Reason.REVIEWER_REMEDIATION_REQUESTED,
+                false, java.util.List.of("x".repeat(450), "two", "three", "four", "five", "six"));
+
+        assertThat(provenance.requestedRemediations()).hasSize(5);
+        assertThat(provenance.requestedRemediations().getFirst()).hasSize(400);
     }
 }

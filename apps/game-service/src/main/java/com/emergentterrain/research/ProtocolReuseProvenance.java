@@ -1,6 +1,7 @@
 package com.emergentterrain.research;
 
 import java.util.Objects;
+import java.util.List;
 
 /**
  * Locked provenance for an ordinary reuse of an exact research protocol.
@@ -12,7 +13,13 @@ public record ProtocolReuseProvenance(
         String sourcePaperId,
         String sourceProtocolFingerprint,
         Reason reason,
-        boolean protocolChanged) {
+        boolean protocolChanged,
+        List<String> requestedRemediations) {
+
+    public ProtocolReuseProvenance(String sourcePaperId, String sourceProtocolFingerprint,
+                                   Reason reason, boolean protocolChanged) {
+        this(sourcePaperId, sourceProtocolFingerprint, reason, protocolChanged, List.of());
+    }
 
     public ProtocolReuseProvenance {
         if (sourcePaperId == null || sourcePaperId.isBlank()) {
@@ -22,6 +29,15 @@ public record ProtocolReuseProvenance(
             throw new IllegalArgumentException("sourceProtocolFingerprint is required for protocol reuse");
         }
         reason = Objects.requireNonNull(reason, "reason");
+        requestedRemediations = requestedRemediations == null ? List.of() : requestedRemediations.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::strip)
+                .map(value -> value.length() <= 400 ? value : value.substring(0, 400))
+                .limit(5)
+                .toList();
+        if (reason == Reason.REVIEWER_REMEDIATION_REQUESTED && requestedRemediations.isEmpty()) {
+            throw new IllegalArgumentException("reviewer remediation requires retained requests");
+        }
     }
 
     /** Only reasons established by the allocation path are recorded in v1. */

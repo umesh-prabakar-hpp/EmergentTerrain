@@ -458,7 +458,7 @@ components:
           items: { type: string }
     ResearchProtocolReuseSummary:
       type: object
-      required: [sourcePaperId, sourceProtocolFingerprint, reason, protocolChanged]
+      required: [sourcePaperId, sourceProtocolFingerprint, reason, protocolChanged, requestedRemediations]
       description: Locked provenance for an allowed exact protocol reuse; it is not a novelty or quality claim.
       properties:
         sourcePaperId: { type: string }
@@ -467,6 +467,10 @@ components:
           type: string
           enum: [OPEN_QUESTION_CONTINUATION, REVIEWER_REMEDIATION_REQUESTED, UNSETTLED_IDENTICAL_PROTOCOL]
         protocolChanged: { type: boolean }
+        requestedRemediations:
+          type: array
+          maxItems: 5
+          items: { type: string, maxLength: 400 }
     ResearchStats:
       type: object
       required: [totalPublished, totalRejected, researcherCount, maxGeneration, avgReputation, avgPeerScore, byDomain]

@@ -162,6 +162,10 @@ novelty that the allocation path cannot prove. The provenance is included as a s
 to the AI quality assessment. It is evidence only and must not change selection, computation,
 narration, publication, protocol-settlement policy, or quality promotion.
 
+When that reviewer-remediation reason is used, the provenance retains at most five source-panel
+requests (each capped at 400 characters). The Research Lab displays them as requested remediation,
+not as completed work.
+
 The standard paper read model exposes this provenance when present, and the Research Lab renders
 the source and reason separately from workflow status and quality grade. The remote adapter reads
 the optional database field through PostgreSQL's row-to-JSON projection, so an older transition
