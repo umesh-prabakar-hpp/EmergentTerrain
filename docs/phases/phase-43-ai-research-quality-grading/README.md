@@ -174,6 +174,11 @@ database that does not yet have the field remains readable and simply reports no
 The broader user- or reviewer-declared improvement reasons listed above remain future work. They
 must be separately captured and validated before they are represented as facts.
 
+For a reviewer-remediation reuse, a separate AI remediation assessor now records an immutable
+`ADDRESSED`, `PARTIALLY_ADDRESSED`, `UNADDRESSED`, or `INCONCLUSIVE` outcome against the retained
+source requests and later paper evidence. It is append-only and cannot alter workflow, quality
+grade, protocol settlement, publication, or game state.
+
 This rule is about **admission**, not automatic promotion.  It deliberately permits the full
 cycle—computation, narration, review, and persistence—when no human-quality-or-beyond result
 settles the protocol.  It does not permit a cycle to overwrite prior evidence, suppress null

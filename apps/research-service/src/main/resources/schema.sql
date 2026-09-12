@@ -232,3 +232,21 @@ CREATE TABLE IF NOT EXISTS research_paper_quality_assessments (
 
 CREATE INDEX IF NOT EXISTS research_paper_quality_assessment_paper_revision_idx
     ON research_paper_quality_assessments (paper_id, assessment_revision DESC);
+
+-- Phase 43: immutable AI-only assessment of whether a reused protocol's retained reviewer
+-- requests are addressed. It is separate from quality grade and never changes legacy paper state.
+CREATE TABLE IF NOT EXISTS research_protocol_reuse_remediation_assessments (
+    assessment_id UUID PRIMARY KEY,
+    paper_id VARCHAR(128) NOT NULL,
+    source_paper_id VARCHAR(128) NOT NULL,
+    assessment_revision INTEGER NOT NULL,
+    assessor_model VARCHAR(256) NOT NULL,
+    outcome VARCHAR(32) NOT NULL,
+    rationale TEXT NOT NULL,
+    evidence_references_json TEXT NOT NULL,
+    assessed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT uk_research_reuse_remediation_revision UNIQUE (paper_id, assessment_revision)
+);
+
+CREATE INDEX IF NOT EXISTS research_reuse_remediation_paper_revision_idx
+    ON research_protocol_reuse_remediation_assessments (paper_id, assessment_revision DESC);

@@ -6,6 +6,7 @@ import com.emergentterrain.repo.PaperCitationRepository;
 import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.research.quality.AiResearchQualityAdjudicator;
+import com.emergentterrain.research.quality.AiProtocolReuseRemediationAdjudicator;
 import com.emergentterrain.researchcontract.ResearchSelectionSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -52,6 +53,8 @@ public class UniversityService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AiResearchQualityAdjudicator qualityAdjudicator;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AiProtocolReuseRemediationAdjudicator protocolReuseRemediationAdjudicator;
 
     /** The max-prime-gap fit/holdout protocol supplies its own stronger replication evidence. */
     static boolean usesSpecializedMaxPrimeGapProtocol(String topicName) {
@@ -2628,6 +2631,9 @@ public class UniversityService {
         boolean sourcePersisted = addPaper(draft.roomId(), paper);
         if (sourcePersisted && qualityAdjudicator != null) {
             qualityAdjudicator.adjudicate(paper, draft);
+        }
+        if (sourcePersisted && protocolReuseRemediationAdjudicator != null) {
+            protocolReuseRemediationAdjudicator.adjudicate(paper);
         }
 
         // A trace may seed cross-run state only after the final paper was accepted, its selected
