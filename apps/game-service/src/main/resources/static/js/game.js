@@ -3526,6 +3526,7 @@ function renderPapers(papers) {
       ${qualityBlocker ? `<div class="paper-meta">Quality blocker: ${qualityBlocker}</div>` : ''}
       ${protocolReuse ? `<div class="paper-meta">Protocol reuse: ${protocolReuse.reason || 'RECORDED'} from ${protocolReuse.sourcePaperId || 'unknown source'}${protocolReuse.protocolChanged ? ' (changed)' : ' (exact)'}</div>` : ''}
       ${protocolReuse && (protocolReuse.requestedRemediations || []).length ? `<div class="paper-meta">Requested remediation: ${(protocolReuse.requestedRemediations || []).join('; ')}</div>` : ''}
+      ${protocolReuse?.remediation ? `<div class="paper-meta">Remediation outcome: ${protocolReuse.remediation.outcome || 'INCONCLUSIVE'} (AI assessment)</div>` : ''}
       <button class="quality-history-btn" type="button" data-quality-history-paper-id="${p.paperId || ''}">Quality assessment history</button>
       <div class="quality-history" data-quality-history-for="${p.paperId || ''}" hidden></div>
       <div class="paper-hypothesis">${p.hypothesis || ''}</div>

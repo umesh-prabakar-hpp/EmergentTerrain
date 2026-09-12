@@ -471,6 +471,21 @@ components:
           type: array
           maxItems: 5
           items: { type: string, maxLength: 400 }
+        remediation:
+          allOf:
+            - $ref: '#/components/schemas/ResearchProtocolReuseRemediationSummary'
+          description: Latest AI-only assessment of the retained reviewer-remediation requests. It does not alter workflow or quality.
+    ResearchProtocolReuseRemediationSummary:
+      type: object
+      required: [assessmentRevision, outcome, assessorModel, assessedAt]
+      description: Latest immutable remediation outcome. The internal rationale is intentionally not exposed by the paper read model.
+      properties:
+        assessmentRevision: { type: integer, format: int32, minimum: 1 }
+        outcome:
+          type: string
+          enum: [ADDRESSED, PARTIALLY_ADDRESSED, UNADDRESSED, INCONCLUSIVE]
+        assessorModel: { type: string }
+        assessedAt: { type: string, format: date-time }
     ResearchStats:
       type: object
       required: [totalPublished, totalRejected, researcherCount, maxGeneration, avgReputation, avgPeerScore, byDomain]

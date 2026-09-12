@@ -43,4 +43,7 @@ public class ResearchProtocolReuseRemediationAssessment {
         this.assessedAt = assessedAt;
     }
     public int assessmentRevision() { return assessmentRevision; }
+    public String assessorModel() { return assessorModel; }
+    public ProtocolReuseRemediationOutcome outcome() { return outcome; }
+    public Instant assessedAt() { return assessedAt; }
 }

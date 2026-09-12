@@ -8,4 +8,5 @@ public record ResearchProtocolReuseSummary(
         String sourceProtocolFingerprint,
         String reason,
         boolean protocolChanged,
-        List<String> requestedRemediations) { }
+        List<String> requestedRemediations,
+        ResearchProtocolReuseRemediationSummary remediation) { }

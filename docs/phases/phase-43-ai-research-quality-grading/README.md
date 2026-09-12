@@ -179,6 +179,11 @@ For a reviewer-remediation reuse, a separate AI remediation assessor now records
 source requests and later paper evidence. It is append-only and cannot alter workflow, quality
 grade, protocol settlement, publication, or game state.
 
+The standard paper read model and Research Lab expose only that latest outcome, separately from
+workflow and quality. The assessor rationale and evidence detail remain retained research evidence
+rather than public paper-summary fields. Displaying an outcome is not a claim of quality promotion
+or a permission to alter the paper, protocol, publication, or game.
+
 This rule is about **admission**, not automatic promotion.  It deliberately permits the full
 cycle—computation, narration, review, and persistence—when no human-quality-or-beyond result
 settles the protocol.  It does not permit a cycle to overwrite prior evidence, suppress null

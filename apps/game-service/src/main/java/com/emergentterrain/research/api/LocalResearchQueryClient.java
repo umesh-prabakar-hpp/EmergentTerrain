@@ -7,8 +7,10 @@ import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationSummary;
 import com.emergentterrain.repo.ResearchPaperQualityAssessmentRepository;
 import com.emergentterrain.repo.ResearchPaperRepository;
+import com.emergentterrain.repo.ResearchProtocolReuseRemediationAssessmentRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -28,15 +30,18 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
     private final UniversityService universityService;
     private final ResearchPaperRepository papers;
     private final ResearchPaperQualityAssessmentRepository qualityAssessments;
+    private final ResearchProtocolReuseRemediationAssessmentRepository remediationAssessments;
     private final ObjectMapper objectMapper;
 
     public LocalResearchQueryClient(UniversityService universityService,
                                     ResearchPaperRepository papers,
                                     ResearchPaperQualityAssessmentRepository qualityAssessments,
+                                    ResearchProtocolReuseRemediationAssessmentRepository remediationAssessments,
                                     ObjectMapper objectMapper) {
         this.universityService = universityService;
         this.papers = papers;
         this.qualityAssessments = qualityAssessments;
+        this.remediationAssessments = remediationAssessments;
         this.objectMapper = objectMapper;
     }
 
@@ -68,7 +73,8 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
                 paper.paperId(), paper.roomId(), paper.authorBotId(), paper.domain(), paper.topic(),
                 paper.title(), paper.hypothesis(), paper.methodology(), paper.findings(), paper.conclusion(),
                 List.copyOf(paper.reviewerBotIds()), paper.peerScore(), paper.status(), paper.tick(),
-                paper.generation(), quality(paper.paperId()), protocolReuse(paper.protocolReuseProvenance()));
+                paper.generation(), quality(paper.paperId()),
+                protocolReuse(paper.protocolReuseProvenance(), paper.paperId()));
     }
 
     private ResearchQualitySummary quality(String paperId) {
@@ -93,12 +99,22 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
                 boundedStringList(assessment.contradictionsJson()));
     }
 
-    private ResearchProtocolReuseSummary protocolReuse(String json) {
+    private ResearchProtocolReuseSummary protocolReuse(String json, String paperId) {
         try {
-            return objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
+            ResearchProtocolReuseSummary reuse = objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
+            return new ResearchProtocolReuseSummary(reuse.sourcePaperId(), reuse.sourceProtocolFingerprint(),
+                    reuse.reason(), reuse.protocolChanged(), reuse.requestedRemediations(), remediation(paperId));
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private ResearchProtocolReuseRemediationSummary remediation(String paperId) {
+        return remediationAssessments.findFirstByPaperIdOrderByAssessmentRevisionDesc(paperId)
+                .map(assessment -> new ResearchProtocolReuseRemediationSummary(
+                        assessment.assessmentRevision(), assessment.outcome().name(), assessment.assessorModel(),
+                        assessment.assessedAt()))
+                .orElse(null);
     }
 
     private List<String> stringList(String json) {

@@ -4,6 +4,7 @@ import com.emergentterrain.researchcontract.ResearchPaperSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
+import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationSummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +51,10 @@ public class ResearchReadService {
                        quality.assessed_at AS quality_assessed_at,
                        quality.unmet_requirements_json AS quality_unmet_requirements_json,
                        quality.contradictions_json AS quality_contradictions_json,
+                       remediation.assessment_revision AS remediation_assessment_revision,
+                       remediation.outcome AS remediation_outcome,
+                       remediation.assessor_model AS remediation_assessor_model,
+                       remediation.assessed_at AS remediation_assessed_at,
                        to_jsonb(research_papers)->>'protocol_reuse_provenance' AS protocol_reuse_provenance
                 FROM research_papers
                 LEFT JOIN LATERAL (
@@ -60,6 +65,13 @@ public class ResearchReadService {
                     ORDER BY assessment_revision DESC
                     LIMIT 1
                 ) quality ON true
+                LEFT JOIN LATERAL (
+                    SELECT assessment_revision, outcome, assessor_model, assessed_at
+                    FROM research_protocol_reuse_remediation_assessments
+                    WHERE paper_id = research_papers.paper_id
+                    ORDER BY assessment_revision DESC
+                    LIMIT 1
+                ) remediation ON true
                 WHERE room_id = ?
                 ORDER BY tick DESC, paper_id DESC
                 LIMIT ?
@@ -150,7 +162,7 @@ public class ResearchReadService {
                 rs.getString("status"),
                 rs.getLong("tick"),
                 rs.getInt("generation"),
-                qualitySummary(rs), protocolReuseSummary(rs.getString("protocol_reuse_provenance")));
+                qualitySummary(rs), protocolReuseSummary(rs.getString("protocol_reuse_provenance"), rs));
     }
 
     private ResearchQualitySummary qualitySummary(ResultSet rs) throws SQLException {
@@ -175,12 +187,22 @@ public class ResearchReadService {
                 boundedStringList(rs.getString("contradictions_json")));
     }
 
-    private ResearchProtocolReuseSummary protocolReuseSummary(String json) {
+    private ResearchProtocolReuseSummary protocolReuseSummary(String json, ResultSet rs) throws SQLException {
         try {
-            return objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
+            ResearchProtocolReuseSummary reuse = objectMapper.readValue(json, ResearchProtocolReuseSummary.class);
+            return new ResearchProtocolReuseSummary(reuse.sourcePaperId(), reuse.sourceProtocolFingerprint(),
+                    reuse.reason(), reuse.protocolChanged(), reuse.requestedRemediations(), remediationSummary(rs));
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private ResearchProtocolReuseRemediationSummary remediationSummary(ResultSet rs) throws SQLException {
+        String outcome = rs.getString("remediation_outcome");
+        if (outcome == null || outcome.isBlank()) return null;
+        Timestamp assessedAt = rs.getTimestamp("remediation_assessed_at");
+        return new ResearchProtocolReuseRemediationSummary(rs.getInt("remediation_assessment_revision"), outcome,
+                rs.getString("remediation_assessor_model"), assessedAt == null ? null : assessedAt.toInstant());
     }
 
     private List<String> stringList(String json) {
