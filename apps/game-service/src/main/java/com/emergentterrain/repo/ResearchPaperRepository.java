@@ -14,6 +14,9 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
     /** All papers for a room, oldest first. Used to seed the in-memory cache on first access. */
     List<ResearchPaper> findByRoomIdOrderByTickAsc(UUID roomId);
 
+    /** Complete topic history for a quality-aware exact-protocol reuse decision. */
+    List<ResearchPaper> findByRoomIdAndTopic(UUID roomId, String topic);
+
     /** Most-recent-first bounded history used by game-owned research selection. */
     List<ResearchPaper> findByRoomIdOrderByTickDesc(UUID roomId, org.springframework.data.domain.Pageable pageable);
 

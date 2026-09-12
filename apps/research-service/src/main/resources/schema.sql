@@ -207,3 +207,28 @@ CREATE TABLE IF NOT EXISTS research_computation_failure_parities (
     direct_outcome VARCHAR(64) NOT NULL,
     compared_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+-- Phase 43: research-owned, append-only AI quality adjudications. This is deliberately separate
+-- from the legacy game-owned research_papers workflow row: an assessment does not rewrite a
+-- paper's status, computation result, narration, or game state.
+CREATE TABLE IF NOT EXISTS research_paper_quality_assessments (
+    assessment_id UUID PRIMARY KEY,
+    paper_id VARCHAR(128) NOT NULL,
+    assessment_revision INTEGER NOT NULL,
+    rubric_version VARCHAR(128) NOT NULL,
+    assessor_model VARCHAR(256) NOT NULL,
+    grade VARCHAR(64) NOT NULL,
+    rationale TEXT NOT NULL,
+    evidence_references_json TEXT NOT NULL,
+    unmet_requirements_json TEXT NOT NULL,
+    contradictions_json TEXT NOT NULL,
+    reviewer_summary TEXT,
+    replication_summary TEXT,
+    benchmark_summary TEXT,
+    assessed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT uk_research_paper_quality_assessment_revision
+        UNIQUE (paper_id, assessment_revision)
+);
+
+CREATE INDEX IF NOT EXISTS research_paper_quality_assessment_paper_revision_idx
+    ON research_paper_quality_assessments (paper_id, assessment_revision DESC);

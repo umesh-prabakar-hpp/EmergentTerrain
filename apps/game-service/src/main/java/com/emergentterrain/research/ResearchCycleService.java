@@ -2,6 +2,8 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.research.question.PaperOpenQuestion;
 import com.emergentterrain.research.question.QuestionServedProtocolCloneGuard;
+import com.emergentterrain.research.quality.QualityAwareProtocolReusePolicy;
+import com.emergentterrain.research.quality.ResearchQualityGrade;
 import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
@@ -60,10 +62,12 @@ public class ResearchCycleService {
      * Phase 33 lane T2 (2026-07-05) — serve the ledger's open questions back onto their family's
      * topics. v1 is RIDE-ALONG: when rotation serves family X, X's top unanswered self-harvested
      * question is appended to the hypothesis as the preferred load-bearing claim. Its source
-     * protocol is screened before draft-ID allocation: an identical same-family study is declined;
-     * an accepted study is then reserved and becomes answered only on publication. An explicit
-     * question-driven selection source stays deferred until ride-along proves too slow. Repos are
-     * always-present beans; the flags gate behavior.
+     * protocol is screened before draft-ID allocation: Phase 43 declines an identical same-family
+     * study only when a matching prior has an AI-assessed human-quality-or-beyond grade. Notes,
+     * drafts, and unassessed outputs may be strengthened by a new run. An accepted study is then
+     * reserved and becomes answered only on publication. An explicit question-driven selection
+     * source stays deferred until ride-along proves too slow. Repos are always-present beans; the
+     * flags gate behavior.
      */
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.question-serve.enabled:false}")
@@ -75,6 +79,16 @@ public class ResearchCycleService {
     private com.emergentterrain.repo.PaperOpenQuestionRepository openQuestionRepo;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.repo.VerifiedResultRepository verifiedResultRepo;
+
+    /**
+     * Phase 43 quality history. It is deliberately optional for narrow unit tests and older
+     * transition databases: no assessment means the prior result is not settled, so ordinary
+     * protocol reuse remains eligible rather than being denied by a missing migration.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.repo.ResearchPaperQualityAssessmentRepository qualityAssessments;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.repo.ResearchPaperRepository researchPapers;
 
     /**
      * Surface UniversityService exposes to the cycle. Lets the cycle call back into
@@ -820,24 +834,45 @@ public class ResearchCycleService {
         // top unanswered self-harvested open question (the preferred load-bearing claim).
         CrossRunContext crossRunContext = appendCrossRunContext(hypothesis, conjecture.lhs());
         hypothesis = crossRunContext.hypothesis();
-        if (QuestionServedProtocolCloneGuard.isClone(
-                crossRunContext.question(), conjecture.lhs(), candidateRegistration)) {
+        boolean questionProtocolClone = QuestionServedProtocolCloneGuard.isClone(
+                crossRunContext.question(), conjecture.lhs(), candidateRegistration);
+        if (questionProtocolClone && protocolIsSettled(crossRunContext.question().paperId())) {
             log.info("question-serve: declined identical locked protocol before draft allocation "
-                            + "family={} sourcePaperId={} mappingNotes={}",
+                            + "because source is AI-assessed settled family={} sourcePaperId={} mappingNotes={}",
                     conjecture.lhs(), crossRunContext.question().paperId(),
                     candidateRegistration.mappingNotes());
             return;
         }
+        if (questionProtocolClone) {
+            log.info("question-serve: reusing identical protocol because source is not AI-assessed "
+                            + "human-quality-or-beyond family={} sourcePaperId={} mappingNotes={}",
+                    conjecture.lhs(), crossRunContext.question().paperId(),
+                    candidateRegistration.mappingNotes());
+        }
         String candidateFingerprint = QuestionServedProtocolCloneGuard.fingerprint(candidateRegistration);
-        boolean priorProtocolClone = candidateFingerprint != null
-                && ctx.getPublishedPapers(roomId, 80).stream().anyMatch(prior ->
-                        topicName.equals(prior.topic())
-                                && QuestionServedProtocolCloneGuard.equivalent(
-                                prior.protocolFingerprint(), candidateFingerprint));
-        if (priorProtocolClone) {
-            log.info("protocol-clone: declined identical locked protocol before draft allocation family={} mappingNotes={}",
+        List<ResearchPaper> topicHistory = researchPapers != null
+                ? researchPapers.findByRoomIdAndTopic(roomId, topicName)
+                : ctx.getPublishedPapers(roomId, 80).stream()
+                .filter(prior -> topicName.equals(prior.topic()))
+                .toList();
+        List<ResearchPaper> matchingPriorProtocols = candidateFingerprint == null ? List.of()
+                : topicHistory.stream()
+                .filter(prior -> topicName.equals(prior.topic())
+                        && QuestionServedProtocolCloneGuard.equivalent(
+                        prior.protocolFingerprint(), candidateFingerprint))
+                .toList();
+        boolean priorProtocolSettled = matchingPriorProtocols.stream()
+                .anyMatch(prior -> protocolIsSettled(prior.paperId()));
+        if (priorProtocolSettled) {
+            log.info("protocol-clone: declined identical locked protocol before draft allocation because a "
+                            + "matching prior is AI-assessed human-quality-or-beyond family={} mappingNotes={}",
                     conjecture.lhs(), candidateRegistration.mappingNotes());
             return;
+        }
+        if (!matchingPriorProtocols.isEmpty()) {
+            log.info("protocol-clone: reusing {} identical prior protocol(s) because none is "
+                            + "AI-assessed human-quality-or-beyond family={} mappingNotes={}",
+                    matchingPriorProtocols.size(), conjecture.lhs(), candidateRegistration.mappingNotes());
         }
         String paperId = ctx.nextPaperId(roomId);
         reserveQuestion(crossRunContext.question(), paperId);
@@ -1112,6 +1147,20 @@ public class ResearchCycleService {
             log.warn("question-serve reservation failed paperId={} sourcePaperId={}: {}",
                     paperId, question.paperId(), e.getMessage());
         }
+    }
+
+    /**
+     * Missing history is intentionally equivalent to {@link ResearchQualityGrade#UNASSESSED}.
+     * Phase 43 must not turn a schema rollout gap into a blanket research-computation denial.
+     */
+    private boolean protocolIsSettled(String paperId) {
+        if (paperId == null || paperId.isBlank() || qualityAssessments == null) {
+            return false;
+        }
+        return qualityAssessments.findFirstByPaperIdOrderByAssessmentRevisionDesc(paperId)
+                .map(assessment -> QualityAwareProtocolReusePolicy.blocksOrdinaryReuse(
+                        List.of(assessment.grade())))
+                .orElse(false);
     }
 
     /** Pure formatting for {@link #appendCrossRunContext}; static for tests. */

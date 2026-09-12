@@ -1,6 +1,7 @@
 # Phase 43 — AI-led research quality grading and protocol reuse
 
-**Status: PROPOSED — no runtime behavior changed.**
+**Status: IN PROGRESS — durable AI-assessment history and quality-aware duplicate admission are
+implemented; AI adjudication invocation, legacy backfill, and UI/API presentation remain pending.**
 
 ## Purpose
 
@@ -62,8 +63,8 @@ transitions.  They do **not** assign the human-quality or beyond-human grade.
 
 ## Durable assessment record
 
-Add an append-only `research_paper_quality_assessments` record keyed by paper ID and assessment
-revision.  It stores at least:
+The research service owns an append-only `research_paper_quality_assessments` record keyed by
+paper ID and assessment revision.  It stores at least:
 
 ```text
 paperId, assessmentRevision, rubricVersion, assessedAt,
