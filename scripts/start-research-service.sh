@@ -19,6 +19,11 @@ fi
 [[ -f "$GAME_POM" ]] || { echo "Game-service POM not found: $GAME_POM" >&2; exit 1; }
 [[ -f "$RESEARCH_POM" ]] || { echo "Research-service POM not found: $RESEARCH_POM" >&2; exit 1; }
 
+# The research runtime runs with Hibernate DDL disabled. Apply the small,
+# idempotent game-owned migration set before it reads transition-period game
+# tables, rather than allowing this service to mutate that schema itself.
+"$SCRIPT_DIR/apply-game-schema-migrations.sh"
+
 # A university paper must be source-grounded. Shadow-only lifecycle audits set
 # APP_UNIVERSITY_ENABLED=false and intentionally do not need this corpus gate.
 if [[ "${APP_UNIVERSITY_ENABLED:-true}" == "true" ]]; then

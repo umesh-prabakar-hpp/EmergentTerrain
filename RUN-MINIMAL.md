@@ -107,6 +107,8 @@ cd "$(git rev-parse --show-toplevel)"
 
 ## 7. Research audit without the game
 
+`start-research-service.sh` applies its required idempotent game-schema migrations first.
+
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 APP_UNIVERSITY_ENABLED=false \

@@ -191,6 +191,10 @@ Stop both Julia sidecars with:
 
 The research worker serves API v1 on port `8082`, requires PostgreSQL, and runs in the current
 terminal. It does not start the game UI, WebSocket stack, GPU engine, or subscription proxies.
+Before starting, its launcher applies the idempotent game-owned migrations in
+`apps/game-service/src/main/resources/db/migration/`; Hibernate remains disabled for the
+research process. Apply them separately with `./scripts/apply-game-schema-migrations.sh` when
+needed.
 
 ### Safe migration audit
 
