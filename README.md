@@ -130,8 +130,8 @@ startup. Keep the research service and game in separate terminals when running b
 Run these checks from the repository root after changing Java code:
 
 ```bash
-mvn -f apps/game-service/pom.xml -DskipTests package
-mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+mvn -pl apps/game-service -am -DskipTests package
+mvn -pl apps/game-service -am test -DtrimStackTrace=false
 ```
 
 For Rust engine changes, run `cargo test --manifest-path engines/gpu-engine/Cargo.toml`. Generated
@@ -370,7 +370,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd "$(git rev-parse --show-toplevel)"
-mvn -f apps/game-service/pom.xml spring-boot:run
+./scripts/start.sh --foreground
 ```
 Open `http://localhost:8081/`
 

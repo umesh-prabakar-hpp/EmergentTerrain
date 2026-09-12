@@ -209,13 +209,13 @@ cd "$(git rev-parse --show-toplevel)"
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-mvn -f apps/game-service/pom.xml -DskipTests package
+mvn -pl apps/game-service -am -DskipTests package
 ```
 
 ## 14. Test
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+mvn -pl apps/game-service -am test -DtrimStackTrace=false
 cargo test --manifest-path engines/gpu-engine/Cargo.toml
 ```

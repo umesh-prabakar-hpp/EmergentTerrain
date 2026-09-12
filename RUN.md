@@ -86,7 +86,7 @@ Use a JSON object whose keys match provider environment-variable names, such as
 
 ```bash
 ( umask 077; openssl rand -base64 32 | tr -d '\n' > ~/.emergentterrain/passphrase )
-mvn -q -f apps/game-service/pom.xml compile
+mvn -q -pl apps/game-service -am compile
 java -cp apps/game-service/target/classes \
   com.emergentterrain.secrets.EncryptedSecretsFile \
   seal ~/.emergentterrain/secrets.enc \
@@ -318,7 +318,7 @@ When finished, stop the managed web app and its managed proxies:
 Build the Java game service from the repository root:
 
 ```bash
-mvn -f apps/game-service/pom.xml -DskipTests package
+mvn -pl apps/game-service -am -DskipTests package
 ```
 
 ## 9. Test
@@ -326,7 +326,7 @@ mvn -f apps/game-service/pom.xml -DskipTests package
 Run the Java test suite:
 
 ```bash
-mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+mvn -pl apps/game-service -am test -DtrimStackTrace=false
 ```
 
 Run Rust checks when changing the GPU engine:

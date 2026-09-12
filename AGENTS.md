@@ -218,7 +218,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-temurin-jdk
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd "$(git rev-parse --show-toplevel)"
-mvn -f apps/game-service/pom.xml spring-boot:run
+./scripts/start.sh --foreground
 ```
 
 For the configured primary LLM, prefer `./scripts/start.sh`: it starts the optional
@@ -253,7 +253,7 @@ If tests or runtime need a real DB, ensure PostgreSQL is running and the datasou
 ## Build
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-mvn -f apps/game-service/pom.xml -DskipTests package
+mvn -pl apps/game-service -am -DskipTests package
 ```
 
 ## Game-service binary release
@@ -277,7 +277,7 @@ artifact.
 ## Tests
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+mvn -pl apps/game-service -am test -DtrimStackTrace=false
 ```
 
 On sandboxed hosts, Mockito's inline mock maker cannot dynamically attach Byte Buddy even

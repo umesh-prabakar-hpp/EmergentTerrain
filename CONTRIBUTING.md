@@ -23,8 +23,8 @@ This avoids implementing a proposal that conflicts with an in-progress phase pla
 4. Run the relevant checks:
 
    ```bash
-   mvn -f apps/game-service/pom.xml -DskipTests package
-   mvn -f apps/game-service/pom.xml test -DtrimStackTrace=false
+   mvn -pl apps/game-service -am -DskipTests package
+   mvn -pl apps/game-service -am test -DtrimStackTrace=false
    cargo test --manifest-path engines/gpu-engine/Cargo.toml  # when changing the GPU engine
    python3 scripts/check-literature-release.py  # before a source archive/release
    ```
