@@ -23,4 +23,4 @@ cd "$REPO_ROOT"
 export GAME_CONFIG_PATH
 mvn -pl apps/game-service -am install -DskipTests
 exec mvn -f "$RESEARCH_POM" spring-boot:run \
-  -Dspring-boot.run.arguments="--spring.main.web-application-type=none --spring.jpa.hibernate.ddl-auto=none --app.research-service.worker.enabled=false --app.research.quality-adjudication.enabled=true --app.research.quality-adjudication.backfill.enabled=true --app.research.quality-adjudication.backfill.max-papers=$MAX_PAPERS"
+  -Dspring-boot.run.arguments="--spring.main.web-application-type=none --spring.jpa.hibernate.ddl-auto=none --app.research-service.scheduling.enabled=false --app.research-service.worker.enabled=false --app.ai.selection-tests.enabled=false --app.research.quality-adjudication.enabled=true --app.research.quality-adjudication.backfill.enabled=true --app.research.quality-adjudication.backfill.max-papers=$MAX_PAPERS"

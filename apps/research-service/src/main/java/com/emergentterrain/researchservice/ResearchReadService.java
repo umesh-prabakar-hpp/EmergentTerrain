@@ -1,6 +1,7 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,8 +40,23 @@ public class ResearchReadService {
         int boundedLimit = Math.clamp(limit, 1, MAX_LIMIT);
         List<ResearchPaperSummary> papers = jdbc.query("""
                 SELECT paper_id, room_id, author_bot_id, domain, topic, title, hypothesis,
-                       methodology, findings, conclusion, peer_score, status, tick, generation
+                       methodology, findings, conclusion, peer_score, status, tick, generation,
+                       quality.grade AS quality_grade,
+                       quality.rubric_version AS quality_rubric_version,
+                       quality.assessor_model AS quality_assessor_model,
+                       quality.assessment_revision AS quality_assessment_revision,
+                       quality.assessed_at AS quality_assessed_at,
+                       quality.unmet_requirements_json AS quality_unmet_requirements_json,
+                       quality.contradictions_json AS quality_contradictions_json
                 FROM research_papers
+                LEFT JOIN LATERAL (
+                    SELECT grade, rubric_version, assessor_model, assessment_revision, assessed_at,
+                           unmet_requirements_json, contradictions_json
+                    FROM research_paper_quality_assessments
+                    WHERE paper_id = research_papers.paper_id
+                    ORDER BY assessment_revision DESC
+                    LIMIT 1
+                ) quality ON true
                 WHERE room_id = ?
                 ORDER BY tick DESC, paper_id DESC
                 LIMIT ?
@@ -107,7 +124,28 @@ public class ResearchReadService {
                 rs.getDouble("peer_score"),
                 rs.getString("status"),
                 rs.getLong("tick"),
-                rs.getInt("generation"));
+                rs.getInt("generation"),
+                qualitySummary(rs));
+    }
+
+    private ResearchQualitySummary qualitySummary(ResultSet rs) throws SQLException {
+        String grade = rs.getString("quality_grade");
+        if (grade == null || grade.isBlank()) return ResearchQualitySummary.unassessed();
+        Timestamp assessedAt = rs.getTimestamp("quality_assessed_at");
+        return new ResearchQualitySummary(
+                grade, rs.getString("quality_rubric_version"), rs.getString("quality_assessor_model"),
+                rs.getInt("quality_assessment_revision"), assessedAt == null ? null : assessedAt.toInstant(),
+                stringList(rs.getString("quality_unmet_requirements_json")),
+                stringList(rs.getString("quality_contradictions_json")));
+    }
+
+    private List<String> stringList(String json) {
+        try {
+            return objectMapper.readValue(json == null ? "[]" : json,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     private BotStats botStats(UUID roomId) {

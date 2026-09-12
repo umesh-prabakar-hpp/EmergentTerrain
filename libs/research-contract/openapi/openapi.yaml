@@ -371,7 +371,7 @@ components:
         completedAt: { type: string, format: date-time }
     ResearchPaperSummary:
       type: object
-      required: [paperId, roomId, reviewerBotIds, peerScore, tick, generation]
+      required: [paperId, roomId, reviewerBotIds, peerScore, tick, generation, quality]
       properties:
         paperId: { type: string }
         roomId: { type: string, format: uuid }
@@ -390,6 +390,25 @@ components:
         status: { type: string }
         tick: { type: integer, format: int64 }
         generation: { type: integer, format: int32 }
+        quality:
+          $ref: '#/components/schemas/ResearchQualitySummary'
+    ResearchQualitySummary:
+      type: object
+      required: [grade, rubricVersion, assessorModel, assessmentRevision, unmetRequirements, contradictions]
+      properties:
+        grade:
+          type: string
+          enum: [UNASSESSED, RESEARCH_NOTE, RESEARCH_DRAFT, HUMAN_QUALITY_PAPER, BEYOND_HUMAN_BENCHMARK]
+        rubricVersion: { type: string }
+        assessorModel: { type: string }
+        assessmentRevision: { type: integer, format: int32, minimum: 0 }
+        assessedAt: { type: string, format: date-time }
+        unmetRequirements:
+          type: array
+          items: { type: string }
+        contradictions:
+          type: array
+          items: { type: string }
     ResearchStats:
       type: object
       required: [totalPublished, totalRejected, researcherCount, maxGeneration, avgReputation, avgPeerScore, byDomain]

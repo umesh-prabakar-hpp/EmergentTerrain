@@ -3510,6 +3510,9 @@ function renderPapers(papers) {
   papersListEl.innerHTML = filtered.map(p => {
     const score = typeof p.peerScore === 'number' ? p.peerScore.toFixed(3) : '—';
     const reviewers = (p.reviewerBotIds || []).length;
+    const quality = p.quality || { grade: 'UNASSESSED', rubricVersion: '', unmetRequirements: [] };
+    const qualityGrade = quality.grade || 'UNASSESSED';
+    const qualityBlocker = (quality.unmetRequirements || [])[0];
     return `<div class="paper-card">
       <div class="paper-header">
         <span class="domain-badge domain-${(p.domain || '').toLowerCase()}">${p.domain || ''}</span>
@@ -3517,7 +3520,9 @@ function renderPapers(papers) {
         <span class="paper-score">Score: ${score}</span>
       </div>
       <div class="paper-title">${p.title || ''}</div>
+      <div class="paper-meta">Workflow: ${p.status || 'UNKNOWN'} · Quality: ${qualityGrade}${quality.rubricVersion ? ` (${quality.rubricVersion})` : ''}</div>
       <div class="paper-meta">Gen ${p.generation || 0} · ${p.methodology || ''} · ${reviewers} reviewer${reviewers !== 1 ? 's' : ''} · Tick ${p.tick || 0}</div>
+      ${qualityBlocker ? `<div class="paper-meta">Quality blocker: ${qualityBlocker}</div>` : ''}
       <div class="paper-hypothesis">${p.hypothesis || ''}</div>
       <div class="paper-findings">${p.findings || ''}</div>
       <div class="paper-conclusion">${p.conclusion || ''}</div>

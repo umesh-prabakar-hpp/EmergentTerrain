@@ -1,8 +1,9 @@
 # Phase 43 — AI-led research quality grading and protocol reuse
 
-**Status: IN PROGRESS — durable AI-assessment history and quality-aware duplicate admission are
-implemented; a default-off AI adjudicator can assign notes/drafts for new persisted outputs.
-Independent-replication promotion, legacy backfill, and UI/API presentation remain pending.**
+**Status: IN PROGRESS — durable AI-assessment history, quality-aware duplicate admission, default-on
+note/draft adjudication, finite legacy backfill, and a read-only v1 quality projection are
+implemented. The Research Lab now renders workflow and quality state separately. Independent-
+replication promotion remains pending.**
 
 ## Purpose
 
@@ -52,9 +53,11 @@ by computation alone.  The adjudicator receives a bounded, versioned evidence bu
 - independent AI review findings, including limitations and unresolved objections;
 - a declared benchmark record when the proposed grade is `BEYOND_HUMAN_BENCHMARK`.
 
-It returns structured JSON containing the proposed grade, rationale, cited evidence references,
-unmet requirements, contradictions, and a rubric version.  The adjudicator must be separate from
-the narrator and must not use its own prose as sufficient evidence.  A multi-reviewer AI panel
+It returns structured JSON containing the proposed grade, rationale, unmet requirements,
+contradictions, and a rubric version. The service—not the model—binds the exact bounded evidence
+bundle it supplied to the durable assessment, so an AI response cannot introduce an external
+paper, replication, or reviewer as support. The adjudicator must be separate from the narrator
+and must not use its own prose as sufficient evidence. A multi-reviewer AI panel
 may challenge the adjudication; unresolved material disagreement prevents promotion above
 `RESEARCH_DRAFT`.
 
@@ -65,16 +68,23 @@ transitions.  They do **not** assign the human-quality or beyond-human grade.
 ### Initial implemented scope
 
 The v1 adjudicator is enabled by default after a paper is durably persisted. It receives paper,
-protocol, narration, and panel evidence and may
-assign only `RESEARCH_NOTE` or `RESEARCH_DRAFT`. It rejects invented evidence references and any
-attempt to award a settled grade. The paper remains persisted if the AI call or structured
-response fails. Human-quality and beyond-human promotion stays unavailable until independent
-replication and benchmark records are present in the evidence bundle.
+protocol, narration, and panel evidence and may assign only `RESEARCH_NOTE` or `RESEARCH_DRAFT`.
+It binds that exact bundle server-side and rejects a malformed response or any attempt to award a
+settled grade. The paper remains persisted if the AI call or structured response fails.
+Human-quality and beyond-human promotion stays unavailable until independent replication and
+benchmark records are present in the evidence bundle.
 
 `./scripts/backfill-research-quality.sh [1..25]` is the separate, finite legacy path. It starts
-no web server or research worker, selects only `UNASSESSED` outputs, never rewrites an existing
-assessment, and exits after the requested batch (default one). It uses the same v1 note/draft-only
-adjudicator, so it cannot inflate historical results into human-quality claims.
+no web server, scheduler, research worker, or provider-selection probe; selects only `UNASSESSED`
+outputs; never rewrites an existing assessment; and exits after the requested batch (default one).
+It uses the same v1 note/draft-only adjudicator, so it cannot inflate historical results into
+human-quality claims.
+
+The existing `GET /api/v1/research/rooms/{roomId}/papers` response now includes a required
+`quality` object. It is the latest immutable assessment, or an explicit `UNASSESSED` projection
+when no assessment exists. The response exposes the grade, rubric/model provenance, assessment
+revision/time, unmet requirements, and contradictions; it does not expose mutable entities,
+prompt text, or any ability to alter an assessment.
 
 ## Durable assessment record
 
@@ -134,7 +144,8 @@ results, or claim novelty merely because it reran.
 5. Replace the duplicate-protocol guard with the quality-aware admission policy above and record
    each reuse rationale.
 6. Surface workflow status, current quality grade, rubric version, evidence links, and blockers
-   separately in the UI and research API.
+   separately in the UI and research API. **The v1 API projection and Research Lab workflow/
+   quality display are implemented; evidence links remain a future detail view.**
 7. Define and independently evaluate a public expert benchmark before allowing
    `BEYOND_HUMAN_BENCHMARK`.
 

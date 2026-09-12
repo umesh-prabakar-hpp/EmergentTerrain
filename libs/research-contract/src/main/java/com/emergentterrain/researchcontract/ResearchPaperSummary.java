@@ -24,4 +24,5 @@ public record ResearchPaperSummary(
         double peerScore,
         String status,
         long tick,
-        int generation) { }
+        int generation,
+        ResearchQualitySummary quality) { }

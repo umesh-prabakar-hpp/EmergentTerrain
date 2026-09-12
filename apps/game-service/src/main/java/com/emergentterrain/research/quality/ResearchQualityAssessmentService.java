@@ -4,6 +4,7 @@ import com.emergentterrain.repo.ResearchPaperQualityAssessmentRepository;
 import com.emergentterrain.repo.ResearchPaperRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ public class ResearchQualityAssessmentService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @Autowired
     public ResearchQualityAssessmentService(
             ResearchPaperRepository papers,
             ResearchPaperQualityAssessmentRepository assessments,

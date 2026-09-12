@@ -59,15 +59,14 @@ public class AiResearchQualityAdjudicator {
         Set<String> allowedEvidenceReferences = allowedEvidenceReferences(paper, draft);
         try {
             String response = router.callPrimary(prompt(paper, draft, allowedEvidenceReferences));
-            Optional<AiResearchQualityAssessment> decision = parseResponse(
-                    objectMapper, response, paper.paperId(), rubricVersion, router.primaryModel(),
-                    allowedEvidenceReferences);
-            if (decision.isEmpty()) {
-                log.warn("Phase 43 quality adjudication rejected malformed or unsupported response paperId={}",
-                        paper.paperId());
+            ParseOutcome outcome = parseOutcome(objectMapper, response, paper.paperId(), rubricVersion,
+                    router.primaryModel(), allowedEvidenceReferences);
+            if (outcome.decision().isEmpty()) {
+                log.warn("Phase 43 quality adjudication rejected response paperId={} reason={}",
+                        paper.paperId(), outcome.rejectionReason());
                 return;
             }
-            ResearchPaperQualityAssessment stored = assessmentService.recordAiAssessment(decision.get());
+            ResearchPaperQualityAssessment stored = assessmentService.recordAiAssessment(outcome.decision().get());
             log.info("Phase 43 AI quality assessment persisted paperId={} revision={} grade={}",
                     paper.paperId(), stored.assessmentRevision(), stored.grade());
         } catch (RuntimeException e) {
@@ -88,25 +87,42 @@ public class AiResearchQualityAdjudicator {
             String rubricVersion,
             String assessorModel,
             Set<String> allowedEvidenceReferences) {
+        return parseOutcome(mapper, response, paperId, rubricVersion, assessorModel,
+                allowedEvidenceReferences).decision();
+    }
+
+    private static ParseOutcome parseOutcome(
+            ObjectMapper mapper,
+            String response,
+            String paperId,
+            String rubricVersion,
+            String assessorModel,
+            Set<String> allowedEvidenceReferences) {
         try {
-            JsonNode root = mapper.readTree(response);
-            if (root == null || !root.isObject()) return Optional.empty();
-            ResearchQualityGrade grade = ResearchQualityGrade.valueOf(text(root, "grade"));
+            String json = extractJsonObject(response);
+            if (json == null) return ParseOutcome.rejected("no_json_object");
+            JsonNode root = mapper.readTree(json);
+            if (root == null || !root.isObject()) return ParseOutcome.rejected("json_not_object");
+            ResearchQualityGrade grade;
+            try {
+                grade = ResearchQualityGrade.valueOf(text(root, "grade"));
+            } catch (IllegalArgumentException invalidGrade) {
+                return ParseOutcome.rejected("invalid_grade");
+            }
             // v1 cannot honestly infer either settled grade because independent replication and a
             // benchmark record are not yet in its bounded evidence bundle.
             if (grade != ResearchQualityGrade.RESEARCH_NOTE && grade != ResearchQualityGrade.RESEARCH_DRAFT) {
-                return Optional.empty();
+                return ParseOutcome.rejected("unsupported_grade");
             }
-            List<String> evidence = strings(root.path("evidence_references"));
-            if (evidence.isEmpty() || !allowedEvidenceReferences.containsAll(evidence)) {
-                return Optional.empty();
-            }
-            return Optional.of(new AiResearchQualityAssessment(
+            // The AI judges this bounded bundle, but the service records its exact sources. Models
+            // never supply identifiers, so they cannot smuggle in an external paper or replication.
+            List<String> evidence = List.copyOf(allowedEvidenceReferences);
+            return ParseOutcome.accepted(new AiResearchQualityAssessment(
                     paperId, rubricVersion, assessorModel, grade, text(root, "rationale"), evidence,
                     strings(root.path("unmet_requirements")), strings(root.path("contradictions")),
                     optionalText(root, "reviewer_summary"), "", ""));
         } catch (Exception e) {
-            return Optional.empty();
+            return ParseOutcome.rejected("invalid_response_schema");
         }
     }
 
@@ -123,7 +139,7 @@ public class AiResearchQualityAdjudicator {
                 + "COMPUTATION TRACE: " + safe(paper.toolCallTrace()) + "\n"
                 + "RELATED WORK: " + safe(paper.relatedWork()) + "\n"
                 + "REVIEW PANEL: " + safe(paper.panelOutcome()) + "\n"
-                + "ALLOWED EVIDENCE REFERENCES: " + String.join(", ", evidenceReferences);
+                + "SERVER-BOUND EVIDENCE REFERENCES: " + jsonArray(evidenceReferences);
         return """
                 You are the independent AI quality adjudicator for a research record. Assess only
                 the supplied evidence. Do not treat successful computation, peer score, workflow
@@ -133,9 +149,11 @@ public class AiResearchQualityAdjudicator {
                 This v1 bundle has NO independent replication artifact and NO benchmark artifact.
                 You may return only RESEARCH_NOTE or RESEARCH_DRAFT. Return one JSON object only:
                 {"grade":"RESEARCH_NOTE|RESEARCH_DRAFT","rationale":"...",
-                 "evidence_references":["allowed reference"],
                  "unmet_requirements":["..."],"contradictions":["..."],
                  "reviewer_summary":"..."}
+
+                The server binds the displayed evidence references to the assessment record. Do not
+                name, cite, or rely on any source outside the displayed evidence bundle.
 
                 Evidence follows:
                 """ + truncate(evidence);
@@ -152,6 +170,14 @@ public class AiResearchQualityAdjudicator {
         if (!safe(paper.conclusion()).isBlank()) refs.add("narration:" + paper.paperId());
         if (!safe(paper.panelOutcome()).isBlank()) refs.add("review-panel:" + paper.paperId());
         return Set.copyOf(refs);
+    }
+
+    private String jsonArray(Set<String> values) {
+        try {
+            return objectMapper.writeValueAsString(values);
+        } catch (Exception impossible) {
+            throw new IllegalStateException("could not encode allowed quality evidence references", impossible);
+        }
     }
 
     private String truncate(String value) {
@@ -181,7 +207,40 @@ public class AiResearchQualityAdjudicator {
         return value != null && value.isTextual() ? value.asText().strip() : "";
     }
 
+    /** Accept a single JSON object even when a provider surrounds it with markdown fencing. */
+    private static String extractJsonObject(String response) {
+        if (response == null) return null;
+        int open = response.indexOf('{');
+        if (open < 0) return null;
+        int depth = 0;
+        boolean quoted = false;
+        boolean escaped = false;
+        for (int index = open; index < response.length(); index++) {
+            char current = response.charAt(index);
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (current == '\\') escaped = true;
+                else if (current == '"') quoted = false;
+                continue;
+            }
+            if (current == '"') quoted = true;
+            else if (current == '{') depth++;
+            else if (current == '}' && --depth == 0) return response.substring(open, index + 1);
+        }
+        return null;
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private record ParseOutcome(Optional<AiResearchQualityAssessment> decision, String rejectionReason) {
+        static ParseOutcome accepted(AiResearchQualityAssessment decision) {
+            return new ParseOutcome(Optional.of(decision), "");
+        }
+
+        static ParseOutcome rejected(String reason) {
+            return new ParseOutcome(Optional.empty(), reason);
+        }
     }
 }
