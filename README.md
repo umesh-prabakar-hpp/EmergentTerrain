@@ -32,6 +32,9 @@ proof, external replication, or publication acceptance.
 
 4. Choose one supported path:
 
+   Before the university workflow, complete the required literature-index and encrypted
+   provider-secret setup in [RUN.md](RUN.md).
+
    ```bash
    # Run the web app; starts its managed local AI gateway when configured.
    ./scripts/start.sh
@@ -396,15 +399,7 @@ export LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter
 ```
 
 `start-research-service.sh` intentionally does not manage this gateway. For university research
-without the game, start it in a separate terminal before starting the research worker. When the
-sibling external gateway copy exists, use it:
-
-```bash
-cd "$(dirname "$(git rev-parse --show-toplevel)")/ai-proxy/local-ai-gateway"
-node server.mjs
-```
-
-Otherwise use the portable in-repository adapter:
+without the game, start the portable in-repository adapter in a separate terminal before the worker:
 
 ```bash
 LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
@@ -587,9 +582,7 @@ defaults to the app's `PG_URL`, `PG_USER`, and `PG_PASSWORD` settings; use
 explicit alternate datasource. It accepts matching `ET_*_URL` / `ET_*_PORT`
 overrides and `ET_STATUS_TIMEOUT_SECONDS`. Its terminal output uses color; pipe
 it or set `NO_COLOR=1` for plain text. Its default local-AI hint starts the portable
-in-repository adapter and explicitly requires `LOCAL_AI_GATEWAY_COMMAND`. When the sibling
-`ai-proxy/local-ai-gateway/server.mjs` exists, it instead shows that standalone gateway command.
-Set `ET_LOCAL_AI_GATEWAY_STANDALONE_DIR` for another location, or set
+in-repository adapter and explicitly requires `LOCAL_AI_GATEWAY_COMMAND`. Set
 `ET_LOCAL_AI_GATEWAY_START_COMMAND` (and optionally `ET_LOCAL_AI_GATEWAY_START_LABEL`) for an exact
 custom hint. A redirect to `/login` is reported as ready-but-protected; set
 `ET_STATUS_COMMAND_CHARS` to adjust the abbreviated long `ps` command display.

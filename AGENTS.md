@@ -227,9 +227,7 @@ local AI gateway on `127.0.0.1:8788` before launching the JVM when
 `scripts/local-ai-gateway`; set `ET_LOCAL_AI_GATEWAY_DIR` to use another location.
 If it is unavailable, the launcher leaves it off and the remaining providers are used.
 `./scripts/start-research-service.sh` deliberately does not start the gateway: for university
-research without the game, prefer `node server.mjs` from the sibling
-`../ai-proxy/local-ai-gateway` directory when that external local-CLI gateway exists. Otherwise run
-`LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter node
+research without the game, run `LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter node
 scripts/local-ai-gateway/server.mjs` in a separate terminal before the worker. It is optional when
 another configured provider is available, and the shadow-only audit path does not invoke university
 LLM work.
@@ -359,9 +357,7 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   required services make it exit nonzero. It uses color when attached to a terminal;
   `NO_COLOR=1` disables it.
   Its default local-AI hint starts the portable in-repository adapter and requires
-  `LOCAL_AI_GATEWAY_COMMAND`. When the sibling `ai-proxy/local-ai-gateway/server.mjs` exists, it
-  instead shows that standalone gateway command. Set `ET_LOCAL_AI_GATEWAY_STANDALONE_DIR` for
-  another location, or `ET_LOCAL_AI_GATEWAY_START_COMMAND` (and optionally
+  `LOCAL_AI_GATEWAY_COMMAND`. Set `ET_LOCAL_AI_GATEWAY_START_COMMAND` (and optionally
   `ET_LOCAL_AI_GATEWAY_START_LABEL`) for an exact custom hint. `/login` redirects are
   ready-but-protected, and `ET_STATUS_COMMAND_CHARS` controls abbreviation of long active `ps`
   commands.

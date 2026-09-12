@@ -55,29 +55,65 @@ function textFromContent(content) {
   return String(content);
 }
 
+function renderToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return "";
+  return toolCalls.map((call) => {
+    const name = call?.function?.name || "unknown";
+    const argumentsText = call?.function?.arguments || "{}";
+    return `${name}(${argumentsText})`;
+  }).join(", ");
+}
+
 function renderConversation(messages) {
   return (messages || []).map((message) => {
     const role = message?.role || "user";
     const suffix = message.tool_call_id ? ` (tool_call_id=${message.tool_call_id})` : "";
-    return `${role.toUpperCase()}${suffix}:\n${textFromContent(message.content)}`;
+    const content = textFromContent(message.content);
+    const calls = renderToolCalls(message?.tool_calls);
+    const callNote = calls ? `\nAPPLICATION TOOL CALLS: ${calls}` : "";
+    return `${role.toUpperCase()}${suffix}:\n${content}${callNote}`;
   }).join("\n\n");
 }
 
-function buildPrompt(messages, tools, forceFinal) {
+function buildPrompt(messages, tools, continuation) {
   const toolInstructions = tools.length
-    ? forceFinal
-      ? "Tool results are present. Return only the final answer as JSON: {\"content\":\"...\"}."
-      : "Select only supplied application tools. Return JSON: {\"tool_calls\":[{\"name\":\"...\",\"arguments\":{}}]} or {\"content\":\"...\"}."
+    ? continuation
+      ? "Application tool results are present. Request additional supplied application tools only when more evidence is needed; otherwise return the final answer."
+      : "Select supplied application tools only when they are needed to answer."
     : "Return only the requested assistant response.";
   return [
     "You are the AI backend for EmergentTerrain.",
     toolInstructions,
     "Do not execute shell commands, access files, use network services, or invoke tools outside the supplied application tools.",
+    tools.length
+      ? "Return ONLY a JSON object of the form {\"tool_calls\":[{\"name\":\"tool name\",\"arguments\":{}}]} or {\"content\":\"final answer\"}."
+      : "",
     tools.length ? `--- APPLICATION TOOLS ---\n${JSON.stringify(tools)}` : "",
     "--- APPLICATION CONVERSATION ---",
     renderConversation(messages),
     "--- END APPLICATION CONVERSATION ---",
   ].filter(Boolean).join("\n\n");
+}
+
+function failureCategory(error) {
+  if (error?.gatewayCategory) return error.gatewayCategory;
+  if (/exceeded .*ms/i.test(error?.message || "")) return "timeout";
+  if (/Unable to start/i.test(error?.message || "")) return "start_failed";
+  if (/exited/i.test(error?.message || "")) return "command_failed";
+  if (/no response/i.test(error?.message || "")) return "empty_response";
+  return "unknown";
+}
+
+function gatewayError(category, message) {
+  const error = new Error(message);
+  error.gatewayCategory = category;
+  return error;
+}
+
+function requestLabel(req, fallback) {
+  const supplied = req.headers["x-emergentterrain-request-id"] || req.headers["x-request-id"];
+  if (typeof supplied !== "string") return fallback;
+  return supplied.replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 96) || fallback;
 }
 
 function extractJsonObject(text) {
@@ -113,13 +149,12 @@ function parseToolPlan(text, tools) {
 }
 
 function runLocalAi(prompt) {
-  if (!COMMAND) return Promise.reject(new Error("LOCAL_AI_GATEWAY_COMMAND is not configured"));
+  if (!COMMAND) return Promise.reject(gatewayError("configuration_required", "LOCAL_AI_GATEWAY_COMMAND is not configured"));
   return new Promise((resolve, reject) => {
     let args;
-    try { args = commandArgs(); } catch (error) { reject(error); return; }
+    try { args = commandArgs(); } catch (error) { reject(gatewayError("invalid_configuration", error.message)); return; }
     const child = spawn(COMMAND, args, { cwd: "/tmp", stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
     let stdout = "";
-    let stderr = "";
     let settled = false;
     const finish = (fn, value) => {
       if (settled) return;
@@ -128,18 +163,19 @@ function runLocalAi(prompt) {
       fn(value);
     };
     child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => finish(reject, new Error(`Unable to start local AI command: ${error.message}`)));
+    // Drain diagnostic output so a noisy command cannot block; it is never retained or returned.
+    child.stderr.resume();
+    child.on("error", () => finish(reject, gatewayError("start_failed", "Unable to start local AI command")));
     child.on("close", (code, signal) => {
-      if (code !== 0) return finish(reject, new Error(`Local AI command exited ${code ?? "?"}${signal ? ` (${signal})` : ""}: ${stderr.trim()}`));
-      if (!stdout.trim()) return finish(reject, new Error("Local AI command returned no response"));
+      if (code !== 0) return finish(reject, gatewayError("command_failed", "Local AI command exited without a response"));
+      if (!stdout.trim()) return finish(reject, gatewayError("empty_response", "Local AI command returned no response"));
       finish(resolve, stdout.trim());
     });
     child.stdin.end(prompt);
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
-      finish(reject, new Error(`Local AI command exceeded ${TIMEOUT_MS}ms`));
+      finish(reject, gatewayError("timeout", "Local AI command exceeded its configured timeout"));
     }, TIMEOUT_MS);
   });
 }
@@ -151,11 +187,16 @@ async function handleCompletion(req, res) {
   const id = `chatcmpl-${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
   const tools = Array.isArray(body.tools) ? body.tools : [];
+  const continuation = body.messages.some((message) => message?.role === "tool");
+  const requestId = requestLabel(req, id);
+  const startedAt = Date.now();
+  console.log(new Date().toISOString(), `completion request=${requestId} continuation=${continuation} messages=${body.messages.length} tools=${tools.length}`);
   try {
-    const text = await runLocalAi(buildPrompt(body.messages, tools, body.messages.some((message) => message?.role === "tool")));
+    const text = await runLocalAi(buildPrompt(body.messages, tools, continuation));
     const planned = tools.length ? parseToolPlan(text, tools) : { content: text };
     const message = planned.tool_calls ? { role: "assistant", content: null, tool_calls: planned.tool_calls } : { role: "assistant", content: planned.content };
     const response = { id, object: "chat.completion", created, model: MODEL, choices: [{ index: 0, message, finish_reason: planned.tool_calls ? "tool_calls" : "stop" }] };
+    console.log(new Date().toISOString(), `completion complete request=${requestId} finish=${response.choices[0].finish_reason} tool_calls=${planned.tool_calls?.length || 0} elapsed_ms=${Date.now() - startedAt}`);
     if (body.stream) {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
       res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: MODEL, choices: [{ index: 0, delta: message, finish_reason: null }] })}\n\n`);
@@ -164,7 +205,9 @@ async function handleCompletion(req, res) {
     }
     sendJson(res, 200, response);
   } catch (error) {
-    sendError(res, 502, `Local AI request failed: ${error.message}`);
+    const category = failureCategory(error);
+    console.log(new Date().toISOString(), `completion failed request=${requestId} category=${category} continuation=${continuation} elapsed_ms=${Date.now() - startedAt}`);
+    sendError(res, 502, `Local AI request failed (${category})`);
   }
 }
 
@@ -175,4 +218,4 @@ const server = http.createServer(async (req, res) => {
   sendError(res, 404, "Not found", "not_found_error");
 });
 
-server.listen(PORT, HOST, () => console.log(`local-ai-gateway listening on http://${HOST}:${PORT}`));
+server.listen(PORT, HOST, () => console.log(`local-ai-gateway listening on http://${HOST}:${server.address().port}`));

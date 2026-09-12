@@ -1,8 +1,8 @@
 # Run EmergentTerrain
 
 This guide starts the project using its supported launchers. Start the Julia sidecars before the
-web app when using the standard math and grounding integrations. The GPU engine, LLM proxies, and
-literature indexes are only needed for their respective features.
+web app when using the standard math and grounding integrations. The GPU engine and local AI gateway
+are feature-specific; the complete literature index is mandatory before university paper generation.
 
 For a command-only reference, see [RUN-MINIMAL.md](RUN-MINIMAL.md). For scope, safety boundaries,
 and the repository map, start with the [README](README.md).
@@ -98,17 +98,12 @@ rm ~/.emergentterrain/secrets.json
 The app reads the sealed file automatically. A shell-exported secret still takes precedence. To run
 without the encrypted store, explicitly set `APP_SECRETS_ENABLED=false` for that launch.
 
-## 2. Download papers and build the literature index
+## 2. Download papers and build the required literature index
 
 Download the theorem-search corpus:
 
 ```bash
 ./scripts/bootstrap-hf-math-literature.sh
-```
-
-For full-text papers, download the complementary corpus:
-
-```bash
 HF_DATASET=marin-community/ar5iv-no-problem-markdown \
   ./scripts/bootstrap-hf-math-literature.sh
 ```
@@ -120,16 +115,13 @@ python3 -m pip install --user pyarrow
 
 ./scripts/prepare-hf-math-index.py --stage metadata
 ./scripts/prepare-hf-math-index.py --stage theorems
-./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20
-```
-
-After a complete immutable import, optimize the index:
-
-```bash
+./scripts/prepare-hf-math-index.py --stage fulltext
 ./scripts/prepare-hf-math-index.py --stage optimize
+./scripts/verify-research-paper-prerequisites.sh
 ```
 
-The index is stored under `~/.emergentterrain/indexes/math-literature/`.
+The index is stored under `~/.emergentterrain/indexes/math-literature/`. University paper generation
+does not start until it is complete; lifecycle-only shadow audits are unaffected.
 
 ## 3. Start the Julia sidecars
 
@@ -218,15 +210,8 @@ This transition-period path can use the configured LLM provider chain and write 
 Use it only when that is intended; it is not the safe audit path above.
 
 `start-research-service.sh` deliberately does not start the optional local AI gateway. If university
-research should use that provider, start it in a separate terminal first. When the sibling external
-gateway copy exists, prefer the tested local-CLI gateway:
-
-```bash
-cd "$(dirname "$(git rev-parse --show-toplevel)")/ai-proxy/local-ai-gateway"
-node server.mjs
-```
-
-Otherwise, use the portable in-repository adapter with a command that reads the prompt from standard
+research should use that provider, start the portable in-repository adapter in a separate terminal
+with a command that reads the prompt from standard
 input and writes the response to standard output:
 
 ```bash
@@ -373,8 +358,7 @@ they do not grant permission to mutate gameplay state or treat AI narration as e
   supported runtime.
 - **Port already in use:** use the status script to identify the listener and its command. Stop it
   using that service's documented launcher rather than killing an unrelated process.
-- **Local AI gateway is down:** if the sibling external gateway copy exists, start it with
-  `node server.mjs` from `../ai-proxy/local-ai-gateway`; otherwise confirm Node.js is on `PATH` and
+- **Local AI gateway is down:** confirm Node.js is on `PATH` and
   `LOCAL_AI_GATEWAY_COMMAND` is configured, then start the in-repository adapter with
   `node scripts/local-ai-gateway/server.mjs`. Restart the web app to have `start.sh` manage the
   adapter, or set `ET_DISABLE_LOCAL_AI_GATEWAY=1` when it is not needed.

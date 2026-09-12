@@ -24,7 +24,6 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 JULIA_SIDECAR_ROOT="${JULIA_SIDECAR_ROOT:-$REPO_ROOT/services/julia-math-sidecar}"
 GPU_ENGINE_ROOT="${GPU_ENGINE_ROOT:-$REPO_ROOT/engines/gpu-engine}"
 
@@ -44,14 +43,9 @@ COMMAND_DISPLAY_CHARS="${ET_STATUS_COMMAND_CHARS:-360}"
 POSTGRES_URL="${ET_POSTGRES_URL:-${PG_URL:-jdbc:postgresql://localhost:5432/emergentterrain}}"
 POSTGRES_USER="${ET_POSTGRES_USER:-${PG_USER:-postgres}}"
 POSTGRES_PASSWORD="${ET_POSTGRES_PASSWORD:-${PG_PASSWORD:-NewStrongPasswordHere}}"
-STANDALONE_LOCAL_AI_GATEWAY_DIR="${ET_LOCAL_AI_GATEWAY_STANDALONE_DIR:-$WORKSPACE_ROOT/ai-proxy/local-ai-gateway}"
-
 if [[ -n "${ET_LOCAL_AI_GATEWAY_START_COMMAND:-}" ]]; then
     LOCAL_AI_GATEWAY_START_COMMAND="$ET_LOCAL_AI_GATEWAY_START_COMMAND"
     LOCAL_AI_GATEWAY_START_LABEL="${ET_LOCAL_AI_GATEWAY_START_LABEL:-start external local AI gateway}"
-elif [[ -f "$STANDALONE_LOCAL_AI_GATEWAY_DIR/server.mjs" ]]; then
-    LOCAL_AI_GATEWAY_START_COMMAND="cd \"$STANDALONE_LOCAL_AI_GATEWAY_DIR\" && node server.mjs"
-    LOCAL_AI_GATEWAY_START_LABEL="start standalone local AI gateway"
 else
     LOCAL_AI_GATEWAY_START_COMMAND="cd \"$REPO_ROOT\" && LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter node scripts/local-ai-gateway/server.mjs"
     LOCAL_AI_GATEWAY_START_LABEL="start standalone adapter (requires LOCAL_AI_GATEWAY_COMMAND)"

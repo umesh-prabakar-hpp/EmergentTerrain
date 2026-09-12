@@ -25,17 +25,11 @@ cd "$(git rev-parse --show-toplevel)"
 bash ./scripts/setup-fedora-prereqs.sh
 ```
 
-## 3. Download papers and build the literature index
+## 3. Download papers and build the required literature index
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/bootstrap-hf-math-literature.sh
-```
-
-For full-text papers:
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
 HF_DATASET=marin-community/ar5iv-no-problem-markdown \
   ./scripts/bootstrap-hf-math-literature.sh
 ```
@@ -48,17 +42,13 @@ python3 -m pip install --user pyarrow
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/prepare-hf-math-index.py --stage metadata
 ./scripts/prepare-hf-math-index.py --stage theorems
-./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20
-```
-
-After a complete immutable import:
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
+./scripts/prepare-hf-math-index.py --stage fulltext
 ./scripts/prepare-hf-math-index.py --stage optimize
+./scripts/verify-research-paper-prerequisites.sh
 ```
 
-The index is stored under `~/.emergentterrain/indexes/math-literature/`.
+The complete index at `~/.emergentterrain/indexes/math-literature/` is mandatory for university
+paper generation. The research launcher refuses university work until this check passes.
 
 ## 4. First-time Julia sidecar setup
 
@@ -127,19 +117,23 @@ RESEARCH_LIFECYCLE_SHADOW_ONLY=true \
 
 ## 8. University research without the game
 
-Run this in one terminal when the sibling local AI gateway copy exists:
+Complete the encrypted provider-secret setup in [RUN.md](RUN.md#encrypted-provider-secrets) before
+starting this workflow. The existing fast and two-reviewer routes use `OPENROUTER_API_KEY`; do not
+set `APP_SECRETS_ENABLED=false` for a full paper-production run.
 
-```bash
-cd "$(dirname "$(git rev-parse --show-toplevel)")/ai-proxy/local-ai-gateway"
-node server.mjs
-```
-
-Otherwise run this in one terminal:
+Run this in one terminal when using the optional local AI command:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 LOCAL_AI_GATEWAY_COMMAND=/absolute/path/to/local-ai-adapter \
 node scripts/local-ai-gateway/server.mjs
+```
+
+Verify its multi-round application-tool protocol before beginning university work:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+node scripts/local-ai-gateway/test-tool-loop.mjs
 ```
 
 Run this in another terminal:

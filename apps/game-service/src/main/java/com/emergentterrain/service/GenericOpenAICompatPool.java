@@ -931,10 +931,12 @@ public class GenericOpenAICompatPool implements LlmPool {
                 int respStatus = 0;
                 String respBody = "";
                 try {
-                    HttpRequest req = applyExtraHeaders(HttpRequest.newBuilder()
+                    HttpRequest.Builder requestBuilder = applyExtraHeaders(HttpRequest.newBuilder()
                             .uri(URI.create(cfg.baseUrl() + "/chat/completions"))
                             .header("Authorization", "Bearer " + cfg.apiKey())
-                            .header("Content-Type", "application/json"))
+                            .header("Content-Type", "application/json"));
+                    addLocalGatewayCorrelationHeader(requestBuilder);
+                    HttpRequest req = requestBuilder
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .timeout(requestTimeout)
                             .build();
@@ -1200,6 +1202,30 @@ public class GenericOpenAICompatPool implements LlmPool {
         } catch (Exception e) {
             throw new RuntimeException("GenericOpenAICompatPool(" + cfg.providerKey()
                     + ") tool loop failed", e);
+        }
+    }
+
+    /**
+     * The loopback local adapter receives an opaque per-paper correlation value so its sanitized
+     * request timing can be joined with {@link com.emergentterrain.llm.LlmTraceWriter} without
+     * logging prompts or tool output. Never send this private header to configured remote pools.
+     */
+    private void addLocalGatewayCorrelationHeader(HttpRequest.Builder requestBuilder) {
+        if (!"local-ai".equals(cfg.providerKey()) || !isLoopbackGateway(cfg.baseUrl())) return;
+        String paperId = LlmCallContext.currentPaperId();
+        if (paperId == null || paperId.isBlank()) return;
+        String safe = paperId.replaceAll("[^A-Za-z0-9._:-]", "");
+        if (!safe.isBlank()) requestBuilder.header("X-EmergentTerrain-Request-Id", "paper-" + safe);
+    }
+
+    private static boolean isLoopbackGateway(String baseUrl) {
+        try {
+            String host = URI.create(baseUrl).getHost();
+            return "127.0.0.1".equals(host)
+                    || "::1".equals(host)
+                    || "localhost".equalsIgnoreCase(host);
+        } catch (IllegalArgumentException ignored) {
+            return false;
         }
     }
 

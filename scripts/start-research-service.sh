@@ -19,6 +19,12 @@ fi
 [[ -f "$GAME_POM" ]] || { echo "Game-service POM not found: $GAME_POM" >&2; exit 1; }
 [[ -f "$RESEARCH_POM" ]] || { echo "Research-service POM not found: $RESEARCH_POM" >&2; exit 1; }
 
+# A university paper must be source-grounded. Shadow-only lifecycle audits set
+# APP_UNIVERSITY_ENABLED=false and intentionally do not need this corpus gate.
+if [[ "${APP_UNIVERSITY_ENABLED:-true}" == "true" ]]; then
+  "$SCRIPT_DIR/verify-research-paper-prerequisites.sh"
+fi
+
 cd "$REPO_ROOT"
 export GAME_CONFIG_PATH
 export RESEARCH_OUTPUT_DIR
