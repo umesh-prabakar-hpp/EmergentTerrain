@@ -43,6 +43,8 @@ public record ProtocolReuseProvenance(
     /** Only reasons established by the allocation path are recorded in v1. */
     public enum Reason {
         OPEN_QUESTION_CONTINUATION,
+        /** A question-served follow-up retained a non-equivalent locked protocol. */
+        OPEN_QUESTION_PROTOCOL_REVISION,
         /** The source panel retained actionable feedback; this records a request, not a resolution. */
         REVIEWER_REMEDIATION_REQUESTED,
         UNSETTLED_IDENTICAL_PROTOCOL

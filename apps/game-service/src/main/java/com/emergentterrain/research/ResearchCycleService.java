@@ -839,6 +839,8 @@ public class ResearchCycleService {
         hypothesis = crossRunContext.hypothesis();
         boolean questionProtocolClone = QuestionServedProtocolCloneGuard.isClone(
                 crossRunContext.question(), conjecture.lhs(), candidateRegistration);
+        boolean questionProtocolRevision = QuestionServedProtocolCloneGuard.isRevision(
+                crossRunContext.question(), conjecture.lhs(), candidateRegistration);
         if (questionProtocolClone && protocolIsSettled(crossRunContext.question().paperId())) {
             log.info("question-serve: declined identical locked protocol before draft allocation "
                             + "because source is AI-assessed settled family={} sourcePaperId={} mappingNotes={}",
@@ -888,6 +890,12 @@ public class ResearchCycleService {
             reuseProvenance = new ProtocolReuseProvenance(
                     crossRunContext.question().paperId(), sourceFingerprint,
                     ProtocolReuseProvenance.Reason.OPEN_QUESTION_CONTINUATION, false);
+        } else if (questionProtocolRevision) {
+            // The question serves as a retained source relationship and both fingerprints prove
+            // a material protocol change. This is still provenance, not a claim of improvement.
+            reuseProvenance = new ProtocolReuseProvenance(
+                    crossRunContext.question().paperId(), crossRunContext.question().protocolFingerprint(),
+                    ProtocolReuseProvenance.Reason.OPEN_QUESTION_PROTOCOL_REVISION, true);
         } else if (questionProtocolClone) {
             log.warn("question-serve: allowed protocol reuse has no fingerprint; provenance omitted "
                             + "family={} sourcePaperId={}",

@@ -154,7 +154,10 @@ For the currently implemented conjecture-investigation allocation path, an allow
 locked into the new pre-registration and persisted with the resulting paper as structured JSON:
 the source paper ID, source protocol fingerprint, a system-derived reason, and whether the
 protocol changed. The v1 reasons are `OPEN_QUESTION_CONTINUATION`,
-`REVIEWER_REMEDIATION_REQUESTED`, and `UNSETTLED_IDENTICAL_PROTOCOL`.
+`OPEN_QUESTION_PROTOCOL_REVISION`, `REVIEWER_REMEDIATION_REQUESTED`, and
+`UNSETTLED_IDENTICAL_PROTOCOL`. A revision is recorded only for a question-served follow-up
+where both locked fingerprints are retained, are in the same family, and are materially
+non-equivalent; it does not assert that the change improved the study.
 `REVIEWER_REMEDIATION_REQUESTED` is emitted only when the source panel retained a consensus
 contradiction or at least two recommendations; it records a request for remediation, never a
 claim that the later run resolved it. None asserts a stronger evidence range, new literature, or
@@ -171,8 +174,9 @@ the source and reason separately from workflow status and quality grade. The rem
 the optional database field through PostgreSQL's row-to-JSON projection, so an older transition
 database that does not yet have the field remains readable and simply reports no provenance.
 
-The broader user- or reviewer-declared improvement reasons listed above remain future work. They
-must be separately captured and validated before they are represented as facts.
+The broader user- or reviewer-declared improvement reasons—stronger evidence range, improved
+literature grounding, and changed provider/model—remain future work. They must be separately
+captured and validated before they are represented as facts.
 
 For a reviewer-remediation reuse, a separate AI remediation assessor now records an immutable
 `ADDRESSED`, `PARTIALLY_ADDRESSED`, `UNADDRESSED`, or `INCONCLUSIVE` outcome against the retained

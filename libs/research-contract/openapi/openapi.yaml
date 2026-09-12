@@ -487,7 +487,7 @@ components:
         sourceProtocolFingerprint: { type: string }
         reason:
           type: string
-          enum: [OPEN_QUESTION_CONTINUATION, REVIEWER_REMEDIATION_REQUESTED, UNSETTLED_IDENTICAL_PROTOCOL]
+          enum: [OPEN_QUESTION_CONTINUATION, OPEN_QUESTION_PROTOCOL_REVISION, REVIEWER_REMEDIATION_REQUESTED, UNSETTLED_IDENTICAL_PROTOCOL]
         protocolChanged: { type: boolean }
         requestedRemediations:
           type: array

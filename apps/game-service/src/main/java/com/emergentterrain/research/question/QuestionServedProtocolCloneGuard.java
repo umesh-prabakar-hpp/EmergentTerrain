@@ -33,6 +33,23 @@ public final class QuestionServedProtocolCloneGuard {
     }
 
     /**
+     * True only when an eligible question-served follow-up has a retained source protocol and a
+     * materially different candidate protocol in the same family. This records a relationship;
+     * it does not claim that the revision is stronger, novel, or successful.
+     */
+    public static boolean isRevision(PaperOpenQuestion question, String candidateFamily,
+                                     PreRegistration candidateRegistration) {
+        if (question == null || candidateFamily == null || !candidateFamily.equals(question.family())) {
+            return false;
+        }
+        String sourceFingerprint = question.protocolFingerprint();
+        String candidateFingerprint = fingerprint(candidateRegistration);
+        return sourceFingerprint != null && !sourceFingerprint.isBlank()
+                && candidateFingerprint != null && !candidateFingerprint.isBlank()
+                && !equivalent(sourceFingerprint, candidateFingerprint);
+    }
+
+    /**
      * Compare protocol substance rather than the migration label.  Constant-limit v5/v6 records
      * can describe the same ladder and holdouts; treating a safety-rule version bump as a novel
      * experiment merely re-runs the prior calibration after every deployment.

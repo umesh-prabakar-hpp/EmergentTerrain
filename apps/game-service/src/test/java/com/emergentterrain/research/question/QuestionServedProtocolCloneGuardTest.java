@@ -21,7 +21,7 @@ class QuestionServedProtocolCloneGuardTest {
     }
 
     @Test
-    void changedProtocolOrDifferentFamilyRemainsEligible() {
+    void changedProtocolIsIdentifiedAsARevisionWhileDifferentFamilyIsNot() {
         PreRegistration source = registration("locked-max-divisor-count-measurement:v1;"
                 + "lhs=max_divisor_count;rhs=wigert_bound;fit=fit,1000000000,5000,20;");
         PaperOpenQuestion question = new PaperOpenQuestion("P-source", "max_divisor_count",
@@ -33,7 +33,11 @@ class QuestionServedProtocolCloneGuardTest {
 
         assertThat(QuestionServedProtocolCloneGuard.isClone(question, "max_divisor_count", changedHoldout))
                 .isFalse();
+        assertThat(QuestionServedProtocolCloneGuard.isRevision(question, "max_divisor_count", changedHoldout))
+                .isTrue();
         assertThat(QuestionServedProtocolCloneGuard.isClone(question, "mean_divisor_excess", source))
+                .isFalse();
+        assertThat(QuestionServedProtocolCloneGuard.isRevision(question, "mean_divisor_excess", source))
                 .isFalse();
     }
 
@@ -45,6 +49,9 @@ class QuestionServedProtocolCloneGuardTest {
         assertThat(QuestionServedProtocolCloneGuard.isClone(legacy, "mean_divisor_excess",
                 registration("locked-constant-limit:v1;lhs=mean_divisor_excess;"
                         + "target=1.15443;scale_ladder=true;"))).isFalse();
+        assertThat(QuestionServedProtocolCloneGuard.isRevision(legacy, "mean_divisor_excess",
+                registration("locked-constant-limit:v1;lhs=mean_divisor_excess;"
+                        + "target=1.15443;scale_ladder=true;"))).isFalse();
     }
 
     @Test
@@ -54,8 +61,12 @@ class QuestionServedProtocolCloneGuardTest {
                 + "width_holdout_start=1500100000;literature_required=true;"
                 + "literature_subject=Dirichlet divisor summatory function;target_framing=established_calibration;";
         String v6 = v5.replace("locked-constant-limit:v5", "locked-constant-limit:v6");
+        PaperOpenQuestion question = new PaperOpenQuestion("P-source", "mean_divisor_excess",
+                "Does the calibration persist?", "SCOPE", v5);
 
         assertThat(QuestionServedProtocolCloneGuard.equivalent(v5, v6)).isTrue();
+        assertThat(QuestionServedProtocolCloneGuard.isRevision(question, "mean_divisor_excess",
+                registration(v6))).isFalse();
     }
 
     private static PreRegistration registration(String mappingNotes) {

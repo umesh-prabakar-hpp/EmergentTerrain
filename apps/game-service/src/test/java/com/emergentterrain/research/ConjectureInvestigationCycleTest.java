@@ -321,7 +321,7 @@ class ConjectureInvestigationCycleTest {
     }
 
     @Test
-    void questionServedIdenticalProtocolStopsBeforeDraftIdReservationOrNarration() throws Exception {
+    void questionServedUnassessedIdenticalProtocolReachesDraftAllocationAndReservesQuestion() throws Exception {
         ResearchCycleService svc = new ResearchCycleService();
         Conjecture c = buildConjecture("abundant_density", "happy_density", 0.0, 0.2515, 8, -0.004);
         PaperOpenQuestion question = new PaperOpenQuestion("P-source", "abundant_density",
@@ -334,13 +334,13 @@ class ConjectureInvestigationCycleTest {
 
         svc.publishConjectureInvestigation(UUID.randomUUID(), researcher(), c, 1L, ctx);
 
-        assertEquals(0, ctx.paperIdCalls.get(), "clone screen must run before nextPaperId");
-        assertNull(ctx.lastDraft.get(), "clone screen must not start narration or fallback publication");
-        assertNull(question.answeredByPaperId(), "declined question must stay servable");
+        assertEquals(1, ctx.paperIdCalls.get(), "an unassessed protocol remains eligible for a full run");
+        assertNotNull(ctx.lastDraft.get(), "eligible reuse must reach the normal draft path");
+        assertNotNull(question.answeredByPaperId(), "an accepted question is reserved for its draft");
     }
 
     @Test
-    void persistedIdenticalProtocolStopsBeforeDraftIdReservationOrNarration() {
+    void persistedUnassessedIdenticalProtocolReachesDraftAllocation() {
         ResearchCycleService svc = new ResearchCycleService();
         Conjecture c = buildConjecture("abundant_density", "happy_density", 0.0, 0.2515, 8, -0.004);
         CapturingContext ctx = new CapturingContext();
@@ -353,8 +353,8 @@ class ConjectureInvestigationCycleTest {
 
         svc.publishConjectureInvestigation(UUID.randomUUID(), researcher(), c, 1L, ctx);
 
-        assertEquals(0, ctx.paperIdCalls.get(), "persisted clone screen must run before nextPaperId");
-        assertNull(ctx.lastDraft.get(), "an identical locked study must not enter narration");
+        assertEquals(1, ctx.paperIdCalls.get(), "an unassessed identical protocol remains eligible");
+        assertNotNull(ctx.lastDraft.get(), "the allowed reuse must enter the normal draft path");
     }
 
     // ---------- helpers ----------
