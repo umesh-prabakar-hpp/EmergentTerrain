@@ -153,8 +153,11 @@ by review; it is not silently presented as novel.
 For the currently implemented conjecture-investigation allocation path, an allowed exact reuse is
 locked into the new pre-registration and persisted with the resulting paper as structured JSON:
 the source paper ID, source protocol fingerprint, a system-derived reason, and whether the
-protocol changed. The only v1 reasons are `OPEN_QUESTION_CONTINUATION` and
-`UNSETTLED_IDENTICAL_PROTOCOL`; neither asserts a stronger evidence range, new literature, or
+protocol changed. The v1 reasons are `OPEN_QUESTION_CONTINUATION`,
+`REVIEWER_REMEDIATION_REQUESTED`, and `UNSETTLED_IDENTICAL_PROTOCOL`.
+`REVIEWER_REMEDIATION_REQUESTED` is emitted only when the source panel retained a consensus
+contradiction or at least two recommendations; it records a request for remediation, never a
+claim that the later run resolved it. None asserts a stronger evidence range, new literature, or
 novelty that the allocation path cannot prove. The provenance is included as a server-bound input
 to the AI quality assessment. It is evidence only and must not change selection, computation,
 narration, publication, protocol-settlement policy, or quality promotion.

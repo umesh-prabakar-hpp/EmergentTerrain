@@ -8,6 +8,7 @@ import com.emergentterrain.researchcontract.ResearchDraftCandidate;
 import com.emergentterrain.researchcontract.ResearchDraftSelectionInput;
 import com.emergentterrain.researchcontract.ResearchTopicOption;
 import com.emergentterrain.researchcontract.StandardResearchDraftSelector;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -89,6 +90,8 @@ public class ResearchCycleService {
     private com.emergentterrain.repo.ResearchPaperQualityAssessmentRepository qualityAssessments;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.repo.ResearchPaperRepository researchPapers;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ObjectMapper objectMapper;
 
     /**
      * Surface UniversityService exposes to the cycle. Lets the cycle call back into
@@ -898,7 +901,7 @@ public class ResearchCycleService {
             reuseProvenance = new ProtocolReuseProvenance(
                     source.paperId(), source.protocolFingerprint() == null || source.protocolFingerprint().isBlank()
                             ? candidateFingerprint : source.protocolFingerprint(),
-                    ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL, false);
+                    reuseReason(objectMapper, source), false);
         }
         if (reuseProvenance != null) {
             // This amends the locked registration before computation. It is provenance only: the
@@ -1192,6 +1195,28 @@ public class ResearchCycleService {
                 .map(assessment -> QualityAwareProtocolReusePolicy.blocksOrdinaryReuse(
                         List.of(assessment.grade())))
                 .orElse(false);
+    }
+
+    /**
+     * Uses only an already-retained source panel. A requested remediation is not evidence that the
+     * later run addressed it, so it remains provenance rather than a workflow or quality decision.
+     */
+    static ProtocolReuseProvenance.Reason reuseReason(ObjectMapper objectMapper, ResearchPaper source) {
+        if (source == null || source.panelOutcome() == null || source.panelOutcome().isBlank()
+                || objectMapper == null) {
+            return ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL;
+        }
+        try {
+            PanelOutcome panel = objectMapper.readValue(source.panelOutcome(), PanelOutcome.class);
+            int recommendations = panel.recommendations() == null ? 0 : panel.recommendations().size();
+            int contradictions = panel.consensusContradictions() == null ? 0
+                    : panel.consensusContradictions().size();
+            return contradictions >= 1 || recommendations >= 2
+                    ? ProtocolReuseProvenance.Reason.REVIEWER_REMEDIATION_REQUESTED
+                    : ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL;
+        } catch (Exception ignored) {
+            return ProtocolReuseProvenance.Reason.UNSETTLED_IDENTICAL_PROTOCOL;
+        }
     }
 
     /** Pure formatting for {@link #appendCrossRunContext}; static for tests. */
