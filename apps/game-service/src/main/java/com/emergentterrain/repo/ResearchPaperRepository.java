@@ -17,6 +17,16 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
     /** Complete topic history for a quality-aware exact-protocol reuse decision. */
     List<ResearchPaper> findByRoomIdAndTopic(UUID roomId, String topic);
 
+    /** Bounded Phase 43 legacy backfill selection; no quality-history row means UNASSESSED. */
+    @Query("""
+            SELECT p FROM ResearchPaper p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ResearchPaperQualityAssessment a WHERE a.paperId = p.paperId
+            )
+            ORDER BY p.publishedAt ASC, p.paperId ASC
+            """)
+    List<ResearchPaper> findUnassessedForQualityBackfill(org.springframework.data.domain.Pageable pageable);
+
     /** Most-recent-first bounded history used by game-owned research selection. */
     List<ResearchPaper> findByRoomIdOrderByTickDesc(UUID roomId, org.springframework.data.domain.Pageable pageable);
 

@@ -1,7 +1,8 @@
 # Phase 43 — AI-led research quality grading and protocol reuse
 
 **Status: IN PROGRESS — durable AI-assessment history and quality-aware duplicate admission are
-implemented; AI adjudication invocation, legacy backfill, and UI/API presentation remain pending.**
+implemented; a default-off AI adjudicator can assign notes/drafts for new persisted outputs.
+Independent-replication promotion, legacy backfill, and UI/API presentation remain pending.**
 
 ## Purpose
 
@@ -60,6 +61,20 @@ may challenge the adjudication; unresolved material disagreement prevents promot
 Deterministic validators still have an important but narrower role: they verify that evidence
 references exist, prevent malformed assessments, preserve nulls, and reject impossible state
 transitions.  They do **not** assign the human-quality or beyond-human grade.
+
+### Initial implemented scope
+
+`RESEARCH_QUALITY_ADJUDICATION_ENABLED=true` enables the default-off v1 adjudicator after a
+paper is durably persisted. It receives paper, protocol, narration, and panel evidence and may
+assign only `RESEARCH_NOTE` or `RESEARCH_DRAFT`. It rejects invented evidence references and any
+attempt to award a settled grade. The paper remains persisted if the AI call or structured
+response fails. Human-quality and beyond-human promotion stays unavailable until independent
+replication and benchmark records are present in the evidence bundle.
+
+`RESEARCH_QUALITY_BACKFILL_ENABLED=true` is a separate, explicit legacy path. It selects only
+`UNASSESSED` outputs, never rewrites an existing assessment, and is bounded to one output per
+startup by default (`RESEARCH_QUALITY_BACKFILL_MAX_PAPERS`, maximum 25). It uses the same v1
+note/draft-only adjudicator, so it cannot inflate historical results into human-quality claims.
 
 ## Durable assessment record
 

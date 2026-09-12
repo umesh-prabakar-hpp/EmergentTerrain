@@ -1,0 +1,187 @@
+package com.emergentterrain.research.quality;
+
+import com.emergentterrain.research.PaperDraft;
+import com.emergentterrain.research.ResearchPaper;
+import com.emergentterrain.service.LlmRouter;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Default-off Phase 43 AI adjudicator for newly persisted outputs.
+ *
+ * <p>Its first evidence bundle has no independent-replication or benchmark artifact, so it may
+ * only assign {@link ResearchQualityGrade#RESEARCH_NOTE} or
+ * {@link ResearchQualityGrade#RESEARCH_DRAFT}. The parser fails closed on a stronger grade rather
+ * than allowing a model to assert human quality from computation or fluent narration alone.
+ */
+@Service
+@ConditionalOnProperty(name = "app.research.quality-adjudication.enabled", havingValue = "true")
+public class AiResearchQualityAdjudicator {
+
+    private static final Logger log = LoggerFactory.getLogger(AiResearchQualityAdjudicator.class);
+
+    private final LlmRouter router;
+    private final ObjectMapper objectMapper;
+    private final ResearchQualityAssessmentService assessmentService;
+    private final String rubricVersion;
+    private final int maxEvidenceChars;
+
+    public AiResearchQualityAdjudicator(
+            LlmRouter router,
+            ObjectMapper objectMapper,
+            ResearchQualityAssessmentService assessmentService,
+            @Value("${app.research.quality-adjudication.rubric-version:phase-43-rubric-v1}")
+            String rubricVersion,
+            @Value("${app.research.quality-adjudication.max-evidence-chars:12000}")
+            int maxEvidenceChars) {
+        this.router = router;
+        this.objectMapper = objectMapper;
+        this.assessmentService = assessmentService;
+        this.rubricVersion = rubricVersion;
+        this.maxEvidenceChars = Math.max(2_000, maxEvidenceChars);
+    }
+
+    /** Best-effort post-persistence assessment; a failed adjudication never rolls back a paper. */
+    public void adjudicate(ResearchPaper paper, PaperDraft draft) {
+        if (paper == null || paper.paperId() == null || paper.paperId().isBlank()) {
+            return;
+        }
+        Set<String> allowedEvidenceReferences = allowedEvidenceReferences(paper, draft);
+        try {
+            String response = router.callPrimary(prompt(paper, draft, allowedEvidenceReferences));
+            Optional<AiResearchQualityAssessment> decision = parseResponse(
+                    objectMapper, response, paper.paperId(), rubricVersion, router.primaryModel(),
+                    allowedEvidenceReferences);
+            if (decision.isEmpty()) {
+                log.warn("Phase 43 quality adjudication rejected malformed or unsupported response paperId={}",
+                        paper.paperId());
+                return;
+            }
+            ResearchPaperQualityAssessment stored = assessmentService.recordAiAssessment(decision.get());
+            log.info("Phase 43 AI quality assessment persisted paperId={} revision={} grade={}",
+                    paper.paperId(), stored.assessmentRevision(), stored.grade());
+        } catch (RuntimeException e) {
+            log.warn("Phase 43 AI quality adjudication failed paperId={} (paper remains persisted): {}",
+                    paper.paperId(), e.getMessage());
+        }
+    }
+
+    /** Same bounded AI judgement for a historical persisted output, which has no live draft. */
+    public void adjudicateHistorical(ResearchPaper paper) {
+        adjudicate(paper, null);
+    }
+
+    static Optional<AiResearchQualityAssessment> parseResponse(
+            ObjectMapper mapper,
+            String response,
+            String paperId,
+            String rubricVersion,
+            String assessorModel,
+            Set<String> allowedEvidenceReferences) {
+        try {
+            JsonNode root = mapper.readTree(response);
+            if (root == null || !root.isObject()) return Optional.empty();
+            ResearchQualityGrade grade = ResearchQualityGrade.valueOf(text(root, "grade"));
+            // v1 cannot honestly infer either settled grade because independent replication and a
+            // benchmark record are not yet in its bounded evidence bundle.
+            if (grade != ResearchQualityGrade.RESEARCH_NOTE && grade != ResearchQualityGrade.RESEARCH_DRAFT) {
+                return Optional.empty();
+            }
+            List<String> evidence = strings(root.path("evidence_references"));
+            if (evidence.isEmpty() || !allowedEvidenceReferences.containsAll(evidence)) {
+                return Optional.empty();
+            }
+            return Optional.of(new AiResearchQualityAssessment(
+                    paperId, rubricVersion, assessorModel, grade, text(root, "rationale"), evidence,
+                    strings(root.path("unmet_requirements")), strings(root.path("contradictions")),
+                    optionalText(root, "reviewer_summary"), "", ""));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private String prompt(ResearchPaper paper, PaperDraft draft, Set<String> evidenceReferences) {
+        String evidence = "PAPER ID: " + paper.paperId() + "\n"
+                + "WORKFLOW STATUS: " + safe(paper.status()) + "\n"
+                + "TITLE: " + safe(paper.title()) + "\n"
+                + "HYPOTHESIS: " + safe(paper.hypothesis()) + "\n"
+                + "METHOD: " + safe(paper.methodology()) + "\n"
+                + "FINDINGS: " + safe(paper.findings()) + "\n"
+                + "CONCLUSION: " + safe(paper.conclusion()) + "\n"
+                + "LOCKED PROTOCOL: " + safe(draft == null || draft.preRegistration() == null
+                        ? paper.protocolFingerprint() : draft.preRegistration().mappingNotes()) + "\n"
+                + "COMPUTATION TRACE: " + safe(paper.toolCallTrace()) + "\n"
+                + "RELATED WORK: " + safe(paper.relatedWork()) + "\n"
+                + "REVIEW PANEL: " + safe(paper.panelOutcome()) + "\n"
+                + "ALLOWED EVIDENCE REFERENCES: " + String.join(", ", evidenceReferences);
+        return """
+                You are the independent AI quality adjudicator for a research record. Assess only
+                the supplied evidence. Do not treat successful computation, peer score, workflow
+                publication, or polished prose as proof of human-quality research. Preserve null
+                findings. Do not invent references, replication, reviewers, or benchmark results.
+
+                This v1 bundle has NO independent replication artifact and NO benchmark artifact.
+                You may return only RESEARCH_NOTE or RESEARCH_DRAFT. Return one JSON object only:
+                {"grade":"RESEARCH_NOTE|RESEARCH_DRAFT","rationale":"...",
+                 "evidence_references":["allowed reference"],
+                 "unmet_requirements":["..."],"contradictions":["..."],
+                 "reviewer_summary":"..."}
+
+                Evidence follows:
+                """ + truncate(evidence);
+    }
+
+    private Set<String> allowedEvidenceReferences(ResearchPaper paper, PaperDraft draft) {
+        Set<String> refs = new LinkedHashSet<>();
+        refs.add("paper:" + paper.paperId());
+        if ((draft != null && draft.preRegistration() != null)
+                || !safe(paper.protocolFingerprint()).isBlank()) {
+            refs.add("protocol:" + paper.paperId());
+        }
+        if (!safe(paper.findings()).isBlank()) refs.add("computation:" + paper.paperId());
+        if (!safe(paper.conclusion()).isBlank()) refs.add("narration:" + paper.paperId());
+        if (!safe(paper.panelOutcome()).isBlank()) refs.add("review-panel:" + paper.paperId());
+        return Set.copyOf(refs);
+    }
+
+    private String truncate(String value) {
+        return value.length() <= maxEvidenceChars ? value : value.substring(0, maxEvidenceChars);
+    }
+
+    private static List<String> strings(JsonNode node) {
+        if (!node.isArray() || node.size() > 128) return List.of();
+        java.util.ArrayList<String> values = new java.util.ArrayList<>();
+        for (JsonNode child : node) {
+            if (!child.isTextual() || child.asText().isBlank()) return List.of();
+            values.add(child.asText().strip());
+        }
+        return List.copyOf(values);
+    }
+
+    private static String text(JsonNode root, String field) {
+        JsonNode value = root.get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            throw new IllegalArgumentException("missing " + field);
+        }
+        return value.asText().strip();
+    }
+
+    private static String optionalText(JsonNode root, String field) {
+        JsonNode value = root.get(field);
+        return value != null && value.isTextual() ? value.asText().strip() : "";
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+}
