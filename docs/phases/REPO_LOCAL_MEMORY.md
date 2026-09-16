@@ -1,6 +1,6 @@
 # Repo-local memory — EmergentTerrain review state
 
-Last updated: 2026-07-11.
+Last updated: 2026-09-15.
 
 Purpose: durable local handoff for future Codex/agent sessions when product memory is unavailable.
 Treat `src/main/resources/application.yml` as authoritative for live flags; several phase docs are
@@ -14,7 +14,8 @@ known stale.
   toggles memory on an editable Workspace Agent, but no editable agents were found.
 - Installed session skills found: `imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`,
   `skill-installer`.
-- No installed or curated `phase-review` skill was found. The phase review below was manual.
+- The portable phase-review skill lives at `skills/phase-review/SKILL.md`; it walks every
+  non-archived phase document and distinguishes active work from historical proposal text.
 - Portable repo copies of the paper-review skill now live under `skills/paper-review/`:
   `claude/SKILL.md` for Claude Code and `codex/SKILL.md` for Codex-style loading.
 
@@ -60,8 +61,9 @@ Closing state:
 
 ### Phase 32
 
-Phase 32 docs are internally inconsistent. `phase-32-manuscript-grounding/README.md` and
-`STATUS.md` still say "proposal / nothing built", but code and YAML show major pieces live.
+Phase 32's historical proposal language once conflicted with the delivered code and YAML. The
+2026-09-15 tracker refresh reconciles the top-level Phase 32 and rolling-status statements;
+historical body text is retained as implementation evidence rather than a current status claim.
 
 Live flags and state verified from `application.yml`:
 

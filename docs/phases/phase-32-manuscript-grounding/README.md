@@ -1,6 +1,13 @@
 # Phase 32 — Manuscript Grounding & Calibrated Evaluation (patterns from the paper-pipeline repo review)
 
-**Status: proposal (2026-06-06) — nothing built.** Fifth external-pattern review, after the
+**Status: PARTIALLY DELIVERED; original proposal still has open lanes (reconciled 2026-09-15).**
+The original 2026-06-06 review is retained below. Since then, later phases have delivered the
+literature and publication-grounding portions: Phase 34 supplies publication labels and grounded
+artifact gates, Phase 35 supplies local FTS retrieval/recovery, and Phase 37 adds the screened
+literature index. The original value-level provenance manifest, bounded re-goal loop, and
+calibrated absolute-review head remain open design/implementation lanes; do not describe the
+whole Phase 32 proposal as either wholly unbuilt or wholly complete. This is the fifth
+external-pattern review, after the
 self-improving-frameworks addendum
 ([`../phase-30-conjecture/phase-30-external-patterns.md`](../phase-30-conjecture/phase-30-external-patterns.md)),
 the simulation-frameworks addendum

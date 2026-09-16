@@ -75,6 +75,23 @@ settled grade. The paper remains persisted if the AI call or structured response
 Human-quality and beyond-human promotion stays unavailable until independent replication and
 benchmark records are present in the evidence bundle.
 
+### Live evidence after the v1 migration repair
+
+On 2026-09-12, the standalone university-research worker initially failed before draft persistence
+because the transition database lacked the game-owned `research_papers.protocol_reuse_provenance`
+column. Commit `c52e8f5a` added an idempotent game migration and made the research launcher apply
+that migration before startup while retaining `ddl-auto=none` in the research process. The repaired
+run persisted two papers with v1 AI assessments, both `RESEARCH_NOTE`:
+
+- `P-b72c-77628014` was workflow `REJECTED`: the registered location/width holdouts and sensitivity
+  analysis were not retained.
+- `P-b72c-77628015` was workflow `NEEDS_REVISION`: literature grounding and sensitivity coverage
+  were too weak for a stronger assessment.
+
+This is evidence that the assessment path preserves limited or failed work rather than promoting
+it. The next implementation increment is to make registered holdout/sensitivity evidence and
+specific literature support available to the workflow before narration and review.
+
 ### Deferred: immutable quality-grade replication evidence
 
 The game already has a legacy anomaly-replication path (`ReplicationService`). It chooses a
