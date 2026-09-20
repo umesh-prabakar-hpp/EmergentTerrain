@@ -95,10 +95,16 @@ work, and does not yet cancel routed shards early.
 
 ### 5. Routed-shard early success and cancellation
 
-When one routed shard produces relevance-safe evidence, remaining shard work may receive a short
-grace period and then be cancelled if its result cannot change the bounded answer. Cancellation is
-recorded by shard and reason. It cannot cancel the selected source's required read/citation chain,
-reorder issued keys, or claim that uncompleted shards had no evidence.
+The default-off implementation may cancel only an unfinished suffix after every earlier selected
+shard has completed and their distinct issued keys already fill the three-result deterministic
+response. This is stronger than “first evidence wins”: an incomplete earlier shard or fewer than
+three keys prohibits cancellation. Cancellation is recorded by shard and reason.
+
+`early-success-cancellation-enabled` remains false until a controlled routed-index observation
+captures the `early_sufficient_evidence` condition and verifies response parity. Deadline,
+interrupt, and failure cancellations remain unresolved timeout outcomes. It cannot cancel the
+selected source's required read/citation chain, reorder issued keys, or claim that uncompleted
+shards had no evidence.
 
 ### 6. Durable serialized fallback
 
@@ -168,7 +174,8 @@ offline build.
 5. **Implemented in part:** fair, generation-scoped primary-index leader dispatch with bounded
    queue wait, remaining-budget propagation to routed primary work, and source-safe queue/execution
    telemetry. Distinct-query fairness and queue-expiry-as-timeout have focused regression coverage.
-   Routed-shard early-success cancellation remains separate and unimplemented.
+   The separately default-off routed-shard early-success policy is implemented with completed-prefix
+   safety tests; capture controlled routed-index parity telemetry before enabling it.
 6. Add generation-pinned serialized recovery and the explicit pending-retrieval workflow state.
 7. Run cold/concurrent acceptance tests and one controlled research worker session before enabling
    any new default behavior.

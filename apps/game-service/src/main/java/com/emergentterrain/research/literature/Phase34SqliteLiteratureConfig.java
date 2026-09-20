@@ -33,13 +33,15 @@ public class Phase34SqliteLiteratureConfig {
             @Value("${app.research.literature.phase34-sqlite.shards.dir:${user.home}/.emergentterrain/indexes/math-literature-shards}")
             String shardsDir,
             @Value("${app.research.literature.phase34-sqlite.shards.parallelism:3}")
-            int shardParallelism) {
+            int shardParallelism,
+            @Value("${app.research.literature.phase34-sqlite.shards.early-success-cancellation-enabled:false}")
+            boolean earlySuccessCancellationEnabled) {
         PaperReviewScreenedLiterature paperReviewScreened = paperReviewScreenedEnabled
                 ? new PaperReviewScreenedLiterature(Path.of(paperReviewScreenedIndexDir)) : null;
         LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
         ShardedPhase34Literature candidateShards = shardsEnabled
                 ? new ShardedPhase34Literature(Path.of(shardsDir), phase35RetrievalEnabled, searchTimeoutMs,
-                        initialCandidates, planner, shardParallelism)
+                        initialCandidates, planner, shardParallelism, earlySuccessCancellationEnabled)
                 : null;
         // A half-built/missing shard set must never take the primary index offline. Keep the
         // monolith as the safe live fallback until the offline builder has produced usable files.

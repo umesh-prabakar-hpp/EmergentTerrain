@@ -1058,8 +1058,7 @@ public final class Phase34SqliteLiterature {
             ProgressHandler.setHandler(connection, PROGRESS_HANDLER_VM_STEPS, new ProgressHandler() {
                 @Override
                 protected int progress() {
-                    if (System.nanoTime() < deadlineNanos) return 0;
-                    return 1;
+                    return !Thread.currentThread().isInterrupted() && System.nanoTime() < deadlineNanos ? 0 : 1;
                 }
             });
         }
@@ -1070,7 +1069,9 @@ public final class Phase34SqliteLiterature {
         }
 
         private void ensureTimeRemaining() throws SQLException {
-            if (System.nanoTime() >= deadlineNanos) throw new SQLException("Phase 35 SQLite retrieval timeout");
+            if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadlineNanos) {
+                throw new SQLException("Phase 35 SQLite retrieval timeout");
+            }
         }
 
         private long elapsedMs() {
