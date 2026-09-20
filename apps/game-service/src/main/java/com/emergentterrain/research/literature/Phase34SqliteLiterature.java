@@ -58,6 +58,7 @@ public final class Phase34SqliteLiterature {
     private static final int PROGRESS_HANDLER_VM_STEPS = 1_000;
     // Leave cleanup/driver scheduling room inside the externally visible budget.
     private static final long BUDGET_HEADROOM_MS = 750;
+    private static final String PHASE45_ANCHOR_STATISTICS_VERSION = "phase45-anchor-statistics-v1";
 
     private final Path database;
     private final boolean phase35RetrievalEnabled;
@@ -247,11 +248,16 @@ public final class Phase34SqliteLiterature {
             List<SearchCandidate> candidateQueries;
             List<SearchCandidate> theoremCandidateQueries;
             if (phase35RetrievalEnabled) {
-                // Looking up each term in fts5vocab can itself scan the large on-disk vocabulary.
-                // The planner therefore treats an empty map as "unknown statistics" and lets the
-                // bounded phrase FTS searches establish whether a term exists within one budget.
+                // Phase 45 reads only an offline-built B-tree table for the few validated input
+                // anchors. It never queries fts5vocab or scans corpus text to estimate selectivity
+                // while a paper request is active. Missing metadata preserves the established order.
+                long anchorStatisticsStarted = System.nanoTime();
+                Map<String, Integer> anchorDocumentCounts = loadOfflineAnchorDocumentCounts(connection, query, proposal);
+                telemetry.anchorStatisticsMs = elapsedMsSince(anchorStatisticsStarted);
+                telemetry.anchorStatisticsAvailable = !anchorDocumentCounts.isEmpty();
+                telemetry.anchorStatisticsTerms = anchorDocumentCounts.size();
                 long planStarted = System.nanoTime();
-                LiteratureQueryPlan plan = queryPlanner.plan(query, Map.of(), proposal);
+                LiteratureQueryPlan plan = queryPlanner.plan(query, anchorDocumentCounts, proposal);
                 telemetry.planMs = elapsedMsSince(planStarted);
                 if (!plan.unavailableReason().isBlank()) {
                     if (budget != null) budget.close();
@@ -493,14 +499,58 @@ public final class Phase34SqliteLiterature {
         return initial == SEARCH_CANDIDATES ? List.of(SEARCH_CANDIDATES) : List.of(initial, SEARCH_CANDIDATES);
     }
 
+    /**
+     * Reads selectivity data only when an offline index build has committed the matching schema
+     * version. This is intentionally a small lookup by known safe anchors, not an FTS vocabulary
+     * inspection. Any old, partial, or unavailable index falls back to historical planner order.
+     */
+    private static Map<String, Integer> loadOfflineAnchorDocumentCounts(Connection connection, String query,
+                                                                          LiteratureQueryProposal proposal) {
+        LinkedHashMap<String, Boolean> requested = new LinkedHashMap<>();
+        for (String anchor : DeterministicLiteratureQueryPlanner.extractAnchors(query)) {
+            requested.put(LiteratureQueryPlan.normalizeSubjectAnchor(anchor), Boolean.TRUE);
+        }
+        if (proposal != null && proposal.subjectAnchors() != null) {
+            for (String anchor : proposal.subjectAnchors()) {
+                String normalized = LiteratureQueryPlan.normalizeSubjectAnchor(anchor);
+                if (normalized.matches("[\\p{L}]{2,}")) requested.put(normalized, Boolean.TRUE);
+            }
+        }
+        if (requested.isEmpty()) return Map.of();
+        try (PreparedStatement version = connection.prepareStatement(
+                "SELECT value FROM metadata WHERE key = 'phase45_anchor_statistics_version'")) {
+            try (ResultSet row = version.executeQuery()) {
+                if (!row.next() || !PHASE45_ANCHOR_STATISTICS_VERSION.equals(row.getString(1))) return Map.of();
+            }
+        } catch (SQLException ignored) {
+            return Map.of();
+        }
+        String placeholders = String.join(",", Collections.nCopies(requested.size(), "?"));
+        String sql = "SELECT anchor, title_document_count + theorem_name_document_count "
+                + "FROM literature_anchor_document_counts WHERE anchor IN (" + placeholders + ")";
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int position = 1;
+            for (String anchor : requested.keySet()) statement.setString(position++, anchor);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) counts.put(rows.getString(1), rows.getInt(2));
+            }
+            return Map.copyOf(counts);
+        } catch (SQLException ignored) {
+            return Map.of();
+        }
+    }
+
     private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
         log.info("Phase 35 literature retrieval: outcome={} elapsedMs={} candidateAttempts={} batches={} "
                         + "rowsInspected={} results={} availabilityCheckMs={} connectionOpenMs={} statementPrepareMs={} "
+                        + "anchorStatisticsMs={} anchorStatisticsAvailable={} anchorStatisticsTerms={} "
                         + "planMs={} screenedMergeMs={} batchTimings={} lastSurface={} lastBatchElapsedMs={} "
                         + "lastBatchLimit={} lastExpression={}",
                 outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
                 telemetry.rowsInspected, resultCount, telemetry.availabilityCheckMs, telemetry.connectionOpenMs,
-                telemetry.statementPrepareMs, telemetry.planMs, telemetry.screenedMergeMs, telemetry.batchTimings,
+                telemetry.statementPrepareMs, telemetry.anchorStatisticsMs, telemetry.anchorStatisticsAvailable,
+                telemetry.anchorStatisticsTerms, telemetry.planMs, telemetry.screenedMergeMs, telemetry.batchTimings,
                 telemetry.lastSurface, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit, telemetry.lastExpression);
     }
 
@@ -956,6 +1006,9 @@ public final class Phase34SqliteLiterature {
         private long availabilityCheckMs = -1;
         private long connectionOpenMs = -1;
         private long statementPrepareMs = -1;
+        private long anchorStatisticsMs = -1;
+        private boolean anchorStatisticsAvailable;
+        private int anchorStatisticsTerms;
         private long planMs = -1;
         private long screenedMergeMs = -1;
         private final List<String> batchTimings = new ArrayList<>();

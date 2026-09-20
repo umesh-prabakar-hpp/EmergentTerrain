@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -494,6 +495,59 @@ class Phase34SqliteLiteratureTest {
                 .containsExactly("\"richly divisible\"", "\"divisible density\"")
                 .doesNotContain("\"integers satisfying\"", "\"satisfying omega\"", "\"omega obeys\"",
                         "\"obeys richly\"", "\"density mean\"", "\"mean approximately\"");
+    }
+
+    @Test
+    void phase45OrdersTheCompleteValidPlanByOfflineSelectivity() {
+        LiteratureQueryPlan plan = new DeterministicLiteratureQueryPlanner().plan(
+                "divisor omega richly divisible density",
+                Map.of("divisor", 100_000, "omega", 90_000, "richly", 3,
+                        "divisible", 4, "density", 80),
+                new LiteratureQueryProposal(List.of("divisor", "omega"), "arithmetic relation",
+                        "compare divisor and omega behavior"));
+
+        List<String> expressions = plan.candidates().stream()
+                .map(LiteratureQueryPlan.Candidate::expression).toList();
+        assertThat(expressions).startsWith("\"richly divisible\"", "\"divisible density\"")
+                .contains("divisor AND omega");
+        assertThat(expressions.indexOf("divisor AND omega"))
+                .isGreaterThan(expressions.indexOf("\"divisible density\""));
+    }
+
+    @Test
+    void phase45UsesOnlyVersionedOfflineAnchorStatisticsWhenPlanning() throws Exception {
+        indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE literature_anchor_document_counts (anchor TEXT PRIMARY KEY, "
+                    + "title_document_count INTEGER NOT NULL, theorem_name_document_count INTEGER NOT NULL)");
+            sql.execute("INSERT INTO literature_anchor_document_counts VALUES ('prime', 7, 3)");
+            sql.execute("INSERT INTO literature_anchor_document_counts VALUES ('gap', 4, 2)");
+            sql.execute("INSERT INTO metadata VALUES ('phase45_anchor_statistics_version', "
+                    + "'phase45-anchor-statistics-v1')");
+        }
+        AtomicReference<Map<String, Integer>> observedCounts = new AtomicReference<>(Map.of());
+        LiteratureQueryPlanner planner = new LiteratureQueryPlanner() {
+            private final LiteratureQueryPlanner delegate = new DeterministicLiteratureQueryPlanner();
+
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
+                observedCounts.set(Map.copyOf(documentCounts));
+                return delegate.plan(claim, documentCounts);
+            }
+
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                            LiteratureQueryProposal proposal) {
+                observedCounts.set(Map.copyOf(documentCounts));
+                return delegate.plan(claim, documentCounts, proposal);
+            }
+        };
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir, true, 15_000, 64, planner);
+
+        assertThat(adapter.search("prime gap bound")).contains("EVIDENCE");
+        assertThat(observedCounts.get()).containsEntry("prime", 10).containsEntry("gap", 6)
+                .doesNotContainKey("bound");
     }
 
     @Test

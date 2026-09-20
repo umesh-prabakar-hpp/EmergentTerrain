@@ -48,6 +48,7 @@ UW_DIRNAME = "uw-math-ai--theorem-search-dataset"
 MARIN_DIRNAME = "marin-community--ar5iv-no-problem-markdown"
 INDEX_FORMAT = "phase34-hf-math-sqlite-v3"
 IMPORTER_VERSION = "2026-07-27"
+PHASE45_ANCHOR_STATISTICS_VERSION = "phase45-anchor-statistics-v1"
 VERSION_RE = re.compile(r"v\d+$", re.IGNORECASE)
 AR5IV_SUFFIX_RE = re.compile(r"(?:\.html)?$")
 TEXT_SOURCE_EXTENSIONS = {".tex", ".txt", ".bib", ".bbl", ".sty"}
@@ -73,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         help=f"destination for derived SQLite index (default: {DEFAULT_INDEX_DIR})",
     )
     parser.add_argument(
-        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts", "staged-text", "optimize"),
+        "--stage", default="all", choices=("all", "metadata", "theorems", "fulltext", "fulltext-fts", "staged-text", "selectivity", "optimize"),
         help="stage to prepare; all runs metadata, theorems, then fulltext and its final FTS rebuild",
     )
     parser.add_argument(
@@ -129,6 +130,11 @@ def connect(index_dir: Path) -> sqlite3.Connection:
           license_url TEXT NOT NULL DEFAULT '', redistribution_allowed INTEGER NOT NULL DEFAULT 0,
           imported_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS literature_anchor_document_counts (
+          anchor TEXT PRIMARY KEY,
+          title_document_count INTEGER NOT NULL,
+          theorem_name_document_count INTEGER NOT NULL
+        );
         CREATE VIRTUAL TABLE IF NOT EXISTS theorem_fts USING fts5(
           theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body,
           tokenize='unicode61 remove_diacritics 2'
@@ -166,6 +172,11 @@ def set_state(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)", (key, value))
 
 
+def invalidate_anchor_statistics(conn: sqlite3.Connection) -> None:
+    """Require an offline rebuild after title or theorem-name inputs change."""
+    conn.execute("DELETE FROM metadata WHERE key = 'phase45_anchor_statistics_version'")
+
+
 def required(path: Path) -> Path:
     if not path.is_file():
         raise SystemExit(f"Required downloaded source is missing: {path}")
@@ -200,6 +211,7 @@ def prepare_metadata(conn: sqlite3.Connection, paper_file: Path, force: bool) ->
                      "('metadata_selected_papers', 'theorems_complete', 'theorems_selected', "
                      "'theorems_indexed')")
     conn.execute("DELETE FROM papers")
+    invalidate_anchor_statistics(conn)
     columns = [
         "paper_id", "title", "authors", "link", "last_updated", "summary", "journal_ref",
         "primary_category", "categories", "citations", "source", "license",
@@ -261,6 +273,7 @@ def prepare_theorems(conn: sqlite3.Connection, theorem_file: Path, slogan_file: 
     print("theorems: building storage-backed theorem table and FTS index")
     conn.execute("DELETE FROM theorem_fts")
     conn.execute("DELETE FROM theorems")
+    invalidate_anchor_statistics(conn)
     paper_ids = {row[0] for row in conn.execute("SELECT paper_id FROM papers")}
     columns = ["theorem_id", "paper_id", "name", "body", "label", "link", "parsing_method"]
     indexed = 0
@@ -590,10 +603,76 @@ def prepare_staged_text(conn: sqlite3.Connection, manifest_path: Path) -> None:
     set_state(conn, "staged_text_last_already_present", str(already_present))
     if needs_rebuild:
         set_state(conn, "fulltext_fts_complete", "false")
+    if imported > 0:
+        invalidate_anchor_statistics(conn)
     conn.commit()
     if needs_rebuild:
         rebuild_fulltext_fts(conn)
     print(f"staged-text: imported={imported} already_present={already_present} manifest={manifest_path}")
+
+
+def normalize_anchor(value: str) -> str:
+    """Match the serving planner's intentionally small English plural normalization."""
+    value = value.lower()
+    if len(value) <= 3 or value.endswith("ss"):
+        return value
+    if value.endswith("ies") and len(value) > 4:
+        return value[:-3] + "y"
+    if value.endswith(("ches", "shes", "sses", "xes", "zes")):
+        return value[:-2]
+    if value.endswith("s"):
+        return value[:-1]
+    return value
+
+
+def selectivity_anchors(value: str) -> set[str]:
+    return {normalize_anchor(anchor) for anchor in re.findall(r"[^\W\d_]{2,}", (value or "").lower())}
+
+
+def prepare_anchor_statistics(conn: sqlite3.Connection, force: bool) -> None:
+    """Materialize compact title/theorem-name frequencies outside the serving request path."""
+    if state(conn, "phase45_anchor_statistics_version") == PHASE45_ANCHOR_STATISTICS_VERSION and not force:
+        print("selectivity: anchor statistics already complete")
+        return
+    if state(conn, "metadata_complete") != "true" or state(conn, "theorems_complete") != "true":
+        raise SystemExit("selectivity requires completed metadata and theorem stages")
+    print("selectivity: materializing normalized title/theorem-name anchor frequencies")
+    conn.execute("DELETE FROM literature_anchor_document_counts")
+    pending: dict[str, list[int]] = {}
+
+    def add(value: str, position: int) -> None:
+        for anchor in selectivity_anchors(value):
+            counts = pending.setdefault(anchor, [0, 0])
+            counts[position] += 1
+
+    def flush() -> None:
+        if not pending:
+            return
+        conn.executemany(
+            """INSERT INTO literature_anchor_document_counts(anchor, title_document_count, theorem_name_document_count)
+               VALUES (?, ?, ?)
+               ON CONFLICT(anchor) DO UPDATE SET
+                 title_document_count = title_document_count + excluded.title_document_count,
+                 theorem_name_document_count = theorem_name_document_count + excluded.theorem_name_document_count""",
+            [(anchor, counts[0], counts[1]) for anchor, counts in pending.items()],
+        )
+        pending.clear()
+
+    for (title,) in conn.execute("SELECT title FROM papers"):
+        add(title, 0)
+        if len(pending) >= 10_000:
+            flush()
+    for (name,) in conn.execute("SELECT name FROM theorems"):
+        add(name, 1)
+        if len(pending) >= 10_000:
+            flush()
+    flush()
+    rows = conn.execute("SELECT COUNT(*) FROM literature_anchor_document_counts").fetchone()[0]
+    set_state(conn, "phase45_anchor_statistics_version", PHASE45_ANCHOR_STATISTICS_VERSION)
+    set_state(conn, "phase45_anchor_statistics_rows", str(rows))
+    set_state(conn, "phase45_anchor_statistics_built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    conn.commit()
+    print(f"selectivity: complete ({rows:,} normalized anchors)")
 
 
 def sha256_file(path: Path) -> str:
@@ -757,6 +836,8 @@ def main() -> int:
             if args.staged_text_manifest is None:
                 raise SystemExit("--stage staged-text requires --staged-text-manifest")
             prepare_staged_text(conn, args.staged_text_manifest)
+        if args.stage in ("all", "selectivity"):
+            prepare_anchor_statistics(conn, args.force)
         if args.stage == "optimize":
             optimize_started = time.perf_counter()
             optimize_fts(conn)

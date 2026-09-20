@@ -1,6 +1,7 @@
 package com.emergentterrain.research.literature;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -65,7 +66,7 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
                     "Phase 35 query planning is unavailable; no evidence was issued.");
         }
         if (proposal != null) {
-            return planValidatedProposal(claim, proposal);
+            return planValidatedProposal(claim, documentCounts, proposal);
         }
         List<String> extractedAnchors = extractAnchors(claim);
         // Preserve the claim's mathematical subject even when the index vocabulary estimate
@@ -97,7 +98,7 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
             candidates.add(new LiteratureQueryPlan.Candidate(queryKind, pair,
                     evidenceAnchorsFor(pair, anchors), pair));
         }
-        return new LiteratureQueryPlan(candidates, "");
+        return new LiteratureQueryPlan(orderByOfflineSelectivity(candidates, documentCounts), "");
     }
 
     /**
@@ -105,7 +106,8 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
      * proposal must name exactly two safe, distinct domain-bearing tokens already present in the
      * claim. Relation and rationale remain auditable model context, never FTS syntax.
      */
-    private static LiteratureQueryPlan planValidatedProposal(String claim, LiteratureQueryProposal proposal) {
+    private static LiteratureQueryPlan planValidatedProposal(String claim, Map<String, Integer> documentCounts,
+                                                              LiteratureQueryProposal proposal) {
         // A union of abundant and perfect numbers may need direct abundant-density context even
         // when a source title does not repeat both components. This is a bounded subject fallback,
         // not a theorem assertion: normal title, full-text, read, relevance, and citation gates
@@ -146,11 +148,10 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
         candidates.add(new LiteratureQueryPlan.Candidate(
                 LiteratureQueryPlan.QueryKind.AND_PAIR, proposed, proposed, proposed));
 
-        // A model-proposed pair is the first audited subject route, not the whole search plan.
-        // Preserve it, then add only claim-grounded adjacent subject pairs as bounded fallbacks.
-        // This lets a locked definition, named theorem, or method phrase recover recall when the
-        // model chose one valid but sparse pair, without accepting model synonyms or relaxing the
-        // title/evidence checks that decide whether an HF key is issued.
+        // A model-proposed pair is an audited subject route, not the whole search plan. Preserve
+        // it, then add only claim-grounded adjacent subject pairs as bounded fallbacks. Offline
+        // selectivity may run a narrower valid fallback before a broad model pair; no candidate is
+        // discarded and title/evidence checks still decide whether an HF key is issued.
         boolean requireTitleAnchor = claimAnchors.size() >= 3;
         for (List<String> pair : extractAdjacentSubjectPhrases(claim)) {
             if (candidates.size() >= MAX_CANDIDATES || pair.get(0).equals(pair.get(1))
@@ -165,7 +166,36 @@ final class DeterministicLiteratureQueryPlanner implements LiteratureQueryPlanne
                 candidates.add(candidate);
             }
         }
-        return new LiteratureQueryPlan(candidates, "");
+        return new LiteratureQueryPlan(orderByOfflineSelectivity(candidates, documentCounts), "");
+    }
+
+    /**
+     * Uses only offline-built title/theorem anchor document counts to prioritize a complete,
+     * already-valid candidate plan. Missing counts deliberately preserve the historical order so
+     * an older index has unchanged recall and no request ever probes FTS metadata for statistics.
+     */
+    private static List<LiteratureQueryPlan.Candidate> orderByOfflineSelectivity(
+            List<LiteratureQueryPlan.Candidate> candidates, Map<String, Integer> documentCounts) {
+        if (candidates.size() < 2 || documentCounts == null || documentCounts.isEmpty()) {
+            return List.copyOf(candidates);
+        }
+        return candidates.stream()
+                .sorted(Comparator.comparingLong(candidate -> selectivityScore(candidate, documentCounts)))
+                .toList();
+    }
+
+    private static long selectivityScore(LiteratureQueryPlan.Candidate candidate,
+                                         Map<String, Integer> documentCounts) {
+        long score = 1;
+        for (String anchor : candidate.queryAnchors()) {
+            Integer count = documentCounts.get(LiteratureQueryPlan.normalizeSubjectAnchor(anchor));
+            // A zero/missing count is not "rarest": the offline summary may simply not contain a
+            // full-text-only word. Keep that candidate in its stable original position after
+            // fully known candidates rather than treating absence as evidence of selectivity.
+            if (count == null || count <= 0) return Long.MAX_VALUE;
+            score = Math.min(Long.MAX_VALUE - 1, score * count);
+        }
+        return score;
     }
 
     private static boolean isOmegaMultiplicityPair(List<String> subjectAnchors) {

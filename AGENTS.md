@@ -439,6 +439,15 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   `docs/release/sbom/README.md` before release.
 - **Phase 35 timing telemetry** — the completion line is source-safe: it records availability, connection-open, statement-preparation, planning, screened-index merge, and every bounded FTS batch alongside the existing aggregate counters. Routed search emits one companion aggregate with selected-shard executor queue wait, execution duration, and safe outcome. It must never record passages or alter routing, evidence, title-anchor, or publication policy.
 - **Phase 35 request single-flight** — only concurrently active, canonical-equal claim/proposal searches may share a retrieval, and only while the primary plus screened indexes retain the same immutable-generation fingerprint. Followers receive the leader's exact already-gated result. Remove the completed flight immediately: this is not a result cache, must not create evidence or alter timeouts, title-anchor checks, routing, or publication policy, and must log only source-safe role/outcome/wait/generation-digest telemetry.
+- **Phase 45 offline selectivity** — `prepare-hf-math-index.py --stage selectivity` (also reached by
+  `--stage all`) may materialize only normalized title/theorem-name anchor document frequencies
+  and a version marker. The request path may read a bounded B-tree lookup for its validated
+  anchors only when that marker matches; it must never query `fts5vocab`, scan corpus text, or
+  mutate the index to estimate selectivity. Order the full already-valid candidate plan by known
+  rarity, retaining stable historical order for missing counts and preserving every candidate for
+  recall. A timeout remains unresolved, not no-match; do not relax any title, evidence, read, or
+  citation gate. Update this entry and README together with any Phase 45 retrieval behavior or
+  telemetry change, and run the focused Java plus Python selectivity tests.
 - Avoid touching `target/` or generated test reports in commits.
 - Keep secrets out of git. Use env vars or local overrides for credentials.
 - If behavior, setup, or performance workflows change, update both `README.md` and `AGENTS.md` in the same change.

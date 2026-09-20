@@ -1,7 +1,7 @@
 # Phase 45 — Reliable, evidence-safe literature retrieval
 
-**Status: IN PROGRESS — design recorded; implementation starts with immutable-index selectivity
-metadata and specificity-first candidate ordering.**
+**Status: IN PROGRESS — offline selectivity metadata and specificity-first candidate ordering
+implemented. Indexed narrowing, fair scheduling, routed cancellation, and durable recovery remain.**
 
 ## Purpose
 
@@ -62,9 +62,10 @@ anchor intersections run before broad pairs such as `divisor AND omega`. The ori
 bounded candidate set remains available in deterministic order after the preferred candidates,
 and query/evidence/title-anchor semantics do not change.
 
-Structured model proposals remain the first audited route when valid. Claim-grounded fallback
-candidates are then ordered by offline selectivity and deterministic tie-breakers, not by model
-prose or live FTS timing.
+Structured model proposals remain audited, claim-grounded routes. The complete valid candidate set
+is ordered by offline selectivity and deterministic stable tie-breakers, not by model prose or
+live FTS timing; this prevents one broad valid proposal from consuming the whole request before a
+narrow valid fallback is attempted.
 
 ### 3. Narrow candidate retrieval
 
@@ -121,10 +122,10 @@ reviewed.
 
 ## Implementation sequence
 
-1. Add an offline-built, versioned anchor-frequency schema and a read-only, bounded generation
-   reader; cover absent and stale metadata fallback.
-2. Order validated fallback candidates specificity-first using that metadata, with deterministic
-   tie-breakers and unchanged complete-plan coverage.
+1. **Implemented:** add an offline-built, versioned anchor-frequency schema and a read-only,
+   bounded generation reader; absent and stale metadata retain the historical ordering.
+2. **Implemented:** order the complete validated candidate plan specificity-first using that
+   metadata, with deterministic stable tie-breakers and unchanged candidate coverage.
 3. Benchmark representative prime-gap and divisor/omega shapes alone, concurrently, mixed with
    Phase 35 claims, after index maintenance, and from normal cache state. Record plan, candidate,
    queue, SQLite, shard, and evidence timings.
