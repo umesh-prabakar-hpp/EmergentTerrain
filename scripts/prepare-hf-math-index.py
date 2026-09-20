@@ -49,6 +49,7 @@ MARIN_DIRNAME = "marin-community--ar5iv-no-problem-markdown"
 INDEX_FORMAT = "phase34-hf-math-sqlite-v3"
 IMPORTER_VERSION = "2026-07-27"
 PHASE45_ANCHOR_STATISTICS_VERSION = "phase45-anchor-statistics-v1"
+PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION = "phase45-title-anchor-documents-v1"
 VERSION_RE = re.compile(r"v\d+$", re.IGNORECASE)
 AR5IV_SUFFIX_RE = re.compile(r"(?:\.html)?$")
 TEXT_SOURCE_EXTENSIONS = {".tex", ".txt", ".bib", ".bbl", ".sty"}
@@ -135,6 +136,11 @@ def connect(index_dir: Path) -> sqlite3.Connection:
           title_document_count INTEGER NOT NULL,
           theorem_name_document_count INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS literature_title_anchor_documents (
+          anchor TEXT NOT NULL,
+          paper_id TEXT NOT NULL,
+          PRIMARY KEY (anchor, paper_id)
+        ) WITHOUT ROWID;
         CREATE VIRTUAL TABLE IF NOT EXISTS theorem_fts USING fts5(
           theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body,
           tokenize='unicode61 remove_diacritics 2'
@@ -175,6 +181,7 @@ def set_state(conn: sqlite3.Connection, key: str, value: str) -> None:
 def invalidate_anchor_statistics(conn: sqlite3.Connection) -> None:
     """Require an offline rebuild after title or theorem-name inputs change."""
     conn.execute("DELETE FROM metadata WHERE key = 'phase45_anchor_statistics_version'")
+    conn.execute("DELETE FROM metadata WHERE key = 'phase45_title_anchor_documents_version'")
 
 
 def required(path: Path) -> Path:
@@ -625,6 +632,35 @@ def normalize_anchor(value: str) -> str:
     return value
 
 
+def selectivity_anchors(value: str) -> set[str]:
+    return {normalize_anchor(anchor) for anchor in re.findall(r"[^\W\d_]{2,}", (value or "").lower())}
+
+
+def prepare_title_anchor_documents(conn: sqlite3.Connection, force: bool) -> None:
+    """Build the title-gated paper-id intersection index used only to narrow theorem candidates."""
+    if state(conn, "phase45_title_anchor_documents_version") == PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION and not force:
+        print("selectivity: title-anchor documents already complete")
+        return
+    if state(conn, "metadata_complete") != "true":
+        raise SystemExit("selectivity title anchors require completed metadata")
+    print("selectivity: materializing normalized title-anchor paper intersections")
+    conn.execute("DELETE FROM literature_title_anchor_documents")
+    pending: list[tuple[str, str]] = []
+    for paper_id, title in conn.execute("SELECT paper_id, title FROM papers"):
+        for anchor in selectivity_anchors(title):
+            pending.append((anchor, paper_id))
+        if len(pending) >= 20_000:
+            conn.executemany("INSERT OR IGNORE INTO literature_title_anchor_documents VALUES (?, ?)", pending)
+            pending.clear()
+    if pending:
+        conn.executemany("INSERT OR IGNORE INTO literature_title_anchor_documents VALUES (?, ?)", pending)
+    rows = conn.execute("SELECT COUNT(*) FROM literature_title_anchor_documents").fetchone()[0]
+    set_state(conn, "phase45_title_anchor_documents_version", PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION)
+    set_state(conn, "phase45_title_anchor_documents_rows", str(rows))
+    conn.commit()
+    print(f"selectivity: title-anchor documents complete ({rows:,} anchor/paper rows)")
+
+
 def prepare_anchor_statistics(conn: sqlite3.Connection, force: bool) -> None:
     """Materialize compact title/theorem-name frequencies outside the serving request path."""
     if state(conn, "phase45_anchor_statistics_version") == PHASE45_ANCHOR_STATISTICS_VERSION and not force:
@@ -850,6 +886,7 @@ def main() -> int:
             prepare_staged_text(conn, args.staged_text_manifest)
         if args.stage in ("all", "selectivity"):
             prepare_anchor_statistics(conn, args.force)
+            prepare_title_anchor_documents(conn, args.force)
         if args.stage == "optimize":
             optimize_started = time.perf_counter()
             optimize_fts(conn)

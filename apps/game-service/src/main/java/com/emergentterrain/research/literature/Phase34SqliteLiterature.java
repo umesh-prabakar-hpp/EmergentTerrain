@@ -59,6 +59,7 @@ public final class Phase34SqliteLiterature {
     // Leave cleanup/driver scheduling room inside the externally visible budget.
     private static final long BUDGET_HEADROOM_MS = 750;
     private static final String PHASE45_ANCHOR_STATISTICS_VERSION = "phase45-anchor-statistics-v1";
+    private static final String PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION = "phase45-title-anchor-documents-v1";
 
     private final Path database;
     private final boolean phase35RetrievalEnabled;
@@ -222,6 +223,8 @@ public final class Phase34SqliteLiterature {
         long connectionStarted = System.nanoTime();
         try (Connection connection = open()) {
             telemetry.connectionOpenMs = elapsedMsSince(connectionStarted);
+            boolean titleAnchorNarrowingAvailable = phase35RetrievalEnabled
+                    && hasOfflineTitleAnchorDocuments(connection);
             long statementStarted = System.nanoTime();
             try (PreparedStatement statement = connection.prepareStatement("""
                      WITH ranked_theorems AS (
@@ -242,7 +245,40 @@ public final class Phase34SqliteLiterature {
                      JOIN fulltext f ON f.paper_id = t.paper_id
                   LEFT JOIN papers p ON p.paper_id = t.paper_id
                    ORDER BY ranked.rank
-                     """)) {
+                     """);
+                 PreparedStatement titleAnchorStatement = titleAnchorNarrowingAvailable
+                         ? connection.prepareStatement("""
+                     WITH title_candidates AS (
+                         SELECT paper_id
+                           FROM literature_title_anchor_documents
+                          WHERE anchor IN (?, ?)
+                       GROUP BY paper_id
+                         HAVING COUNT(DISTINCT anchor) = 2
+                     ), ranked_theorems AS (
+                         SELECT rowid, rank
+                           FROM theorem_fts
+                          WHERE theorem_fts MATCH ?
+                            AND rowid IN (
+                                SELECT candidate_fts.rowid
+                                  FROM theorem_fts candidate_fts
+                                  JOIN theorems t ON candidate_fts.theorem_id = t.theorem_id
+                                  JOIN title_candidates titles ON titles.paper_id = t.paper_id
+                            )
+                       ORDER BY rank
+                          LIMIT ?
+                     )
+                     SELECT t.paper_id, COALESCE(p.title, ''), COALESCE(p.authors, ''),
+                            COALESCE(p.primary_category, ''),
+                            snippet(theorem_fts, 4, '', '', '…', 24),
+                            COALESCE(theorem_fts.name, ''), COALESCE(theorem_fts.slogan, ''),
+                            COALESCE(theorem_fts.body, '')
+                       FROM ranked_theorems ranked
+                       JOIN theorem_fts ON theorem_fts.rowid = ranked.rowid
+                       JOIN theorems t ON theorem_fts.theorem_id = t.theorem_id
+                     JOIN fulltext f ON f.paper_id = t.paper_id
+                  LEFT JOIN papers p ON p.paper_id = t.paper_id
+                   ORDER BY ranked.rank
+                     """) : null) {
             telemetry.statementPrepareMs = elapsedMsSince(statementStarted);
             QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, searchTimeoutMs) : null;
             List<SearchCandidate> candidateQueries;
@@ -256,6 +292,7 @@ public final class Phase34SqliteLiterature {
                 telemetry.anchorStatisticsMs = elapsedMsSince(anchorStatisticsStarted);
                 telemetry.anchorStatisticsAvailable = !anchorDocumentCounts.isEmpty();
                 telemetry.anchorStatisticsTerms = anchorDocumentCounts.size();
+                telemetry.titleAnchorNarrowingAvailable = titleAnchorNarrowingAvailable;
                 long planStarted = System.nanoTime();
                 LiteratureQueryPlan plan = queryPlanner.plan(query, anchorDocumentCounts, proposal);
                 telemetry.planMs = elapsedMsSince(planStarted);
@@ -291,21 +328,35 @@ public final class Phase34SqliteLiterature {
             }
             Map<String, Citation> distinct = new LinkedHashMap<>();
             try {
-                for (int attempt = 0; attempt < theoremCandidateQueries.size(); attempt++) {
-                    SearchCandidate candidate = theoremCandidateQueries.get(attempt);
-                    telemetry.candidateAttempts++;
-                    for (int batchLimit : phase35RetrievalEnabled
-                            ? stagedCandidateLimits(initialSearchCandidates) : List.of(LEGACY_SEARCH_ROWS)) {
-                        if (budget != null) budget.apply(statement);
-                        telemetry.batches++;
-                        telemetry.lastExpression = candidate.expression();
-                        telemetry.lastSurface = "theorem";
-                        telemetry.lastBatchLimit = batchLimit;
-                        long batchStarted = System.nanoTime();
-                        try {
-                            statement.setString(1, candidate.expression());
-                            statement.setInt(2, batchLimit);
-                            try (ResultSet rows = statement.executeQuery()) {
+                int theoremPasses = phase35RetrievalEnabled && telemetry.titleAnchorNarrowingAvailable ? 2 : 1;
+                for (int pass = 0; pass < theoremPasses && distinct.isEmpty(); pass++) {
+                    boolean useTitleNarrowing = pass == 0 && telemetry.titleAnchorNarrowingAvailable;
+                    if (pass > 0) telemetry.titleAnchorNarrowingFallbacks++;
+                    for (int attempt = 0; attempt < theoremCandidateQueries.size(); attempt++) {
+                        SearchCandidate candidate = theoremCandidateQueries.get(attempt);
+                        telemetry.candidateAttempts++;
+                        for (int batchLimit : phase35RetrievalEnabled
+                                ? stagedCandidateLimits(initialSearchCandidates) : List.of(LEGACY_SEARCH_ROWS)) {
+                            boolean titleNarrowed = useTitleNarrowing && candidate.requiredTitleAnchors().size() == 2;
+                            PreparedStatement activeStatement = titleNarrowed ? titleAnchorStatement : statement;
+                            if (budget != null) budget.apply(activeStatement);
+                            telemetry.batches++;
+                            telemetry.lastExpression = candidate.expression();
+                            telemetry.lastSurface = titleNarrowed ? "theorem_title_anchor_narrowed" : "theorem";
+                            telemetry.lastBatchLimit = batchLimit;
+                            long batchStarted = System.nanoTime();
+                            try {
+                                if (titleNarrowed) {
+                                    titleAnchorStatement.setString(1, candidate.normalizedRequiredTitleAnchors().get(0));
+                                    titleAnchorStatement.setString(2, candidate.normalizedRequiredTitleAnchors().get(1));
+                                    titleAnchorStatement.setString(3, candidate.expression());
+                                    titleAnchorStatement.setInt(4, batchLimit);
+                                    telemetry.titleAnchorNarrowedCandidates++;
+                                } else {
+                                    statement.setString(1, candidate.expression());
+                                    statement.setInt(2, batchLimit);
+                                }
+                                try (ResultSet rows = activeStatement.executeQuery()) {
                                 while (rows.next() && distinct.size() < SEARCH_RESULTS) {
                                     telemetry.rowsInspected++;
                                     String paperId = rows.getString(1);
@@ -329,9 +380,10 @@ public final class Phase34SqliteLiterature {
                                 attempt, batchLimit, candidate.evidenceAnchors().size(), telemetry.rowsInspected,
                                 distinct.size(), telemetry.lastBatchElapsedMs,
                                 budget == null ? -1 : budget.elapsedMs(), candidate.expression());
+                            if (!distinct.isEmpty()) break;
+                        }
                         if (!distinct.isEmpty()) break;
                     }
-                    if (!distinct.isEmpty()) break;
                 }
                 if (distinct.isEmpty() && phase35RetrievalEnabled) {
                     searchFullTextFallback(connection, budget, candidateQueries, distinct, telemetry);
@@ -541,16 +593,31 @@ public final class Phase34SqliteLiterature {
         }
     }
 
+    /** A title-anchor index only narrows candidates already required by the Phase 35 title gate. */
+    private static boolean hasOfflineTitleAnchorDocuments(Connection connection) {
+        try (PreparedStatement version = connection.prepareStatement(
+                "SELECT value FROM metadata WHERE key = 'phase45_title_anchor_documents_version'")) {
+            try (ResultSet row = version.executeQuery()) {
+                return row.next() && PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION.equals(row.getString(1));
+            }
+        } catch (SQLException ignored) {
+            return false;
+        }
+    }
+
     private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
         log.info("Phase 35 literature retrieval: outcome={} elapsedMs={} candidateAttempts={} batches={} "
                         + "rowsInspected={} results={} availabilityCheckMs={} connectionOpenMs={} statementPrepareMs={} "
                         + "anchorStatisticsMs={} anchorStatisticsAvailable={} anchorStatisticsTerms={} "
+                        + "titleAnchorNarrowingAvailable={} titleAnchorNarrowedCandidates={} titleAnchorNarrowingFallbacks={} "
                         + "planMs={} screenedMergeMs={} batchTimings={} lastSurface={} lastBatchElapsedMs={} "
                         + "lastBatchLimit={} lastExpression={}",
                 outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
                 telemetry.rowsInspected, resultCount, telemetry.availabilityCheckMs, telemetry.connectionOpenMs,
                 telemetry.statementPrepareMs, telemetry.anchorStatisticsMs, telemetry.anchorStatisticsAvailable,
-                telemetry.anchorStatisticsTerms, telemetry.planMs, telemetry.screenedMergeMs, telemetry.batchTimings,
+                telemetry.anchorStatisticsTerms, telemetry.titleAnchorNarrowingAvailable,
+                telemetry.titleAnchorNarrowedCandidates, telemetry.titleAnchorNarrowingFallbacks,
+                telemetry.planMs, telemetry.screenedMergeMs, telemetry.batchTimings,
                 telemetry.lastSurface, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit, telemetry.lastExpression);
     }
 
@@ -1009,6 +1076,9 @@ public final class Phase34SqliteLiterature {
         private long anchorStatisticsMs = -1;
         private boolean anchorStatisticsAvailable;
         private int anchorStatisticsTerms;
+        private boolean titleAnchorNarrowingAvailable;
+        private int titleAnchorNarrowedCandidates;
+        private int titleAnchorNarrowingFallbacks;
         private long planMs = -1;
         private long screenedMergeMs = -1;
         private final List<String> batchTimings = new ArrayList<>();

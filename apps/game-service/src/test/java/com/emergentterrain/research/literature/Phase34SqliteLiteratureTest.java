@@ -551,6 +551,36 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase45TitleAnchorNarrowingIsVersionedAndFallsBackToTheNormalTheoremQuery() throws Exception {
+        indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE literature_title_anchor_documents (anchor TEXT NOT NULL, paper_id TEXT NOT NULL, "
+                    + "PRIMARY KEY (anchor, paper_id)) WITHOUT ROWID");
+            sql.execute("INSERT INTO metadata VALUES ('phase45_title_anchor_documents_version', "
+                    + "'phase45-title-anchor-documents-v1')");
+            sql.execute("INSERT INTO literature_title_anchor_documents VALUES ('prime', '2401.01234')");
+            sql.execute("INSERT INTO literature_title_anchor_documents VALUES ('gap', '2401.01234')");
+        }
+
+        assertThat(new Phase34SqliteLiterature(indexDir, true, 15_000).search("prime gap bound"))
+                .contains("EVIDENCE")
+                .contains("Prime gap bounds");
+
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            // Simulate a valid-but-stale offline narrowing table.  The theorem surface must recover
+            // through its unchanged query before the full-text fallback is considered.
+            sql.execute("DELETE FROM literature_title_anchor_documents");
+            sql.execute("DELETE FROM fulltext_fts");
+        }
+
+        assertThat(new Phase34SqliteLiterature(indexDir, true, 15_000).search("prime gap bound"))
+                .contains("EVIDENCE")
+                .contains("Prime gap bounds");
+    }
+
+    @Test
     void phase35RejectsNumericAndRelationProseAnchorsFromThePaperReviewRun() {
         LiteratureQueryPlan cramer = new DeterministicLiteratureQueryPlanner().plan(
                 "cramer gap ratio requiring density feature", java.util.Map.of());

@@ -1,7 +1,8 @@
 # Phase 45 — Reliable, evidence-safe literature retrieval
 
-**Status: IN PROGRESS — offline selectivity metadata and specificity-first candidate ordering
-implemented. Indexed narrowing, fair scheduling, routed cancellation, and durable recovery remain.**
+**Status: IN PROGRESS — offline selectivity metadata, specificity-first candidate ordering, and
+versioned title-anchor theorem narrowing implemented. Fair scheduling, routed cancellation, and
+durable recovery remain.**
 
 ## Purpose
 
@@ -69,10 +70,11 @@ narrow valid fallback is attempted.
 
 ### 3. Narrow candidate retrieval
 
-For a selected candidate, retrieve a small, indexed anchor/title/theorem intersection before
-ranking full text. FTS/BM25 is applied only to the narrow eligible row set where SQLite supports
-that plan without changing relevance semantics. The existing bounded theorem-first and full-text
-fallbacks stay intact; each still passes the ordinary record, title, full-text, and read gates.
+For a selected two-title-anchor candidate, retrieve the offline materialized title-anchor paper-id
+intersection before ranking the theorem surface. The complete version marker is mandatory. A
+zero-result narrowed attempt immediately retries the unchanged theorem query before the existing
+full-text fallback, so incomplete or stale offline mappings cannot reduce recall. Each path still
+passes the ordinary record, title, full-text, and read gates.
 
 The implementation must measure and preserve the current candidate result order for equivalent
 queries. Any query plan that cannot prove an indexed narrowing path falls back to the current
@@ -154,7 +156,12 @@ offline build.
    existing plan/candidate/SQLite/shard telemetry log. Run it once in normal cache state and once
    after an operator-owned maintenance pass; cold-cache setup remains a separately labelled host
    operation because the harness must not change global caches.
-4. Add a proven indexed candidate-narrowing path; retain current FTS as the verified fallback.
+4. **Implemented:** materialize a versioned normalized title-anchor-to-paper map and use it to
+   make a first theorem-candidate narrowing attempt for exact two-title-anchor candidates. The
+   unchanged theorem query remains an in-budget fallback before full text; older or incomplete
+   indexes do not prepare or use the table. Completion telemetry records narrowing availability,
+   narrowed candidates, and fallback count. Production-index materialization remains pending host
+   storage I/O recovery, so this is not yet a production performance claim.
 5. Add generation-scoped fair dispatch and routed-shard cancellation telemetry.
 6. Add generation-pinned serialized recovery and the explicit pending-retrieval workflow state.
 7. Run cold/concurrent acceptance tests and one controlled research worker session before enabling

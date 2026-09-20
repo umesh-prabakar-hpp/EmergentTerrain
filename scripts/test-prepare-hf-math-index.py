@@ -34,6 +34,7 @@ class AnchorStatisticsTest(unittest.TestCase):
                 conn.commit()
 
                 MODULE.prepare_anchor_statistics(conn, force=False)
+                MODULE.prepare_title_anchor_documents(conn, force=False)
 
                 rows = dict(conn.execute(
                     "SELECT anchor, title_document_count + theorem_name_document_count "
@@ -44,6 +45,13 @@ class AnchorStatisticsTest(unittest.TestCase):
                 self.assertEqual(2, rows["divisor"])
                 self.assertEqual(MODULE.PHASE45_ANCHOR_STATISTICS_VERSION,
                                  MODULE.state(conn, "phase45_anchor_statistics_version"))
+                self.assertEqual(
+                    [("gap", "p1"), ("gap", "p2"), ("prime", "p1")],
+                    conn.execute("SELECT anchor, paper_id FROM literature_title_anchor_documents "
+                                 "WHERE anchor IN ('gap', 'prime') ORDER BY anchor, paper_id").fetchall(),
+                )
+                self.assertEqual(MODULE.PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION,
+                                 MODULE.state(conn, "phase45_title_anchor_documents_version"))
             finally:
                 conn.close()
 
