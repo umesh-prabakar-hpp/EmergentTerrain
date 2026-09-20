@@ -120,15 +120,30 @@ No layer may convert an unresolved state into a negative literature assertion. E
 paper labels, quality assessment, and title-anchor rules remain unchanged unless separately
 reviewed.
 
+## Initial benchmark baseline
+
+On 2026-09-20, the read-only normal-cache harness ran against the existing completed index before
+the new selectivity table had been materialized. `maximum-prime-gap-anchors` issued evidence in
+6.009 seconds and `divisor-omega-anchors` returned the honest no-match outcome in 6.036 seconds.
+After those reads warmed the relevant pages, the pair-concurrent observations were 127 ms and
+72 ms respectively. The four-way mixed set retained evidence for maximum-prime-gap (102 ms),
+Dirichlet error (5.302 s), and multiple zeta (10.443 s), while divisor/omega remained an honest
+no-match (64 ms); no request timed out. The retained local JSON report and telemetry log are the
+source of record. This is a baseline, not a claim that cold-cache or post-maintenance acceptance
+has passed.
+
 ## Implementation sequence
 
 1. **Implemented:** add an offline-built, versioned anchor-frequency schema and a read-only,
    bounded generation reader; absent and stale metadata retain the historical ordering.
 2. **Implemented:** order the complete validated candidate plan specificity-first using that
    metadata, with deterministic stable tie-breakers and unchanged candidate coverage.
-3. Benchmark representative prime-gap and divisor/omega shapes alone, concurrently, mixed with
-   Phase 35 claims, after index maintenance, and from normal cache state. Record plan, candidate,
-   queue, SQLite, shard, and evidence timings.
+3. **Implemented:** benchmark representative prime-gap and divisor/omega shapes alone,
+   concurrently, and mixed with Phase 35 claims through the read-only
+   `run-phase45-literature-benchmark.sh` harness. It stores safe timing/outcome JSON and the
+   existing plan/candidate/SQLite/shard telemetry log. Run it once in normal cache state and once
+   after an operator-owned maintenance pass; cold-cache setup remains a separately labelled host
+   operation because the harness must not change global caches.
 4. Add a proven indexed candidate-narrowing path; retain current FTS as the verified fallback.
 5. Add generation-scoped fair dispatch and routed-shard cancellation telemetry.
 6. Add generation-pinned serialized recovery and the explicit pending-retrieval workflow state.

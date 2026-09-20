@@ -448,6 +448,13 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
   recall. A timeout remains unresolved, not no-match; do not relax any title, evidence, read, or
   citation gate. Update this entry and README together with any Phase 45 retrieval behavior or
   telemetry change, and run the focused Java plus Python selectivity tests.
+- **Phase 45 benchmark harness** — `run-phase45-literature-benchmark.sh` is read-only: it records
+  the representative maximum-prime-gap and divisor/omega searches alone, pair-concurrent, and
+  mixed with Phase 35 claims as a safe JSON timing/outcome report plus the existing telemetry log
+  beneath ignored `.runtime/test-artifacts/`. It must not rebuild/optimize the index, flush host
+  caches, start the app, or make an LLM call. Operators perform maintenance or cold-cache setup
+  separately and set `PHASE45_BENCHMARK_CACHE_STATE` truthfully; retain the resulting artifact
+  only locally unless a sanitized benchmark summary is explicitly needed in documentation.
 - Avoid touching `target/` or generated test reports in commits.
 - Keep secrets out of git. Use env vars or local overrides for credentials.
 - If behavior, setup, or performance workflows change, update both `README.md` and `AGENTS.md` in the same change.
