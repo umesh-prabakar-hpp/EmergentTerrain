@@ -1,8 +1,8 @@
 # Phase 45 — Reliable, evidence-safe literature retrieval
 
-**Status: IN PROGRESS — offline selectivity metadata, specificity-first candidate ordering, and
-versioned title-anchor theorem narrowing implemented. Fair scheduling, routed cancellation, and
-durable recovery remain.**
+**Status: IN PROGRESS — selectivity ordering, title-anchor narrowing, fair scheduling, and durable
+serialized recovery implemented. Routed cancellation is implemented default-off pending controlled
+parity telemetry.**
 
 ## Purpose
 
@@ -108,11 +108,17 @@ shards had no evidence.
 
 ### 6. Durable serialized fallback
 
-After a request budget expires, the canonical request may be persisted for a low-concurrency,
-generation-pinned retry with a bounded maintenance budget. Completion records candidate coverage,
-index generation, timing, and ordinary issued-key evidence. The paper workflow may continue only
-after valid evidence is present or a complete bounded plan establishes no match; otherwise it
-retains an explicit pending-retrieval state.
+After a request budget expires, the canonical request is persisted with its local index fingerprint
+and serialization-safe draft snapshot. The implemented worker permits only one `RETRY_DISPATCHED`
+normal re-narration at a time; restart re-arms an in-flight retry. It releases a held draft only
+after the local index fingerprint changes, then the ordinary search/read/citation path runs again.
+OpenAlex discovery is optional, non-evidentiary, and cannot block that local recovery path when it
+is unavailable or exhausted. Discovery is prioritized ahead of passive backfill waits so one old
+hold cannot starve newer bounded discovery work.
+
+Completion records candidate coverage, index generation, timing, and ordinary issued-key evidence.
+The paper workflow may continue only after valid evidence is present or a complete bounded plan
+establishes no match; otherwise it retains an explicit pending-retrieval state.
 
 This is a retrieval-recovery lane, not a hidden second search provider and not an authorization to
 publish with missing related-work evidence.
@@ -176,7 +182,9 @@ offline build.
    telemetry. Distinct-query fairness and queue-expiry-as-timeout have focused regression coverage.
    The separately default-off routed-shard early-success policy is implemented with completed-prefix
    safety tests; capture controlled routed-index parity telemetry before enabling it.
-6. Add generation-pinned serialized recovery and the explicit pending-retrieval workflow state.
+6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
+   the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
+   restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
 7. Run cold/concurrent acceptance tests and one controlled research worker session before enabling
    any new default behavior.
 

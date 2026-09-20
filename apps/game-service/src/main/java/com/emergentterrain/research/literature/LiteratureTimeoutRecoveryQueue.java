@@ -132,6 +132,15 @@ public final class LiteratureTimeoutRecoveryQueue {
                                                 "process restarted while retry was in flight");
                                         persist(job);
                                     }
+                                    // OpenAlex discovery is advisory only. Older jobs that stopped
+                                    // there must still be released after an operator refreshes the
+                                    // local immutable index.
+                                    if (job.state() == State.OPENALEX_UNAVAILABLE) {
+                                        job = job.with(State.AWAITING_INDEX_BACKFILL,
+                                                job.discoveryAttempts(), job.candidates(),
+                                                "OpenAlex unavailable; awaiting offline index backfill");
+                                        persist(job);
+                                    }
                                     jobs.put(job.paperId(), job);
                                 }
                             } catch (Exception error) {
@@ -209,10 +218,19 @@ public final class LiteratureTimeoutRecoveryQueue {
         if (!enabled) return;
         Job job;
         synchronized (this) {
+            // Re-narration is a comparatively expensive recovery action.  Keep it serialized:
+            // a durable RETRY_DISPATCHED lease blocks another release until it settles or a
+            // restart re-arms it.  Discovery and offline-index waiting remain non-blocking.
+            if (jobs.values().stream().anyMatch(candidate -> candidate.state() == State.RETRY_DISPATCHED)) {
+                return;
+            }
             job = jobs.values().stream()
                     .filter(candidate -> candidate.state() == State.AWAITING_DISCOVERY
                             || candidate.state() == State.AWAITING_INDEX_BACKFILL)
-                    .min(Comparator.comparing(Job::createdAt))
+                    // Do not let an old backfill wait prevent newer jobs from completing their
+                    // bounded, advisory discovery step.
+                    .min(Comparator.comparingInt((Job candidate) -> candidate.state() == State.AWAITING_DISCOVERY ? 0 : 1)
+                            .thenComparing(Job::createdAt))
                     .orElse(null);
         }
         if (job == null) return;
@@ -225,13 +243,13 @@ public final class LiteratureTimeoutRecoveryQueue {
 
     private void discover(Job job) {
         if (openAlex == null) {
-            update(job.with(State.OPENALEX_UNAVAILABLE, job.discoveryAttempts(), job.candidates(),
-                    "OpenAlex client is not configured"));
+            update(job.with(State.AWAITING_INDEX_BACKFILL, job.discoveryAttempts(), job.candidates(),
+                    "OpenAlex client is not configured; awaiting offline index backfill"));
             return;
         }
         if (job.discoveryAttempts() >= maxDiscoveryAttempts) {
-            update(job.with(State.OPENALEX_UNAVAILABLE, job.discoveryAttempts(), job.candidates(),
-                    "OpenAlex discovery attempts exhausted"));
+            update(job.with(State.AWAITING_INDEX_BACKFILL, job.discoveryAttempts(), job.candidates(),
+                    "OpenAlex discovery attempts exhausted; awaiting offline index backfill"));
             return;
         }
         try {
