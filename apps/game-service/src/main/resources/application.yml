@@ -1064,6 +1064,9 @@ app:
         phase35-retrieval:
           enabled: true
           search-timeout-ms: 15000
+          # Fair, generation-scoped cap for distinct primary-index queries. Identical semantic
+          # requests still share one single-flight leader and do not consume another permit.
+          max-concurrent-primary-searches: 2
           # Search the highest-ranked tranche first, then retain the complete 512-result range
           # only when it has not produced evidence within the same fail-soft deadline.
           initial-candidates: 64

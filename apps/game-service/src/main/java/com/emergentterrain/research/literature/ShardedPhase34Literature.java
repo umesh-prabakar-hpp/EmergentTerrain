@@ -72,7 +72,12 @@ final class ShardedPhase34Literature {
     }
 
     String search(String query, LiteratureQueryProposal proposal) {
+        return search(query, proposal, aggregateTimeoutMs);
+    }
+
+    String search(String query, LiteratureQueryProposal proposal, long requestBudgetMs) {
         long startedNanos = System.nanoTime();
+        long effectiveTimeoutMs = Math.max(250, Math.min(aggregateTimeoutMs, requestBudgetMs));
         List<Map.Entry<String, Phase34SqliteLiterature>> selected = select(query);
         if (selected.isEmpty()) return "search_literature: no routed primary literature shard is available.";
         long submittedNanos = System.nanoTime();
@@ -82,7 +87,7 @@ final class ShardedPhase34Literature {
         List<String> cancelledShards = new ArrayList<>();
         try (var executor = Executors.newFixedThreadPool(Math.min(parallelism, tasks.size()))) {
             List<Future<ShardResult>> futures = executor.invokeAll(tasks.stream().map(task ->
-                            (Callable<ShardResult>) () -> task.execute(query, proposal)).toList(), aggregateTimeoutMs,
+                            (Callable<ShardResult>) () -> task.execute(query, proposal)).toList(), effectiveTimeoutMs,
                     java.util.concurrent.TimeUnit.MILLISECONDS);
             for (int index = 0; index < futures.size(); index++) {
                 Future<ShardResult> future = futures.get(index);
@@ -101,10 +106,11 @@ final class ShardedPhase34Literature {
                 .sorted(Comparator.comparingInt(result -> DEFAULT_ORDER.indexOf(result.name()))).toList();
         if (evidence.isEmpty()) {
             String output = timedOut
-                    ? "search_literature: Phase 34 SQLite retrieval exceeded its " + aggregateTimeoutMs
+                    ? "search_literature: Phase 34 SQLite retrieval exceeded its " + effectiveTimeoutMs
                     + "ms Phase 35 budget; no evidence was issued."
                     : "search_literature (Phase 34 sharded primary): no theorem-index matches for the supplied query.";
-            logSearchTelemetry(selected, results, cancelledShards, timedOut ? "timeout" : "no_match", startedNanos);
+            logSearchTelemetry(selected, results, cancelledShards, timedOut ? "timeout" : "no_match", startedNanos,
+                    effectiveTimeoutMs);
             return output;
         }
         LinkedHashMap<String, String> lines = new LinkedHashMap<>();
@@ -120,13 +126,13 @@ final class ShardedPhase34Literature {
         StringBuilder output = new StringBuilder("search_literature (Phase 34 routed sharded primary): "
                 + "EVIDENCE — cite only the returned [HF…] keys.\n");
         lines.values().stream().limit(3).forEach(line -> output.append(line).append('\n'));
-        logSearchTelemetry(selected, results, cancelledShards, "evidence", startedNanos);
+        logSearchTelemetry(selected, results, cancelledShards, "evidence", startedNanos, effectiveTimeoutMs);
         return output.toString().stripTrailing();
     }
 
     private void logSearchTelemetry(List<Map.Entry<String, Phase34SqliteLiterature>> selected,
                                     List<ShardResult> results, List<String> cancelledShards,
-                                    String outcome, long startedNanos) {
+                                    String outcome, long startedNanos, long effectiveTimeoutMs) {
         Map<String, ShardResult> resultByName = results.stream().collect(java.util.stream.Collectors.toMap(
                 ShardResult::name, result -> result, (left, right) -> left, LinkedHashMap::new));
         List<String> shardTimings = selected.stream().map(entry -> {
@@ -135,9 +141,9 @@ final class ShardedPhase34Literature {
                     + ",executionMs=" + result.executionMs() + ",outcome=" + shardOutcome(result.output()) + ")";
             return entry.getKey() + (cancelledShards.contains(entry.getKey()) ? "(outer_timeout)" : "(unresolved)");
         }).toList();
-        log.info("Phase 35 routed shard retrieval: outcome={} elapsedMs={} aggregateTimeoutMs={} parallelism={} "
+        log.info("Phase 35 routed shard retrieval: outcome={} elapsedMs={} effectiveTimeoutMs={} parallelism={} "
                         + "routedShards={} shardTimings={}",
-                outcome, elapsedMsSince(startedNanos), aggregateTimeoutMs, parallelism,
+                outcome, elapsedMsSince(startedNanos), effectiveTimeoutMs, parallelism,
                 selected.stream().map(Map.Entry::getKey).toList(), shardTimings);
     }
 

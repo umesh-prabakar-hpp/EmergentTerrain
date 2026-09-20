@@ -24,6 +24,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,6 +60,7 @@ public final class Phase34SqliteLiterature {
     private static final int PROGRESS_HANDLER_VM_STEPS = 1_000;
     // Leave cleanup/driver scheduling room inside the externally visible budget.
     private static final long BUDGET_HEADROOM_MS = 750;
+    private static final int DEFAULT_MAX_CONCURRENT_PRIMARY_SEARCHES = 2;
     private static final String PHASE45_ANCHOR_STATISTICS_VERSION = "phase45-anchor-statistics-v1";
     private static final String PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION = "phase45-title-anchor-documents-v1";
 
@@ -68,9 +71,13 @@ public final class Phase34SqliteLiterature {
     private final LiteratureQueryPlanner queryPlanner;
     private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
     private final ShardedPhase34Literature shardedPrimary;
+    private final int maxConcurrentPrimarySearches;
     // This is deliberately only an in-flight map, never a result cache. It prevents concurrent
     // retries of the same semantic lookup from competing for the immutable SQLite/FTS pages.
     private final Map<SearchFlightKey, CompletableFuture<String>> inFlightSearches = new ConcurrentHashMap<>();
+    // Separate immutable index generations never share permits.  A fair semaphore keeps distinct
+    // semantic searches FIFO within one generation while single-flight still coalesces duplicates.
+    private final Map<String, Semaphore> primarySearchPermits = new ConcurrentHashMap<>();
     private final Map<String, IssuedSource> sourceForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, IssuedSource> eldest) {
@@ -119,6 +126,14 @@ public final class Phase34SqliteLiterature {
                             int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
                             PaperReviewScreenedLiterature paperReviewScreenedLiterature,
                             ShardedPhase34Literature shardedPrimary) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, initialSearchCandidates, queryPlanner,
+                paperReviewScreenedLiterature, shardedPrimary, DEFAULT_MAX_CONCURRENT_PRIMARY_SEARCHES);
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
+                            PaperReviewScreenedLiterature paperReviewScreenedLiterature,
+                            ShardedPhase34Literature shardedPrimary, int maxConcurrentPrimarySearches) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
         this.phase35RetrievalEnabled = phase35RetrievalEnabled;
         this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
@@ -126,6 +141,7 @@ public final class Phase34SqliteLiterature {
         this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
         this.paperReviewScreenedLiterature = paperReviewScreenedLiterature;
         this.shardedPrimary = shardedPrimary;
+        this.maxConcurrentPrimarySearches = Math.clamp(maxConcurrentPrimarySearches, 1, 4);
     }
 
     public boolean available() {
@@ -184,16 +200,38 @@ public final class Phase34SqliteLiterature {
         CompletableFuture<String> active = inFlightSearches.putIfAbsent(key, leader);
         if (active == null) {
             long startedNanos = System.nanoTime();
-            try {
-                String output = searchOnce(query, proposal);
+            SearchDispatchLease dispatch = acquirePrimarySearchLease(key, startedNanos);
+            if (!dispatch.acquired()) {
+                String output = queueBudgetExpiredOutput(dispatch.queueWaitMs());
                 leader.complete(output);
+                logPrimarySearchDispatch("queue_expired", output, dispatch.queueWaitMs(), 0, key);
+                logSingleFlightTelemetry("leader", output, elapsedMsSince(startedNanos), key);
+                inFlightSearches.remove(key, leader);
+                return output;
+            }
+            try {
+                long remainingMs = remainingSearchBudgetMs(startedNanos);
+                if (remainingMs < 1_000) {
+                    String output = queueBudgetExpiredOutput(dispatch.queueWaitMs());
+                    leader.complete(output);
+                    logPrimarySearchDispatch("queue_expired", output, dispatch.queueWaitMs(), 0, key);
+                    logSingleFlightTelemetry("leader", output, elapsedMsSince(startedNanos), key);
+                    return output;
+                }
+                String output = searchOnce(query, proposal, remainingMs);
+                leader.complete(output);
+                logPrimarySearchDispatch("completed", output, dispatch.queueWaitMs(),
+                        elapsedMsSince(dispatch.executionStartedNanos()), key);
                 logSingleFlightTelemetry("leader", output, elapsedMsSince(startedNanos), key);
                 return output;
             } catch (RuntimeException | Error error) {
                 leader.completeExceptionally(error);
+                logPrimarySearchDispatch("error", "error", dispatch.queueWaitMs(),
+                        elapsedMsSince(dispatch.executionStartedNanos()), key);
                 logSingleFlightTelemetry("leader_error", "error", elapsedMsSince(startedNanos), key);
                 throw error;
             } finally {
+                dispatch.release();
                 inFlightSearches.remove(key, leader);
             }
         }
@@ -210,8 +248,12 @@ public final class Phase34SqliteLiterature {
     }
 
     private String searchOnce(String query, LiteratureQueryProposal proposal) {
+        return searchOnce(query, proposal, searchTimeoutMs);
+    }
+
+    private String searchOnce(String query, LiteratureQueryProposal proposal, long requestBudgetMs) {
         if (shardedPrimary != null) return mergeRoutedPrimaryWithScreened(query, proposal,
-                shardedPrimary.search(query, proposal));
+                shardedPrimary.search(query, proposal, requestBudgetMs));
         SearchTelemetry telemetry = new SearchTelemetry();
         long availabilityStarted = System.nanoTime();
         boolean indexAvailable = available();
@@ -280,7 +322,7 @@ public final class Phase34SqliteLiterature {
                    ORDER BY ranked.rank
                      """) : null) {
             telemetry.statementPrepareMs = elapsedMsSince(statementStarted);
-            QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, searchTimeoutMs) : null;
+            QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, requestBudgetMs) : null;
             List<SearchCandidate> candidateQueries;
             List<SearchCandidate> theoremCandidateQueries;
             if (phase35RetrievalEnabled) {
@@ -476,7 +518,7 @@ public final class Phase34SqliteLiterature {
     private SearchFlightKey searchFlightKey(String query, LiteratureQueryProposal proposal) {
         List<String> anchors = proposal == null ? List.of() : proposal.subjectAnchors().stream()
                 .map(Phase34SqliteLiterature::normalizeSemanticRequestText).toList();
-        return new SearchFlightKey(indexGeneration(), normalizeSemanticRequestText(query), anchors,
+        return new SearchFlightKey(indexFingerprint(), indexGeneration(), normalizeSemanticRequestText(query), anchors,
                 proposal == null ? "" : normalizeSemanticRequestText(proposal.claimedRelation()),
                 proposal == null ? "" : normalizeSemanticRequestText(proposal.relevanceRationale()));
     }
@@ -494,6 +536,42 @@ public final class Phase34SqliteLiterature {
 
     private static String normalizeSemanticRequestText(String value) {
         return value == null ? "" : value.replaceAll("\\s+", " ").strip().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Acquires a fair permit only for a distinct single-flight leader.  Waiting consumes the same
+     * request budget as SQLite execution, so queue expiry remains an unresolved retrieval and
+     * can enter the existing timeout-recovery lane.
+     */
+    private SearchDispatchLease acquirePrimarySearchLease(SearchFlightKey key, long requestStartedNanos) {
+        Semaphore permits = primarySearchPermits.computeIfAbsent(key.primaryGeneration(), ignored ->
+                new Semaphore(maxConcurrentPrimarySearches, true));
+        long queueStartedNanos = System.nanoTime();
+        long remainingMs = remainingSearchBudgetMs(requestStartedNanos);
+        try {
+            if (remainingMs < 1 || !permits.tryAcquire(remainingMs, TimeUnit.MILLISECONDS)) {
+                return SearchDispatchLease.notAcquired(elapsedMsSince(queueStartedNanos));
+            }
+            return SearchDispatchLease.acquired(permits, elapsedMsSince(queueStartedNanos), System.nanoTime());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return SearchDispatchLease.notAcquired(elapsedMsSince(queueStartedNanos));
+        }
+    }
+
+    private long remainingSearchBudgetMs(long requestStartedNanos) {
+        return Math.max(0, searchTimeoutMs - elapsedMsSince(requestStartedNanos));
+    }
+
+    private String queueBudgetExpiredOutput(long queueWaitMs) {
+        return "search_literature: Phase 34 SQLite retrieval exceeded its " + searchTimeoutMs
+                + "ms Phase 45 queue budget after " + queueWaitMs + "ms waiting; no evidence was issued.";
+    }
+
+    private static void logPrimarySearchDispatch(String state, String output, long queueWaitMs,
+                                                 long executionMs, SearchFlightKey key) {
+        log.info("Phase 45 literature dispatch: state={} outcome={} queueWaitMs={} executionMs={} generation={}",
+                state, safeSearchOutcome(output), queueWaitMs, executionMs, key.generationDigest());
     }
 
     private static void logSingleFlightTelemetry(String role, String output, long elapsedMs, SearchFlightKey key) {
@@ -1008,7 +1086,7 @@ public final class Phase34SqliteLiterature {
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet, SourceIndex sourceIndex) {}
 
-    private record SearchFlightKey(String indexGeneration, String query, List<String> subjectAnchors,
+    private record SearchFlightKey(String primaryGeneration, String indexGeneration, String query, List<String> subjectAnchors,
                                    String claimedRelation, String relevanceRationale) {
         private SearchFlightKey {
             subjectAnchors = List.copyOf(subjectAnchors);
@@ -1016,6 +1094,21 @@ public final class Phase34SqliteLiterature {
 
         private String generationDigest() {
             return stableDigest(indexGeneration);
+        }
+    }
+
+    private record SearchDispatchLease(Semaphore permits, boolean acquired, long queueWaitMs,
+                                       long executionStartedNanos) {
+        private static SearchDispatchLease acquired(Semaphore permits, long queueWaitMs, long executionStartedNanos) {
+            return new SearchDispatchLease(permits, true, queueWaitMs, executionStartedNanos);
+        }
+
+        private static SearchDispatchLease notAcquired(long queueWaitMs) {
+            return new SearchDispatchLease(null, false, queueWaitMs, 0);
+        }
+
+        private void release() {
+            if (acquired) permits.release();
         }
     }
 

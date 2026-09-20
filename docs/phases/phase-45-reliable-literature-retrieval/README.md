@@ -82,13 +82,16 @@ bounded FTS path rather than guessing.
 
 ### 4. Generation-scoped concurrency scheduling
 
-A small fair dispatcher bounds concurrent primary-index work per immutable index generation.
-It accounts separately for queued time, SQLite execution time, routed-shard work, and cancelled
-followers. It prevents multiple broad distinct searches from causing avoidable deadline loss while
-allowing unrelated work and the screened supplemental index to make progress.
+The implemented fair dispatcher bounds distinct primary-index leaders per immutable generation at
+`max-concurrent-primary-searches` (default 2). An identical semantic request remains a
+single-flight follower and consumes no additional permit. It separately records queue wait and
+execution duration, without logging claim text or passages. Routed primary fan-out receives only
+the remaining request budget.
 
-The scheduler is not a global cache and does not silently discard work. Queue-budget expiry is an
-unresolved retrieval outcome with durable retry metadata.
+Queue waiting counts against the same request deadline as SQLite work. Queue-budget expiry returns
+the established Phase 35 timeout marker, so the existing durable recovery lane treats it as
+unresolved rather than no match. The dispatcher is not a cache, does not change supplemental-index
+work, and does not yet cancel routed shards early.
 
 ### 5. Routed-shard early success and cancellation
 
@@ -162,7 +165,10 @@ offline build.
    indexes do not prepare or use the table. Completion telemetry records narrowing availability,
    narrowed candidates, and fallback count. Production-index materialization remains pending host
    storage I/O recovery, so this is not yet a production performance claim.
-5. Add generation-scoped fair dispatch and routed-shard cancellation telemetry.
+5. **Implemented in part:** fair, generation-scoped primary-index leader dispatch with bounded
+   queue wait, remaining-budget propagation to routed primary work, and source-safe queue/execution
+   telemetry. Distinct-query fairness and queue-expiry-as-timeout have focused regression coverage.
+   Routed-shard early-success cancellation remains separate and unimplemented.
 6. Add generation-pinned serialized recovery and the explicit pending-retrieval workflow state.
 7. Run cold/concurrent acceptance tests and one controlled research worker session before enabling
    any new default behavior.

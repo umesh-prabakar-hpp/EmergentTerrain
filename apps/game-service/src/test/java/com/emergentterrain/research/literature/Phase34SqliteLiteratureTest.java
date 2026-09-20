@@ -210,6 +210,105 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void phase45FairDispatcherQueuesDistinctSearchesWithinTheSameIndexGeneration() throws Exception {
+        indexedAdapter();
+        AtomicInteger plannerCalls = new AtomicInteger();
+        CountDownLatch firstPlannerCall = new CountDownLatch(1);
+        CountDownLatch allowFirst = new CountDownLatch(1);
+        LiteratureQueryPlanner delegate = new DeterministicLiteratureQueryPlanner();
+        LiteratureQueryPlanner blockingPlanner = new LiteratureQueryPlanner() {
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
+                return delegate.plan(claim, documentCounts);
+            }
+
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                            LiteratureQueryProposal proposal) {
+                if (plannerCalls.incrementAndGet() == 1) {
+                    firstPlannerCall.countDown();
+                    try {
+                        if (!allowFirst.await(5, TimeUnit.SECONDS)) throw new AssertionError("first search was not released");
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(error);
+                    }
+                }
+                return delegate.plan(claim, documentCounts, proposal);
+            }
+        };
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                blockingPlanner, null, null, 1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<String> first = executor.submit(() -> adapter.search("prime gap bound",
+                    new LiteratureQueryProposal(List.of("prime", "gap"), "bound", "prior work")));
+            assertThat(firstPlannerCall.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<String> second = executor.submit(() -> adapter.search("divisor omega relation",
+                    new LiteratureQueryProposal(List.of("divisor", "omega"), "relation", "prior work")));
+
+            Thread.sleep(150);
+            assertThat(plannerCalls).hasValue(1);
+            assertThat(second).isNotDone();
+
+            allowFirst.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS)).contains("EVIDENCE");
+            assertThat(second.get(5, TimeUnit.SECONDS)).isNotBlank();
+            assertThat(plannerCalls).hasValue(2);
+        } finally {
+            allowFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void phase45QueueExpiryIsAnUnresolvedTimeoutNotANoMatch() throws Exception {
+        indexedAdapter();
+        CountDownLatch firstPlannerCall = new CountDownLatch(1);
+        CountDownLatch allowFirst = new CountDownLatch(1);
+        LiteratureQueryPlanner delegate = new DeterministicLiteratureQueryPlanner();
+        LiteratureQueryPlanner blockingPlanner = new LiteratureQueryPlanner() {
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
+                return delegate.plan(claim, documentCounts);
+            }
+
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                            LiteratureQueryProposal proposal) {
+                firstPlannerCall.countDown();
+                try {
+                    if (!allowFirst.await(5, TimeUnit.SECONDS)) throw new AssertionError("first search was not released");
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(error);
+                }
+                return delegate.plan(claim, documentCounts, proposal);
+            }
+        };
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir, true, 1_000, 64,
+                blockingPlanner, null, null, 1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<String> first = executor.submit(() -> adapter.search("prime gap bound",
+                    new LiteratureQueryProposal(List.of("prime", "gap"), "bound", "prior work")));
+            assertThat(firstPlannerCall.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<String> queued = executor.submit(() -> adapter.search("divisor omega relation",
+                    new LiteratureQueryProposal(List.of("divisor", "omega"), "relation", "prior work")));
+
+            assertThat(queued.get(3, TimeUnit.SECONDS))
+                    .contains("Phase 34 SQLite retrieval exceeded its 1000ms Phase 45 queue budget")
+                    .contains("no evidence was issued")
+                    .doesNotContain("no theorem-index matches");
+            allowFirst.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS)).isNotBlank();
+        } finally {
+            allowFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void screenedReadAlsoFailsClosedWhenTheIssuedTitleAndPassageDiverge() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapterWithPaperReviewScreenedIndex();
         String search = adapter.search("prime gap bound");

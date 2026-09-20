@@ -22,6 +22,8 @@ public class Phase34SqliteLiteratureConfig {
             long searchTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.initial-candidates:64}")
             int initialCandidates,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.max-concurrent-primary-searches:2}")
+            int maxConcurrentPrimarySearches,
             @Value("${app.research.literature.paper-review-screened.enabled:false}")
             boolean paperReviewScreenedEnabled,
             @Value("${app.research.literature.paper-review-screened.index-dir:${user.home}/.emergentterrain/indexes/math-literature-paper-review-screened}")
@@ -44,6 +46,6 @@ public class Phase34SqliteLiteratureConfig {
         ShardedPhase34Literature shardedPrimary = candidateShards != null && candidateShards.available()
                 ? candidateShards : null;
         return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
-                initialCandidates, planner, paperReviewScreened, shardedPrimary);
+                initialCandidates, planner, paperReviewScreened, shardedPrimary, maxConcurrentPrimarySearches);
     }
 }
