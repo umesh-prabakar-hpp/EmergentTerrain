@@ -1,5 +1,8 @@
 package com.emergentterrain.research.literature;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -23,6 +26,7 @@ import java.util.regex.Pattern;
  * decide whether an {@code HF...} key exists at all.
  */
 final class ShardedPhase34Literature {
+    private static final Logger log = LoggerFactory.getLogger(ShardedPhase34Literature.class);
     private static final Pattern KEY_LINE = Pattern.compile("(?m)^- \\[?(HF[0-9A-F]+)\\]?.*$", Pattern.CASE_INSENSITIVE);
     private static final List<String> DEFAULT_ORDER = List.of(
             "number-theory", "analysis", "algebra", "combinatorics", "geometry", "probability", "cross-list");
@@ -68,17 +72,25 @@ final class ShardedPhase34Literature {
     }
 
     String search(String query, LiteratureQueryProposal proposal) {
+        long startedNanos = System.nanoTime();
         List<Map.Entry<String, Phase34SqliteLiterature>> selected = select(query);
         if (selected.isEmpty()) return "search_literature: no routed primary literature shard is available.";
-        List<Callable<ShardResult>> tasks = selected.stream()
-                .map(entry -> (Callable<ShardResult>) () -> new ShardResult(entry.getKey(), entry.getValue(),
-                        entry.getValue().search(query, proposal))).toList();
+        long submittedNanos = System.nanoTime();
+        List<ShardTask> tasks = selected.stream()
+                .map(entry -> new ShardTask(entry.getKey(), entry.getValue(), submittedNanos)).toList();
         List<ShardResult> results = new ArrayList<>();
+        List<String> cancelledShards = new ArrayList<>();
         try (var executor = Executors.newFixedThreadPool(Math.min(parallelism, tasks.size()))) {
-            List<Future<ShardResult>> futures = executor.invokeAll(tasks, aggregateTimeoutMs,
+            List<Future<ShardResult>> futures = executor.invokeAll(tasks.stream().map(task ->
+                            (Callable<ShardResult>) () -> task.execute(query, proposal)).toList(), aggregateTimeoutMs,
                     java.util.concurrent.TimeUnit.MILLISECONDS);
-            for (Future<ShardResult> future : futures) {
-                if (!future.isCancelled()) results.add(future.get());
+            for (int index = 0; index < futures.size(); index++) {
+                Future<ShardResult> future = futures.get(index);
+                if (future.isCancelled()) {
+                    cancelledShards.add(tasks.get(index).name());
+                } else {
+                    results.add(future.get());
+                }
             }
         } catch (Exception ignored) {
             // Completed results below remain usable; a wholly unresolved fan-out is rendered as a timeout.
@@ -88,10 +100,12 @@ final class ShardedPhase34Literature {
         List<ShardResult> evidence = results.stream().filter(result -> result.output().contains("EVIDENCE"))
                 .sorted(Comparator.comparingInt(result -> DEFAULT_ORDER.indexOf(result.name()))).toList();
         if (evidence.isEmpty()) {
-            return timedOut
+            String output = timedOut
                     ? "search_literature: Phase 34 SQLite retrieval exceeded its " + aggregateTimeoutMs
                     + "ms Phase 35 budget; no evidence was issued."
                     : "search_literature (Phase 34 sharded primary): no theorem-index matches for the supplied query.";
+            logSearchTelemetry(selected, results, cancelledShards, timedOut ? "timeout" : "no_match", startedNanos);
+            return output;
         }
         LinkedHashMap<String, String> lines = new LinkedHashMap<>();
         for (ShardResult result : evidence) {
@@ -106,7 +120,36 @@ final class ShardedPhase34Literature {
         StringBuilder output = new StringBuilder("search_literature (Phase 34 routed sharded primary): "
                 + "EVIDENCE — cite only the returned [HF…] keys.\n");
         lines.values().stream().limit(3).forEach(line -> output.append(line).append('\n'));
+        logSearchTelemetry(selected, results, cancelledShards, "evidence", startedNanos);
         return output.toString().stripTrailing();
+    }
+
+    private void logSearchTelemetry(List<Map.Entry<String, Phase34SqliteLiterature>> selected,
+                                    List<ShardResult> results, List<String> cancelledShards,
+                                    String outcome, long startedNanos) {
+        Map<String, ShardResult> resultByName = results.stream().collect(java.util.stream.Collectors.toMap(
+                ShardResult::name, result -> result, (left, right) -> left, LinkedHashMap::new));
+        List<String> shardTimings = selected.stream().map(entry -> {
+            ShardResult result = resultByName.get(entry.getKey());
+            if (result != null) return entry.getKey() + "(queueWaitMs=" + result.queueWaitMs()
+                    + ",executionMs=" + result.executionMs() + ",outcome=" + shardOutcome(result.output()) + ")";
+            return entry.getKey() + (cancelledShards.contains(entry.getKey()) ? "(outer_timeout)" : "(unresolved)");
+        }).toList();
+        log.info("Phase 35 routed shard retrieval: outcome={} elapsedMs={} aggregateTimeoutMs={} parallelism={} "
+                        + "routedShards={} shardTimings={}",
+                outcome, elapsedMsSince(startedNanos), aggregateTimeoutMs, parallelism,
+                selected.stream().map(Map.Entry::getKey).toList(), shardTimings);
+    }
+
+    private static String shardOutcome(String output) {
+        if (output != null && output.contains("EVIDENCE")) return "evidence";
+        if (LiteratureTimeoutRecoveryQueue.isPhase35TimeoutResult(output)) return "timeout";
+        if (output != null && output.contains("not available")) return "unavailable";
+        return "no_match";
+    }
+
+    private static long elapsedMsSince(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     String read(String key, String query) {
@@ -146,5 +189,15 @@ final class ShardedPhase34Literature {
         return false;
     }
 
-    private record ShardResult(String name, Phase34SqliteLiterature adapter, String output) {}
+    private record ShardTask(String name, Phase34SqliteLiterature adapter, long submittedNanos) {
+        private ShardResult execute(String query, LiteratureQueryProposal proposal) {
+            long startedNanos = System.nanoTime();
+            String output = adapter.search(query, proposal);
+            return new ShardResult(name, adapter, output, elapsedMsSince(submittedNanos),
+                    elapsedMsSince(startedNanos));
+        }
+    }
+
+    private record ShardResult(String name, Phase34SqliteLiterature adapter, String output,
+                               long queueWaitMs, long executionMs) {}
 }

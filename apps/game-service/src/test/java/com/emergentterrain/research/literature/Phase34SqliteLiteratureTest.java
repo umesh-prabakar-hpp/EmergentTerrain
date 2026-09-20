@@ -13,6 +13,13 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -140,6 +147,65 @@ class Phase34SqliteLiteratureTest {
         assertThat(keys).hasSize(2);
         assertThat(adapter.read(keys.get(1), "confirmed prime gap bound"))
                 .contains("paper-review-screened literature index", "confirmed prime gap bound");
+    }
+
+    @Test
+    void phase35SingleFlightCoalescesActiveCanonicalSemanticSearchesWithoutCaching() throws Exception {
+        indexedAdapter();
+        AtomicInteger plannerCalls = new AtomicInteger();
+        CountDownLatch leaderPlanning = new CountDownLatch(1);
+        CountDownLatch allowLeader = new CountDownLatch(1);
+        LiteratureQueryPlanner delegate = new DeterministicLiteratureQueryPlanner();
+        LiteratureQueryPlanner blockingPlanner = new LiteratureQueryPlanner() {
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
+                return delegate.plan(claim, documentCounts);
+            }
+
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                            LiteratureQueryProposal proposal) {
+                plannerCalls.incrementAndGet();
+                leaderPlanning.countDown();
+                try {
+                    if (!allowLeader.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("test leader was not released");
+                    }
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(error);
+                }
+                return delegate.plan(claim, documentCounts, proposal);
+            }
+        };
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                blockingPlanner, null);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<String> leader = executor.submit(() -> adapter.search("prime gap bound",
+                    new LiteratureQueryProposal(List.of("prime", "gap"), "bound", "prior work")));
+            assertThat(leaderPlanning.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<String> follower = executor.submit(() -> adapter.search(" PRIME  gap\nbound ",
+                    new LiteratureQueryProposal(List.of(" PRIME ", "Gap"), " BOUND ", "prior  work")));
+            long waitDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (plannerCalls.get() == 1 && !follower.isDone() && System.nanoTime() < waitDeadline) {
+                Thread.sleep(10);
+            }
+            assertThat(plannerCalls).hasValue(1);
+            assertThat(follower).isNotDone();
+
+            allowLeader.countDown();
+            assertThat(leader.get(5, TimeUnit.SECONDS)).isEqualTo(follower.get(5, TimeUnit.SECONDS))
+                    .contains("EVIDENCE");
+
+            assertThat(adapter.search("prime gap bound", new LiteratureQueryProposal(
+                    List.of("prime", "gap"), "bound", "prior work"))).contains("EVIDENCE");
+            assertThat(plannerCalls).hasValue(2);
+        } finally {
+            allowLeader.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

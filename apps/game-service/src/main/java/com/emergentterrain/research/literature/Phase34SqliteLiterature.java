@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -63,6 +66,9 @@ public final class Phase34SqliteLiterature {
     private final LiteratureQueryPlanner queryPlanner;
     private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
     private final ShardedPhase34Literature shardedPrimary;
+    // This is deliberately only an in-flight map, never a result cache. It prevents concurrent
+    // retries of the same semantic lookup from competing for the immutable SQLite/FTS pages.
+    private final Map<SearchFlightKey, CompletableFuture<String>> inFlightSearches = new ConcurrentHashMap<>();
     private final Map<String, IssuedSource> sourceForKey = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, IssuedSource> eldest) {
@@ -161,14 +167,62 @@ public final class Phase34SqliteLiterature {
      * evidence gates as deterministic claim extraction. Invalid proposals fail closed.
      */
     public String search(String query, LiteratureQueryProposal proposal) {
+        if (!phase35RetrievalEnabled) return searchOnce(query, proposal);
+        return searchSingleFlight(query, proposal);
+    }
+
+    /**
+     * Coalesces only simultaneously active Phase 35 lookups with the same canonical semantic
+     * request and immutable-index generation. A completed result is removed immediately, so this
+     * is not a cache and cannot carry evidence or failure state into a later request.
+     */
+    private String searchSingleFlight(String query, LiteratureQueryProposal proposal) {
+        SearchFlightKey key = searchFlightKey(query, proposal);
+        CompletableFuture<String> leader = new CompletableFuture<>();
+        CompletableFuture<String> active = inFlightSearches.putIfAbsent(key, leader);
+        if (active == null) {
+            long startedNanos = System.nanoTime();
+            try {
+                String output = searchOnce(query, proposal);
+                leader.complete(output);
+                logSingleFlightTelemetry("leader", output, elapsedMsSince(startedNanos), key);
+                return output;
+            } catch (RuntimeException | Error error) {
+                leader.completeExceptionally(error);
+                logSingleFlightTelemetry("leader_error", "error", elapsedMsSince(startedNanos), key);
+                throw error;
+            } finally {
+                inFlightSearches.remove(key, leader);
+            }
+        }
+
+        long waitStartedNanos = System.nanoTime();
+        try {
+            String output = active.join();
+            logSingleFlightTelemetry("follower", output, elapsedMsSince(waitStartedNanos), key);
+            return output;
+        } catch (CompletionException error) {
+            logSingleFlightTelemetry("follower_error", "error", elapsedMsSince(waitStartedNanos), key);
+            return "search_literature: Phase 34 SQLite query unavailable (shared retrieval failed).";
+        }
+    }
+
+    private String searchOnce(String query, LiteratureQueryProposal proposal) {
         if (shardedPrimary != null) return mergeRoutedPrimaryWithScreened(query, proposal,
                 shardedPrimary.search(query, proposal));
         SearchTelemetry telemetry = new SearchTelemetry();
-        if (!available()) {
+        long availabilityStarted = System.nanoTime();
+        boolean indexAvailable = available();
+        telemetry.availabilityCheckMs = elapsedMsSince(availabilityStarted);
+        if (!indexAvailable) {
+            logSearchTelemetry(telemetry, "unavailable", 0);
             return "search_literature: Phase 34 SQLite index is not available.";
         }
-        try (Connection connection = open();
-             PreparedStatement statement = connection.prepareStatement("""
+        long connectionStarted = System.nanoTime();
+        try (Connection connection = open()) {
+            telemetry.connectionOpenMs = elapsedMsSince(connectionStarted);
+            long statementStarted = System.nanoTime();
+            try (PreparedStatement statement = connection.prepareStatement("""
                      WITH ranked_theorems AS (
                          SELECT rowid, rank
                            FROM theorem_fts
@@ -188,6 +242,7 @@ public final class Phase34SqliteLiterature {
                   LEFT JOIN papers p ON p.paper_id = t.paper_id
                    ORDER BY ranked.rank
                      """)) {
+            telemetry.statementPrepareMs = elapsedMsSince(statementStarted);
             QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, searchTimeoutMs) : null;
             List<SearchCandidate> candidateQueries;
             List<SearchCandidate> theoremCandidateQueries;
@@ -195,9 +250,12 @@ public final class Phase34SqliteLiterature {
                 // Looking up each term in fts5vocab can itself scan the large on-disk vocabulary.
                 // The planner therefore treats an empty map as "unknown statistics" and lets the
                 // bounded phrase FTS searches establish whether a term exists within one budget.
+                long planStarted = System.nanoTime();
                 LiteratureQueryPlan plan = queryPlanner.plan(query, Map.of(), proposal);
+                telemetry.planMs = elapsedMsSince(planStarted);
                 if (!plan.unavailableReason().isBlank()) {
                     if (budget != null) budget.close();
+                    logSearchTelemetry(telemetry, "invalid_query", 0);
                     return "search_literature: " + plan.unavailableReason();
                 }
                 candidateQueries = plan.candidates().stream()
@@ -222,6 +280,7 @@ public final class Phase34SqliteLiterature {
             }
             if (candidateQueries.isEmpty()) {
                 if (budget != null) budget.close();
+                logSearchTelemetry(telemetry, "invalid_query", 0);
                 return "search_literature: no sufficiently specific literature anchors were found; no evidence was issued.";
             }
             Map<String, Citation> distinct = new LinkedHashMap<>();
@@ -237,25 +296,28 @@ public final class Phase34SqliteLiterature {
                         telemetry.lastSurface = "theorem";
                         telemetry.lastBatchLimit = batchLimit;
                         long batchStarted = System.nanoTime();
-                        statement.setString(1, candidate.expression());
-                        statement.setInt(2, batchLimit);
-                        try (ResultSet rows = statement.executeQuery()) {
-                            while (rows.next() && distinct.size() < SEARCH_RESULTS) {
-                                telemetry.rowsInspected++;
-                                String paperId = rows.getString(1);
-                                if (paperId == null || paperId.isBlank()) continue;
-                                String title = rows.getString(2);
-                                // A matching pair alone is too weak: generic mathematical wording can
-                                // match an unrelated theorem. Phase 35 needs corroboration across the
-                                // returned record before it grants an HF citation key.
-                                if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
-                                        rows.getString(7), rows.getString(8), candidate)) continue;
-                                String key = keyFor(paperId);
-                                distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
-                                        rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
+                        try {
+                            statement.setString(1, candidate.expression());
+                            statement.setInt(2, batchLimit);
+                            try (ResultSet rows = statement.executeQuery()) {
+                                while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                                    telemetry.rowsInspected++;
+                                    String paperId = rows.getString(1);
+                                    if (paperId == null || paperId.isBlank()) continue;
+                                    String title = rows.getString(2);
+                                    // A matching pair alone is too weak: generic mathematical wording can
+                                    // match an unrelated theorem. Phase 35 needs corroboration across the
+                                    // returned record before it grants an HF citation key.
+                                    if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
+                                            rows.getString(7), rows.getString(8), candidate)) continue;
+                                    String key = keyFor(paperId);
+                                    distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
+                                            rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
+                                }
                             }
+                        } finally {
+                            telemetry.recordBatch("theorem", attempt, batchLimit, elapsedMsSince(batchStarted));
                         }
-                        telemetry.lastBatchElapsedMs = (System.nanoTime() - batchStarted) / 1_000_000L;
                         log.debug("Phase 34 literature search attempt={} batchLimit={} anchors={} rows={} results={} "
                                         + "batchElapsedMs={} elapsedMs={} query={}",
                                 attempt, batchLimit, candidate.evidenceAnchors().size(), telemetry.rowsInspected,
@@ -274,7 +336,9 @@ public final class Phase34SqliteLiterature {
             // The screened index is a peer retrieval surface, not a fallback. Query both and
             // merge their separately ranked result lists without comparing raw FTS/BM25 ranks
             // across databases.
+            long screenedMergeStarted = System.nanoTime();
             mergePaperReviewScreenedResults(candidateQueries, distinct);
+            telemetry.screenedMergeMs = elapsedMsSince(screenedMergeStarted);
             List<Citation> merged = mergeIndexResults(distinct.values());
             if (merged.isEmpty()) {
                 logSearchTelemetry(telemetry, "no_match", 0);
@@ -310,6 +374,7 @@ public final class Phase34SqliteLiterature {
             }
             logSearchTelemetry(telemetry, "evidence", merged.size());
             return truncate(output.toString().stripTrailing(), MAX_SEARCH_TOOL_RESULT_CHARS);
+        }
         } catch (Exception e) {
             if (isInterrupted(e)) {
                 logSearchTelemetry(telemetry, "timeout", 0);
@@ -350,6 +415,56 @@ public final class Phase34SqliteLiterature {
         return output.toString().stripTrailing();
     }
 
+    private SearchFlightKey searchFlightKey(String query, LiteratureQueryProposal proposal) {
+        List<String> anchors = proposal == null ? List.of() : proposal.subjectAnchors().stream()
+                .map(Phase34SqliteLiterature::normalizeSemanticRequestText).toList();
+        return new SearchFlightKey(indexGeneration(), normalizeSemanticRequestText(query), anchors,
+                proposal == null ? "" : normalizeSemanticRequestText(proposal.claimedRelation()),
+                proposal == null ? "" : normalizeSemanticRequestText(proposal.relevanceRationale()));
+    }
+
+    /**
+     * A generation contains every local evidence surface this adapter may merge. The values are
+     * used only as an in-memory flight key; telemetry exposes a digest rather than filesystem
+     * paths or query text.
+     */
+    private String indexGeneration() {
+        String screened = paperReviewScreenedLiterature == null ? "not-configured"
+                : paperReviewScreenedLiterature.fingerprint();
+        return indexFingerprint() + "|paper-review-screened=" + screened;
+    }
+
+    private static String normalizeSemanticRequestText(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").strip().toLowerCase(Locale.ROOT);
+    }
+
+    private static void logSingleFlightTelemetry(String role, String output, long elapsedMs, SearchFlightKey key) {
+        log.info("Phase 35 literature single-flight: role={} outcome={} elapsedMs={} generation={}",
+                role, safeSearchOutcome(output), elapsedMs, key.generationDigest());
+    }
+
+    private static String safeSearchOutcome(String output) {
+        if (output == null || output.isBlank()) return "error";
+        if ("error".equals(output)) return "error";
+        if (output.contains("EVIDENCE")) return "evidence";
+        if (LiteratureTimeoutRecoveryQueue.isPhase35TimeoutResult(output)) return "timeout";
+        if (output.contains("not available") || output.contains("unavailable")) return "unavailable";
+        if (output.contains("no sufficiently specific") || output.contains("no valid")) return "invalid_query";
+        return "no_match";
+    }
+
+    private static String stableDigest(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder rendered = new StringBuilder();
+            for (int index = 0; index < 8; index++) rendered.append(String.format("%02X", digest[index]));
+            return rendered.toString();
+        } catch (Exception error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
+        }
+    }
+
     /**
      * Adds a statement-name-only attempt before the unchanged general theorem query. This avoids
      * scoring a corpus-wide body match for common pairs such as {@code graph isomorphism}; failure
@@ -380,10 +495,13 @@ public final class Phase34SqliteLiterature {
 
     private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
         log.info("Phase 35 literature retrieval: outcome={} elapsedMs={} candidateAttempts={} batches={} "
-                        + "rowsInspected={} results={} lastSurface={} lastBatchElapsedMs={} lastBatchLimit={} lastExpression={}",
+                        + "rowsInspected={} results={} availabilityCheckMs={} connectionOpenMs={} statementPrepareMs={} "
+                        + "planMs={} screenedMergeMs={} batchTimings={} lastSurface={} lastBatchElapsedMs={} "
+                        + "lastBatchLimit={} lastExpression={}",
                 outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
-                telemetry.rowsInspected, resultCount, telemetry.lastSurface, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit,
-                telemetry.lastExpression);
+                telemetry.rowsInspected, resultCount, telemetry.availabilityCheckMs, telemetry.connectionOpenMs,
+                telemetry.statementPrepareMs, telemetry.planMs, telemetry.screenedMergeMs, telemetry.batchTimings,
+                telemetry.lastSurface, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit, telemetry.lastExpression);
     }
 
     /**
@@ -424,23 +542,27 @@ public final class Phase34SqliteLiterature {
                     telemetry.lastSurface = "fulltext";
                     telemetry.lastBatchLimit = batchLimit;
                     long batchStarted = System.nanoTime();
-                    statement.setString(1, expression);
-                    statement.setInt(2, batchLimit);
-                    try (ResultSet rows = statement.executeQuery()) {
-                        while (rows.next() && distinct.size() < SEARCH_RESULTS) {
-                            telemetry.rowsInspected++;
-                            String paperId = rows.getString(1);
-                            if (paperId == null || paperId.isBlank()) continue;
-                            if (!hasSufficientFullTextEvidence(rows.getString(6), rows.getString(7),
-                                    rows.getString(8), candidate)) {
-                                continue;
+                    try {
+                        statement.setString(1, expression);
+                        statement.setInt(2, batchLimit);
+                        try (ResultSet rows = statement.executeQuery()) {
+                            while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                                telemetry.rowsInspected++;
+                                String paperId = rows.getString(1);
+                                if (paperId == null || paperId.isBlank()) continue;
+                                if (!hasSufficientFullTextEvidence(rows.getString(6), rows.getString(7),
+                                        rows.getString(8), candidate)) {
+                                    continue;
+                                }
+                                String key = keyFor(paperId);
+                                distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
+                                        rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
                             }
-                            String key = keyFor(paperId);
-                            distinct.putIfAbsent(paperId, new Citation(key, paperId, rows.getString(2),
-                                    rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
                         }
+                    } finally {
+                        telemetry.recordBatch("fulltext", telemetry.candidateAttempts - 1, batchLimit,
+                                elapsedMsSince(batchStarted));
                     }
-                    telemetry.lastBatchElapsedMs = (System.nanoTime() - batchStarted) / 1_000_000L;
                     if (!distinct.isEmpty()) return;
                 }
             }
@@ -656,6 +778,10 @@ public final class Phase34SqliteLiterature {
         return value.substring(0, Math.max(0, maxChars - 1)) + "…";
     }
 
+    private static long elapsedMsSince(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
+    }
+
     private static boolean hasSufficientRecordEvidence(String title, String name, String slogan, String body,
                                                        SearchCandidate candidate) {
         if (candidate.evidenceAnchors().isEmpty()) return true;
@@ -765,6 +891,17 @@ public final class Phase34SqliteLiterature {
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet, SourceIndex sourceIndex) {}
 
+    private record SearchFlightKey(String indexGeneration, String query, List<String> subjectAnchors,
+                                   String claimedRelation, String relevanceRationale) {
+        private SearchFlightKey {
+            subjectAnchors = List.copyOf(subjectAnchors);
+        }
+
+        private String generationDigest() {
+            return stableDigest(indexGeneration);
+        }
+    }
+
     private record IssuedSource(String paperId, SourceIndex sourceIndex, String title) {}
 
     private enum SourceIndex {
@@ -816,10 +953,21 @@ public final class Phase34SqliteLiterature {
         private int candidateAttempts;
         private int batches;
         private int rowsInspected;
+        private long availabilityCheckMs = -1;
+        private long connectionOpenMs = -1;
+        private long statementPrepareMs = -1;
+        private long planMs = -1;
+        private long screenedMergeMs = -1;
+        private final List<String> batchTimings = new ArrayList<>();
         private long lastBatchElapsedMs;
         private int lastBatchLimit;
         private String lastSurface = "none";
         private String lastExpression = "";
+
+        private void recordBatch(String surface, int attempt, int batchLimit, long elapsedMs) {
+            lastBatchElapsedMs = elapsedMs;
+            batchTimings.add(surface + ":attempt=" + attempt + ":limit=" + batchLimit + ":elapsedMs=" + elapsedMs);
+        }
 
         private long elapsedMs() {
             return (System.nanoTime() - startedNanos) / 1_000_000L;

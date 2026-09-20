@@ -41,6 +41,20 @@ final class PaperReviewScreenedLiterature {
         }
     }
 
+    /**
+     * Metadata-only identity for the immutable screened-index generation currently served.
+     * It is used to keep an in-flight request from crossing an offline index replacement.
+     */
+    String fingerprint() {
+        try {
+            if (!Files.isRegularFile(database)) return "unavailable";
+            return database + ":" + Files.size(database) + ":"
+                    + Files.getLastModifiedTime(database).toMillis();
+        } catch (Exception ignored) {
+            return "unavailable";
+        }
+    }
+
     List<Match> search(List<Phase34SqliteLiterature.SearchCandidate> candidates, int maxResults) {
         if (!available() || candidates == null || candidates.isEmpty()) return List.of();
         Map<String, Match> distinct = new LinkedHashMap<>();
