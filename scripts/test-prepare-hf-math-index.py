@@ -27,6 +27,10 @@ class AnchorStatisticsTest(unittest.TestCase):
                 conn.execute("INSERT INTO papers(paper_id, title) VALUES ('p2', 'Divisor Gap')")
                 conn.execute("INSERT INTO theorems(theorem_id, paper_id, name) VALUES (1, 'p1', 'Maximum Prime Gap')")
                 conn.execute("INSERT INTO theorems(theorem_id, paper_id, name) VALUES (2, 'p2', 'Divisor Gaps')")
+                conn.execute("INSERT INTO fulltext_fts VALUES ('p1', 'Prime Gaps', '')")
+                conn.execute("INSERT INTO fulltext_fts VALUES ('p2', 'Divisor Gap', '')")
+                conn.execute("INSERT INTO theorem_fts VALUES (1, 'p1', 'Maximum Prime Gap', '', '')")
+                conn.execute("INSERT INTO theorem_fts VALUES (2, 'p2', 'Divisor Gaps', '', '')")
                 conn.commit()
 
                 MODULE.prepare_anchor_statistics(conn, force=False)

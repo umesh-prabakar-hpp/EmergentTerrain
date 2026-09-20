@@ -132,10 +132,20 @@ no-match (64 ms); no request timed out. The retained local JSON report and telem
 source of record. This is a baseline, not a claim that cold-cache or post-maintenance acceptance
 has passed.
 
+The initial production-index selectivity materialization was not accepted on the same date: both
+attempts entered uninterruptible host disk I/O before the final marker could commit and were
+stopped. The adapter therefore continues to use the safe historical ordering on that index. The
+builder now uses SQLite FTS vocabulary aggregates rather than a Python row walk and passes its
+focused fixture; retry only after the host's index-storage I/O condition is healthy, then record a
+fresh selectivity-enabled benchmark. Do not infer a completed index generation from an interrupted
+offline build.
+
 ## Implementation sequence
 
 1. **Implemented:** add an offline-built, versioned anchor-frequency schema and a read-only,
-   bounded generation reader; absent and stale metadata retain the historical ordering.
+   bounded generation reader. Its builder derives counts from SQLite's offline FTS vocabulary
+   summaries rather than Python scanning every theorem row; absent and stale metadata retain the
+   historical ordering.
 2. **Implemented:** order the complete validated candidate plan specificity-first using that
    metadata, with deterministic stable tie-breakers and unchanged candidate coverage.
 3. **Implemented:** benchmark representative prime-gap and divisor/omega shapes alone,

@@ -625,10 +625,6 @@ def normalize_anchor(value: str) -> str:
     return value
 
 
-def selectivity_anchors(value: str) -> set[str]:
-    return {normalize_anchor(anchor) for anchor in re.findall(r"[^\W\d_]{2,}", (value or "").lower())}
-
-
 def prepare_anchor_statistics(conn: sqlite3.Connection, force: bool) -> None:
     """Materialize compact title/theorem-name frequencies outside the serving request path."""
     if state(conn, "phase45_anchor_statistics_version") == PHASE45_ANCHOR_STATISTICS_VERSION and not force:
@@ -640,10 +636,14 @@ def prepare_anchor_statistics(conn: sqlite3.Connection, force: bool) -> None:
     conn.execute("DELETE FROM literature_anchor_document_counts")
     pending: dict[str, list[int]] = {}
 
-    def add(value: str, position: int) -> None:
-        for anchor in selectivity_anchors(value):
-            counts = pending.setdefault(anchor, [0, 0])
-            counts[position] += 1
+    def add(term: str, document_count: int, position: int) -> None:
+        # FTS5's unicode tokenizer uses the same lexical boundary class as the serving index.
+        # Preserve only safe alphabetic terms because the Java planner will never request digits,
+        # punctuation, or raw FTS syntax as a selectivity anchor.
+        if not term.isalpha() or len(term) < 2 or document_count <= 0:
+            return
+        counts = pending.setdefault(normalize_anchor(term), [0, 0])
+        counts[position] += document_count
 
     def flush() -> None:
         if not pending:
@@ -658,21 +658,33 @@ def prepare_anchor_statistics(conn: sqlite3.Connection, force: bool) -> None:
         )
         pending.clear()
 
-    for (title,) in conn.execute("SELECT title FROM papers"):
-        add(title, 0)
-        if len(pending) >= 10_000:
+    # fts5vocab is an offline SQLite-native aggregate over FTS segments. It avoids constructing
+    # Python strings for every title/theorem row on a multi-gigabyte corpus while preserving the
+    # only information this phase needs: normalized document frequency per indexed column.
+    vocabularies = (
+        ("phase45_fulltext_title_vocab", "fulltext_fts", "title", 0),
+        ("phase45_theorem_name_vocab", "theorem_fts", "name", 1),
+    )
+    try:
+        for vocabulary, source_table, column, position in vocabularies:
+            conn.execute(f"DROP TABLE IF EXISTS {vocabulary}")
+            conn.execute(f"CREATE VIRTUAL TABLE {vocabulary} USING fts5vocab({source_table}, 'col')")
+            for term, document_count in conn.execute(
+                    f"SELECT term, doc FROM {vocabulary} WHERE col = ?", (column,)):
+                add(term, document_count, position)
+                if len(pending) >= 10_000:
+                    flush()
             flush()
-    for (name,) in conn.execute("SELECT name FROM theorems"):
-        add(name, 1)
-        if len(pending) >= 10_000:
-            flush()
-    flush()
+            conn.execute(f"DROP TABLE {vocabulary}")
+    finally:
+        for vocabulary, _, _, _ in vocabularies:
+            conn.execute(f"DROP TABLE IF EXISTS {vocabulary}")
     rows = conn.execute("SELECT COUNT(*) FROM literature_anchor_document_counts").fetchone()[0]
     set_state(conn, "phase45_anchor_statistics_version", PHASE45_ANCHOR_STATISTICS_VERSION)
     set_state(conn, "phase45_anchor_statistics_rows", str(rows))
     set_state(conn, "phase45_anchor_statistics_built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     conn.commit()
-    print(f"selectivity: complete ({rows:,} normalized anchors)")
+    print(f"selectivity: complete ({rows:,} normalized anchors; SQLite FTS vocabulary summaries)")
 
 
 def sha256_file(path: Path) -> str:
