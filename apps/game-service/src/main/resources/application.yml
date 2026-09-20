@@ -428,9 +428,9 @@ app:
       # caps are derived from llm-pricing.yml (~50/50 in:out split); the $ cap is
       # the precise control.
       global:
-        max-cost-usd: 5.00              # 2026-07-21 — $5 hard cap with a $2.80 cost reserve keeps the cost-drain point at $2.20 while providing more aggregate closeout headroom. This is not per-paper escrow: optional work can still consume the shared reserve. 2026-06-06 temporarily trimmed $5 → $3.50 after cost-bound runs; the latest run reached $2.40 in only 42 calls, confirming calls were not the limiter.
+        max-cost-usd: 10.00             # Doubled run cap; the proportional $5.60 reserve keeps the cost-drain point at $4.40. This is not per-paper escrow: optional work can still consume the shared reserve.
         # 2026-05-25 — hard cap on total dispatched LLM calls per run, as an
-        # additional runaway-loop safeguard alongside the $5 ceiling. Counted
+        # additional runaway-loop safeguard alongside the $10 ceiling. Counted
         # in RunBudgetTracker.recordCall (pre-call, all providers); reaching it
         # stops the app (exit 42). 0 = unlimited. Raise if a normal paper-review
         # run legitimately needs more than this. 2026-05-25: bumped 100→300 —
@@ -441,9 +441,9 @@ app:
         # ceiling binds well before calls do (best-of-N ~doubles $/paper), so the
         # 1000 cap was never the limiter; 500 is a tighter runaway-loop safeguard.
         # Raise max-cost-usd too if more volume is needed.
-        max-calls: 350   # 2026-06-06 — trimmed 30% with the $ cap (cost binds first in practice); call-drain derives to 290. (2026-06-10: temporary 2× volume bump reverted — see max-cost-usd note.)
+        max-calls: 700   # Doubled hard call cap; the proportional reserve keeps call-drain at 580.
         # 2026-06-05 — graceful drain (RunBudgetTracker). The threshold is DERIVED:
-        # drain starts at max-calls − drain-reserve-calls (here 350−60=290), so
+        # drain starts at max-calls − drain-reserve-calls (here 700−120=580), so
         # raising max-calls moves it automatically. At the threshold the run stops
         # STARTING new research cycles; in-flight papers finish on the reserve and
         # the app exits cleanly (same exit 42) when the draft queue empties —
@@ -453,20 +453,19 @@ app:
         # overrides the derivation when set; reserve 0 disables the drain.
         # Motivation: the 06-05 07:17 hard stop killed P-b72c-140/141 in flight —
         # the first two papers ever to compute beyond-sieve values.
-        drain-reserve-calls: 60
+        drain-reserve-calls: 120
         # 2026-06-05 — cost-dimension drain reserve, symmetric with the call reserve:
-        # drain starts at max-cost-usd − this (here $5.00 − $2.80 = $2.20). Added after
+        # drain starts at max-cost-usd − this (here $10.00 − $5.60 = $4.40). Added after
         # the 19:59 session ended on the $5 ceiling at only 326/500 calls — richer
         # 20-scalar prompts + metered openrouter made COST the binding dimension and
         # the call-only drain never engaged (P-b72c-183/184 hard-killed in flight).
         # 2026-06-05 21:34 measurement: $0.50 bought ~6 min of in-flight burn (~$0.09/min) and
         # the hard cap preempted quiescence (no losses, by 17s of luck). $1.00 ≈ 11 min covers
         # a full fresh pipeline comfortably. 0 = off.
-        # 2026-07-21 — preserve the $2.20 drain point while raising the hard cap from $3.50 to
-        # $5.00: reserve rises from $1.30 to $2.80. The reserve is aggregate closeout headroom,
-        # not a completion guarantee; optional work needs separate credit-gating before it can be
-        # treated as per-paper protection.
-        drain-reserve-cost-usd: 2.80
+        # The doubled reserve preserves the same proportional drain behavior. It is aggregate
+        # closeout headroom, not a completion guarantee; optional work needs separate
+        # credit-gating before it can be treated as per-paper protection.
+        drain-reserve-cost-usd: 5.60
         max-input-tokens: 0
         max-output-tokens: 0
     # Phase 7 E2 — opt-in list of providers allowed to receive tool-calling professor-stage
@@ -649,8 +648,8 @@ app:
           # Assume-paid prep: dormant while the free mirror is in use ($0 spend
           # → never reached), but in place for when this slot migrates to a paid
           # model (add its price to llm-pricing.yml then; token caps derive from
-          # it at that point). Independent per-slot ceiling; global $5 is the total stop.
-          max-cost-usd: 4.00            # primary-tier ceiling (matches groq); was $8
+          # it at that point). Independent per-slot ceiling; global $10 is the total stop.
+          max-cost-usd: 8.00            # doubled primary-tier ceiling; global $10 remains the hard stop
     # Groq primary + fast tiers (models pre-ranked, highest-quality first).
       groq:
         # 2026-05-29 — Groq disabled (default OFF). With Ollama also dormant,
@@ -680,9 +679,9 @@ app:
         long-block-body-markers: ["tokens per day", "TPD"]
         long-block-ms: 3600000              # 1h, matches recordGroqRateLimitBlock TPD default
         budget:                  # run-scoped $ caps — merged into BudgetProperties at startup
-          max-cost-usd: 4.00            # $4 share of the $5 global ceiling
-          max-input-tokens: 3400000     # ~$2 ÷ $0.59/Mtok
-          max-output-tokens: 2500000    # ~$2 ÷ $0.79/Mtok
+          max-cost-usd: 8.00            # doubled per-provider ceiling; global $10 remains the hard stop
+          max-input-tokens: 6800000
+          max-output-tokens: 5000000
         rate:                    # TPM/TPD — merged into TokenBudgetProperties for TpmBudgetGate/SimulationGate
           daily-limit: 270000           # 90% of Groq's aggregate daily cap
           minute-limit: 8000            # observed TPM rate-limit
@@ -714,9 +713,9 @@ app:
         long-block-body-markers: ["tokens per day", "TPD"]
         long-block-ms: 3600000
         budget:                  # run-scoped $ caps — merged into BudgetProperties at startup
-          max-cost-usd: 1.00            # $1 share of the $5 global ceiling
-          max-input-tokens: 10000000    # ~$0.50 ÷ $0.05/Mtok
-          max-output-tokens: 6250000    # ~$0.50 ÷ $0.08/Mtok
+          max-cost-usd: 2.00            # doubled per-provider ceiling; global $10 remains the hard stop
+          max-input-tokens: 20000000
+          max-output-tokens: 12500000
         # no rate: block — fast tier is unmetered for TPM/TPD (absent = unlimited)
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
