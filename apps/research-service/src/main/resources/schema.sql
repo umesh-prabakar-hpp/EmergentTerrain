@@ -250,3 +250,15 @@ CREATE TABLE IF NOT EXISTS research_protocol_reuse_remediation_assessments (
 
 CREATE INDEX IF NOT EXISTS research_reuse_remediation_paper_revision_idx
     ON research_protocol_reuse_remediation_assessments (paper_id, assessment_revision DESC);
+
+-- Phase 44: display-safe artifact provenance cache. The research service owns this table; it
+-- stores a derived summary only, never artifact paths, raw traces, prompts, or commands.
+CREATE TABLE IF NOT EXISTS research_paper_artifact_catalog (
+    paper_id VARCHAR(128) PRIMARY KEY,
+    room_id UUID NOT NULL,
+    summary_json TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS research_paper_artifact_catalog_room_idx
+    ON research_paper_artifact_catalog (room_id);

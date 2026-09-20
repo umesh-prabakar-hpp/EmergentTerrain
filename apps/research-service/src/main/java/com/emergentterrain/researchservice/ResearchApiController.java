@@ -1,6 +1,7 @@
 package com.emergentterrain.researchservice;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchPaperProvenanceSummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.http.ResponseEntity;
@@ -19,9 +20,11 @@ import java.util.UUID;
 public class ResearchApiController {
 
     private final ResearchReadService research;
+    private final ResearchPaperProvenanceService provenance;
 
-    public ResearchApiController(ResearchReadService research) {
+    public ResearchApiController(ResearchReadService research, ResearchPaperProvenanceService provenance) {
         this.research = research;
+        this.provenance = provenance;
     }
 
     @GetMapping("/papers")
@@ -43,6 +46,14 @@ public class ResearchApiController {
             @PathVariable("roomId") UUID roomId,
             @PathVariable("paperId") String paperId) {
         return ResponseEntity.ok(research.remediationAssessmentHistory(roomId, paperId));
+    }
+
+    @GetMapping("/papers/{paperId}/provenance")
+    public ResponseEntity<ResearchPaperProvenanceSummary> paperProvenance(
+            @PathVariable("roomId") UUID roomId,
+            @PathVariable("paperId") String paperId) {
+        return provenance.provenance(roomId, paperId).map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/stats")

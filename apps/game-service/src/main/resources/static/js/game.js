@@ -3530,6 +3530,8 @@ function renderPapers(papers) {
       ${protocolReuse?.remediation ? `<button class="quality-history-btn" type="button" data-remediation-history-paper-id="${p.paperId || ''}">Remediation assessment history</button><div class="quality-history" data-remediation-history-for="${p.paperId || ''}" hidden></div>` : ''}
       <button class="quality-history-btn" type="button" data-quality-history-paper-id="${p.paperId || ''}">Quality assessment history</button>
       <div class="quality-history" data-quality-history-for="${p.paperId || ''}" hidden></div>
+      <button class="quality-history-btn" type="button" data-provenance-paper-id="${p.paperId || ''}">Paper provenance</button>
+      <div class="paper-provenance" data-provenance-for="${p.paperId || ''}" hidden></div>
       <div class="paper-hypothesis">${p.hypothesis || ''}</div>
       <div class="paper-findings">${p.findings || ''}</div>
       <div class="paper-conclusion">${p.conclusion || ''}</div>
@@ -3541,6 +3543,71 @@ function renderPapers(papers) {
   papersListEl.querySelectorAll('[data-remediation-history-paper-id]').forEach(button => {
     button.addEventListener('click', () => toggleRemediationAssessmentHistory(button));
   });
+  papersListEl.querySelectorAll('[data-provenance-paper-id]').forEach(button => {
+    button.addEventListener('click', () => togglePaperProvenance(button));
+  });
+}
+
+async function togglePaperProvenance(button) {
+  const paperId = button.getAttribute('data-provenance-paper-id');
+  const provenanceEl = papersListEl?.querySelector(`[data-provenance-for="${CSS.escape(paperId || '')}"]`);
+  if (!paperId || !provenanceEl || !roomId) return;
+  if (!provenanceEl.hidden) {
+    provenanceEl.hidden = true;
+    button.textContent = 'Paper provenance';
+    return;
+  }
+  if (provenanceEl.dataset.loaded === 'true') {
+    provenanceEl.hidden = false;
+    button.textContent = 'Hide paper provenance';
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Loading provenance…';
+  try {
+    const response = await fetch(`/room/${roomId}/research/papers/${encodeURIComponent(paperId)}/provenance`);
+    if (!response.ok) throw new Error('paper provenance unavailable');
+    renderPaperProvenance(provenanceEl, await response.json());
+    provenanceEl.dataset.loaded = 'true';
+    provenanceEl.hidden = false;
+    button.textContent = 'Hide paper provenance';
+  } catch (error) {
+    provenanceEl.textContent = 'Paper provenance is unavailable.';
+    provenanceEl.hidden = false;
+    button.textContent = 'Paper provenance';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderPaperProvenance(provenanceEl, provenance) {
+  provenanceEl.replaceChildren();
+  const artifact = provenance?.artifact || {};
+  const study = provenance?.study || {};
+  const evidence = provenance?.evidence || {};
+  const literature = evidence.literature || {};
+  const add = text => {
+    const line = document.createElement('div');
+    line.textContent = text;
+    provenanceEl.appendChild(line);
+  };
+  if (!artifact.available) {
+    add(artifact.integrityStatus === 'PENDING'
+      ? 'Artifact provenance is awaiting the next research catalog refresh.'
+      : 'No immutable artifact bundle has been retained for this paper.');
+    return;
+  }
+  const created = artifact.createdAt ? new Date(artifact.createdAt).toLocaleString() : 'time unavailable';
+  add(`Artifact: ${artifact.integrityStatus || 'NOT_VERIFIED'} · schema ${artifact.schemaVersion ?? 'unknown'} · ${created}`);
+  add(`Declared files: ${artifact.declaredFileCount ?? 0} · publication: ${artifact.publicationLabel || 'unknown'} · workflow: ${artifact.paperStatus || 'unknown'}`);
+  add(`Study: pre-registration ${study.preregistrationAvailable ? 'retained' : 'not retained'}; hypothesis ${study.hypothesisDeclared ? 'declared' : 'not declared'}; prediction ${study.predictionDeclared ? 'declared' : 'not declared'}; falsification ${study.falsificationConditionDeclared ? 'declared' : 'not declared'}`);
+  add(`Evidence: ${evidence.recordedToolCallCount ?? 0} recorded tool call${(evidence.recordedToolCallCount ?? 0) === 1 ? '' : 's'}; findings ${evidence.findingsRetained ? 'retained' : 'not retained'}; conclusion ${evidence.conclusionRetained ? 'retained' : 'not retained'}`);
+  if (literature.available) {
+    add(`Literature audit: ${literature.issuedReferenceCount ?? 0} issued · ${literature.readReferenceCount ?? 0} read · ${literature.citedReferenceCount ?? 0} cited · ${literature.citedReadReferenceCount ?? 0} cited/read · ${literature.sourceGroundedRelatedWork ? 'source-grounded' : 'not source-grounded'}`);
+  } else {
+    add('Literature audit: not retained.');
+  }
+  add('This view is a retained summary only; it cannot run, download, or reveal raw research artifacts.');
 }
 
 async function toggleQualityAssessmentHistory(button) {

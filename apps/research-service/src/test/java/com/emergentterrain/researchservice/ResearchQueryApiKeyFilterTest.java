@@ -84,6 +84,21 @@ class ResearchQueryApiKeyFilterTest {
     }
 
     @Test
+    void protectsPaperProvenanceWithTheDedicatedReadKey() throws Exception {
+        ResearchQueryApiKeyFilter filter = new ResearchQueryApiKeyFilter("query-key");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/api/v1/research/rooms/abc/papers/P-1/provenance");
+        request.addHeader(ResearchQueryApiKeyFilter.HEADER, "query-key");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(chain.getRequest()).isSameAs(request);
+    }
+
+    @Test
     void leavesNonQueryRequestsForTheirOwnCredentialPolicy() throws Exception {
         ResearchQueryApiKeyFilter filter = new ResearchQueryApiKeyFilter("query-key");
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/research/work");

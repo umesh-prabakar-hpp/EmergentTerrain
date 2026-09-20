@@ -4,6 +4,8 @@ import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
 import com.emergentterrain.research.quality.ResearchPaperQualityAssessment;
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchPaperArtifactProvenanceReader;
+import com.emergentterrain.researchcontract.ResearchPaperProvenanceSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualitySummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseSummary;
@@ -21,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.file.Path;
 
 /** Local compatibility adapter used until research moves into its own process. */
 @Service
@@ -33,17 +36,22 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
     private final ResearchPaperQualityAssessmentRepository qualityAssessments;
     private final ResearchProtocolReuseRemediationAssessmentRepository remediationAssessments;
     private final ObjectMapper objectMapper;
+    private final ResearchPaperArtifactProvenanceReader provenanceReader;
+    private final Path researchOutputRoot;
 
     public LocalResearchQueryClient(UniversityService universityService,
                                     ResearchPaperRepository papers,
                                     ResearchPaperQualityAssessmentRepository qualityAssessments,
                                     ResearchProtocolReuseRemediationAssessmentRepository remediationAssessments,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    @org.springframework.beans.factory.annotation.Value("${app.university.researchOutputDir:research}") String researchOutputDir) {
         this.universityService = universityService;
         this.papers = papers;
         this.qualityAssessments = qualityAssessments;
         this.remediationAssessments = remediationAssessments;
         this.objectMapper = objectMapper;
+        this.provenanceReader = new ResearchPaperArtifactProvenanceReader(objectMapper);
+        this.researchOutputRoot = Path.of(researchOutputDir);
     }
 
     @Override
@@ -71,6 +79,14 @@ public class LocalResearchQueryClient implements ResearchQueryClient {
         return remediationAssessments.findByPaperIdOrderByAssessmentRevisionDesc(paperId).stream()
                 .map(this::remediationAssessmentSummary)
                 .toList();
+    }
+
+    @Override
+    public ResearchPaperProvenanceSummary getPaperProvenance(UUID roomId, String paperId) {
+        if (paperId == null || paperId.isBlank() || !papers.existsByPaperIdAndRoomId(paperId, roomId)) {
+            return ResearchPaperProvenanceSummary.missing(paperId);
+        }
+        return provenanceReader.read(researchOutputRoot, roomId, paperId);
     }
 
     @Override

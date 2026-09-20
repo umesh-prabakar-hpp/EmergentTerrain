@@ -52,6 +52,6 @@ public final class ResearchQueryApiKeyFilter extends OncePerRequestFilter {
 
     private static boolean isResearchQueryRequest(HttpServletRequest request) {
         return "GET".equals(request.getMethod())
-                && request.getRequestURI().matches("/api/v1/research/rooms/[^/]+/(papers|stats|papers/[^/]+/(quality-assessments|remediation-assessments))");
+                && request.getRequestURI().matches("/api/v1/research/rooms/[^/]+/(papers|stats|papers/[^/]+/(quality-assessments|remediation-assessments|provenance))");
     }
 }

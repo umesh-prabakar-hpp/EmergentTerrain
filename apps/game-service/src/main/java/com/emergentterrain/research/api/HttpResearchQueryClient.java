@@ -1,6 +1,7 @@
 package com.emergentterrain.research.api;
 
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchPaperProvenanceSummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -59,6 +60,15 @@ public class HttpResearchQueryClient implements ResearchQueryClient {
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<ResearchProtocolReuseRemediationAssessmentSummary>>() { });
         return assessments == null ? List.of() : assessments;
+    }
+
+    @Override
+    public ResearchPaperProvenanceSummary getPaperProvenance(UUID roomId, String paperId) {
+        ResearchPaperProvenanceSummary summary = restClient.get()
+                .uri("/api/v1/research/rooms/{roomId}/papers/{paperId}/provenance", roomId, paperId)
+                .retrieve()
+                .body(ResearchPaperProvenanceSummary.class);
+        return summary == null ? ResearchPaperProvenanceSummary.pending(paperId) : summary;
     }
 
     @Override

@@ -1567,6 +1567,14 @@ md-filled-button[disabled] {
   padding: 4px 0 4px 8px;
 }
 .quality-history-entry { margin: 0 0 5px; }
+.paper-provenance {
+  margin: 7px 0;
+  padding: 8px;
+  border-left: 2px solid var(--accent, #6d9ee8);
+  background: rgba(109, 158, 232, 0.08);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
 .paper-hypothesis,
 .paper-findings,
 .paper-conclusion {

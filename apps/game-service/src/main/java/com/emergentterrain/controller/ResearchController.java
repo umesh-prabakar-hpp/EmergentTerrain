@@ -2,6 +2,7 @@ package com.emergentterrain.controller;
 
 import com.emergentterrain.research.api.ResearchQueryClient;
 import com.emergentterrain.researchcontract.ResearchPaperSummary;
+import com.emergentterrain.researchcontract.ResearchPaperProvenanceSummary;
 import com.emergentterrain.researchcontract.ResearchProtocolReuseRemediationAssessmentSummary;
 import com.emergentterrain.researchcontract.ResearchQualityAssessmentSummary;
 import org.springframework.http.ResponseEntity;
@@ -72,6 +73,20 @@ public class ResearchController {
         } catch (RestClientException failure) {
             log.warn("Research remediation history query unavailable roomId={} paperId={} type={}", roomId,
                     paperId, failure.getClass().getSimpleName());
+            return ResponseEntity.status(503).build();
+        }
+    }
+
+    @GetMapping({"/room/{roomId}/research/papers/{paperId}/provenance",
+            "/api/v1/research/rooms/{roomId}/papers/{paperId}/provenance"})
+    public ResponseEntity<ResearchPaperProvenanceSummary> getPaperProvenance(
+            @PathVariable("roomId") UUID roomId, @PathVariable("paperId") String paperId) {
+        if (researchClient.isEmpty()) return ResponseEntity.ok(ResearchPaperProvenanceSummary.missing(paperId));
+        try {
+            return ResponseEntity.ok(researchClient.get().getPaperProvenance(roomId, paperId));
+        } catch (RestClientException failure) {
+            log.warn("Research provenance query unavailable roomId={} paperId={} type={}", roomId, paperId,
+                    failure.getClass().getSimpleName());
             return ResponseEntity.status(503).build();
         }
     }

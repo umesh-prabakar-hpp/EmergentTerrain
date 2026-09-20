@@ -28,6 +28,11 @@ app:
     # Required by game-owned remote papers/stats reads. Keep this separate from work, context,
     # and result-delivery keys; browser clients never receive it.
     query-api-key: ${RESEARCH_QUERY_API_KEY:}
+    provenance:
+      # Bounded read-model refresh of immutable artifact bundles. Browser reads use only this
+      # derived catalog and never trigger filesystem discovery.
+      initial-delay-ms: ${RESEARCH_PROVENANCE_INITIAL_DELAY_MS:10000}
+      refresh-interval-ms: ${RESEARCH_PROVENANCE_REFRESH_INTERVAL_MS:60000}
     # Required by POST /api/v1/research/work. The game-owned outbox relay sends this value.
     work-api-key: ${RESEARCH_WORK_API_KEY:}
     work-interval-ms: ${RESEARCH_WORK_INTERVAL_MS:1000}
