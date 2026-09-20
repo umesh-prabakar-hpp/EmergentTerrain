@@ -13,7 +13,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 ---
 
-## Current phase status (2026-09-15)
+## Current phase status (2026-09-20)
 
 This update supersedes older “nothing built” summaries where later phase documents and the live
 configuration record delivery. Historical sections below remain useful implementation evidence but
@@ -23,14 +23,15 @@ are not a current priority queue.
 |---|---|---|
 | 42 — game/research boundary | **96% implemented** | Controlled direct-computation parity; research-owned composition; narration/review/publication parity; whole queue-consumption/restart evidence; two-process recovery; then removal of transition-period game dependencies. |
 | 43 — AI quality grading | **In progress** | Strengthen registered holdout/sensitivity and literature evidence gates, then capture only validated protocol-improvement reasons. Independent replication and human/beyond-human promotion remain deferred. |
+| 45 — reliable literature retrieval | **In progress** | Materialize offline selectivity metadata; order valid candidates specificity-first; then add indexed narrowing, fair generation-scoped scheduling, and durable unresolved-retrieval recovery without weakening evidence gates. |
 | 36 — frontier campaigns | First chunked-range slice implemented | Durable proposal/critic/hypothesis-tree campaign loop and its observability remain open. |
 | 31 — research memory | Core capture/consolidation/recall loop live | `memory_audit` and the later procedural-memory/composition/process slices need a separate review and implementation decision. |
 | 29/30 | Selected production and conjecture slices live | The remaining self-improvement, generation-library, durable findings-graph, and mechanism-persistence proposals are not the immediate research-quality path. |
 | 32 — manuscript grounding | Partially delivered by later phases | See the reconciled Phase 32 status: value-level provenance, bounded re-goal, and calibrated-review work remain distinct; literature retrieval and publication grounding have since shipped in Phases 34, 35, and 37. |
 
-The next normal-run observations remain Phase 22 sidecar acceptance and the Phase 39–41 protocol
-checks. Phase 23 calibration and optional physics/materials miners remain operational/deferred
-work, not prerequisites for the Phase 43 evidence increment.
+The next normal-run observations include Phase 45 retrieval benchmarks and the Phase 22 sidecar
+acceptance and Phase 39–41 protocol checks. Phase 23 calibration and optional physics/materials
+miners remain operational/deferred work, not prerequisites for the Phase 43 evidence increment.
 
 ---
 
