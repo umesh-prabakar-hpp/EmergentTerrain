@@ -282,7 +282,7 @@ final class ShardedPhase34Literature {
     private record ShardTask(String name, Phase34SqliteLiterature adapter, long submittedNanos) {
         private ShardResult execute(String query, LiteratureQueryProposal proposal) {
             long startedNanos = System.nanoTime();
-            String output = adapter.search(query, proposal);
+            String output = adapter.searchAsRoutedShard(query, proposal, name);
             return new ShardResult(name, adapter, output, elapsedMsSince(submittedNanos),
                     elapsedMsSince(startedNanos));
         }

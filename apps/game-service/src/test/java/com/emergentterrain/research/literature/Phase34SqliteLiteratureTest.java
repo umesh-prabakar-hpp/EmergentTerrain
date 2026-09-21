@@ -90,6 +90,16 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void routedShardTelemetryScopeDoesNotLeakToLaterDirectSearches() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+
+        assertThat(Phase34SqliteLiterature.routedShardForTelemetry()).isEqualTo("direct");
+        assertThat(adapter.searchAsRoutedShard("prime gap bound", null, "number-theory"))
+                .contains("EVIDENCE");
+        assertThat(Phase34SqliteLiterature.routedShardForTelemetry()).isEqualTo("direct");
+    }
+
+    @Test
     void readFailsClosedWhenIssuedTitleAndIndexedPassageDoNotDescribeSameRecord() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
         String search = adapter.search("prime gap bound");

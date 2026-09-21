@@ -41,6 +41,7 @@ import java.util.regex.Pattern;
 public final class Phase34SqliteLiterature {
 
     private static final Logger log = LoggerFactory.getLogger(Phase34SqliteLiterature.class);
+    private static final ThreadLocal<String> routedShardTelemetry = new ThreadLocal<>();
     private static final Pattern TOKEN = Pattern.compile("[\\p{Alnum}]{2,}");
     private static final Pattern ISSUED_KEY_LINE = Pattern.compile("(?m)^- \\[(HF[0-9A-F]+)] .*$", Pattern.CASE_INSENSITIVE);
     // The full-text companion is sparser than the theorem corpus. Oversample FTS hits before
@@ -187,6 +188,23 @@ public final class Phase34SqliteLiterature {
     public String search(String query, LiteratureQueryProposal proposal) {
         if (!phase35RetrievalEnabled) return searchOnce(query, proposal);
         return searchSingleFlight(query, proposal);
+    }
+
+    /** Adds a coarse routed-shard label to existing source-safe Phase 35 telemetry for one task. */
+    String searchAsRoutedShard(String query, LiteratureQueryProposal proposal, String shardName) {
+        String prior = routedShardTelemetry.get();
+        routedShardTelemetry.set(shardName == null || shardName.isBlank() ? "unknown" : shardName);
+        try {
+            return search(query, proposal);
+        } finally {
+            if (prior == null) routedShardTelemetry.remove();
+            else routedShardTelemetry.set(prior);
+        }
+    }
+
+    static String routedShardForTelemetry() {
+        String shard = routedShardTelemetry.get();
+        return shard == null ? "direct" : shard;
     }
 
     /**
@@ -353,8 +371,8 @@ public final class Phase34SqliteLiterature {
                 // statement name field first: it is a safe, bounded narrowing attempt whose
                 // general theorem query remains immediately behind it for complete recall.
                 theoremCandidateQueries = theoremNameFirstCandidates(candidateQueries);
-                log.info("Phase 35 literature plan: expressions={} candidateEvidenceAnchors={} candidateRequiredTitleAnchors={}",
-                        candidateQueries.stream().map(SearchCandidate::expression).toList(),
+                log.info("Phase 35 literature plan: routedShard={} expressions={} candidateEvidenceAnchors={} candidateRequiredTitleAnchors={}",
+                        routedShardForTelemetry(), candidateQueries.stream().map(SearchCandidate::expression).toList(),
                         candidateQueries.stream().map(SearchCandidate::evidenceAnchors).toList(),
                         candidateQueries.stream().map(SearchCandidate::requiredTitleAnchors).toList());
             } else {
@@ -570,13 +588,14 @@ public final class Phase34SqliteLiterature {
 
     private static void logPrimarySearchDispatch(String state, String output, long queueWaitMs,
                                                  long executionMs, SearchFlightKey key) {
-        log.info("Phase 45 literature dispatch: state={} outcome={} queueWaitMs={} executionMs={} generation={}",
-                state, safeSearchOutcome(output), queueWaitMs, executionMs, key.generationDigest());
+        log.info("Phase 45 literature dispatch: routedShard={} state={} outcome={} queueWaitMs={} executionMs={} generation={}",
+                routedShardForTelemetry(), state, safeSearchOutcome(output), queueWaitMs, executionMs,
+                key.generationDigest());
     }
 
     private static void logSingleFlightTelemetry(String role, String output, long elapsedMs, SearchFlightKey key) {
-        log.info("Phase 35 literature single-flight: role={} outcome={} elapsedMs={} generation={}",
-                role, safeSearchOutcome(output), elapsedMs, key.generationDigest());
+        log.info("Phase 35 literature single-flight: routedShard={} role={} outcome={} elapsedMs={} generation={}",
+                routedShardForTelemetry(), role, safeSearchOutcome(output), elapsedMs, key.generationDigest());
     }
 
     private static String safeSearchOutcome(String output) {
@@ -684,13 +703,13 @@ public final class Phase34SqliteLiterature {
     }
 
     private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
-        log.info("Phase 35 literature retrieval: outcome={} elapsedMs={} candidateAttempts={} batches={} "
+        log.info("Phase 35 literature retrieval: routedShard={} outcome={} elapsedMs={} candidateAttempts={} batches={} "
                         + "rowsInspected={} results={} availabilityCheckMs={} connectionOpenMs={} statementPrepareMs={} "
                         + "anchorStatisticsMs={} anchorStatisticsAvailable={} anchorStatisticsTerms={} "
                         + "titleAnchorNarrowingAvailable={} titleAnchorNarrowedCandidates={} titleAnchorNarrowingFallbacks={} "
                         + "planMs={} screenedMergeMs={} batchTimings={} lastSurface={} lastBatchElapsedMs={} "
                         + "lastBatchLimit={} lastExpression={}",
-                outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
+                routedShardForTelemetry(), outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
                 telemetry.rowsInspected, resultCount, telemetry.availabilityCheckMs, telemetry.connectionOpenMs,
                 telemetry.statementPrepareMs, telemetry.anchorStatisticsMs, telemetry.anchorStatisticsAvailable,
                 telemetry.anchorStatisticsTerms, telemetry.titleAnchorNarrowingAvailable,

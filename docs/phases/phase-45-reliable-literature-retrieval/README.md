@@ -182,6 +182,9 @@ offline build.
 5. **Implemented in part:** fair, generation-scoped primary-index leader dispatch with bounded
    queue wait, remaining-budget propagation to routed primary work, and source-safe queue/execution
    telemetry. Distinct-query fairness and queue-expiry-as-timeout have focused regression coverage.
+   Each routed shard task now labels its existing plan, retrieval-batch, dispatch, and single-flight
+   telemetry with its coarse shard name; this identifies whether a timeout came from a subject shard
+   or the cross-list without logging passages or changing retrieval.
    The separately default-off routed-shard early-success policy is implemented with completed-prefix
    safety tests. The read-only benchmark now records disabled/enabled outcome, opaque issued-key
    order, read eligibility, opportunity, and application state on one immutable shard generation.
