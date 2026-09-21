@@ -95,9 +95,9 @@ final class ShardedPhase34Literature {
                 .map(entry -> new ShardTask(entry.getKey(), entry.getValue(), submittedNanos)).toList();
         List<ShardResult> results = new ArrayList<>();
         Map<String, String> cancellationReasons = new LinkedHashMap<>();
-        boolean deadlineExpired = collectShardResults(query, proposal, selected, tasks, results, cancellationReasons,
-                effectiveTimeoutMs);
-        boolean timedOut = deadlineExpired || hasUnresolvedCancellation(cancellationReasons) || results.stream().anyMatch(result ->
+        ShardCollectionResult collection = collectShardResults(query, proposal, selected, tasks, results,
+                cancellationReasons, effectiveTimeoutMs);
+        boolean timedOut = collection.deadlineExpired() || hasUnresolvedCancellation(cancellationReasons) || results.stream().anyMatch(result ->
                 LiteratureTimeoutRecoveryQueue.isPhase35TimeoutResult(result.output()));
         List<ShardResult> evidence = results.stream().filter(result -> result.output().contains("EVIDENCE"))
                 .sorted(Comparator.comparingInt(result -> DEFAULT_ORDER.indexOf(result.name()))).toList();
@@ -107,7 +107,7 @@ final class ShardedPhase34Literature {
                     + "ms Phase 35 budget; no evidence was issued."
                     : "search_literature (Phase 34 sharded primary): no theorem-index matches for the supplied query.";
             logSearchTelemetry(selected, results, cancellationReasons, timedOut ? "timeout" : "no_match", startedNanos,
-                    effectiveTimeoutMs);
+                    effectiveTimeoutMs, collection);
             return output;
         }
         LinkedHashMap<String, String> lines = new LinkedHashMap<>();
@@ -123,14 +123,15 @@ final class ShardedPhase34Literature {
         StringBuilder output = new StringBuilder("search_literature (Phase 34 routed sharded primary): "
                 + "EVIDENCE — cite only the returned [HF…] keys.\n");
         lines.values().stream().limit(3).forEach(line -> output.append(line).append('\n'));
-        logSearchTelemetry(selected, results, cancellationReasons, "evidence", startedNanos, effectiveTimeoutMs);
+        logSearchTelemetry(selected, results, cancellationReasons, "evidence", startedNanos, effectiveTimeoutMs,
+                collection);
         return output.toString().stripTrailing();
     }
 
-    private boolean collectShardResults(String query, LiteratureQueryProposal proposal,
-                                        List<Map.Entry<String, Phase34SqliteLiterature>> selected,
-                                        List<ShardTask> tasks, List<ShardResult> results,
-                                        Map<String, String> cancellationReasons, long effectiveTimeoutMs) {
+    private ShardCollectionResult collectShardResults(String query, LiteratureQueryProposal proposal,
+                                                       List<Map.Entry<String, Phase34SqliteLiterature>> selected,
+                                                       List<ShardTask> tasks, List<ShardResult> results,
+                                                       Map<String, String> cancellationReasons, long effectiveTimeoutMs) {
         var executor = Executors.newFixedThreadPool(Math.min(parallelism, tasks.size()));
         Map<Future<ShardResult>, String> namesByFuture = new LinkedHashMap<>();
         try {
@@ -140,16 +141,17 @@ final class ShardedPhase34Literature {
             }
             long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(effectiveTimeoutMs);
             int received = 0;
+            boolean earlyCancellationOpportunityObserved = false;
             while (received < tasks.size()) {
                 long remainingNanos = deadlineNanos - System.nanoTime();
                 if (remainingNanos <= 0) {
                     cancelIncomplete(namesByFuture, cancellationReasons, "deadline");
-                    return true;
+                    return new ShardCollectionResult(true, earlyCancellationOpportunityObserved, false);
                 }
                 Future<ShardResult> future = completed.poll(remainingNanos, TimeUnit.NANOSECONDS);
                 if (future == null) {
                     cancelIncomplete(namesByFuture, cancellationReasons, "deadline");
-                    return true;
+                    return new ShardCollectionResult(true, earlyCancellationOpportunityObserved, false);
                 }
                 received++;
                 try {
@@ -158,26 +160,28 @@ final class ShardedPhase34Literature {
                     // An interrupted or failed shard is unresolved; do not manufacture no-match.
                     cancellationReasons.putIfAbsent(namesByFuture.get(future), "failed");
                 }
-                if (earlySuccessCancellationEnabled && completedPrefixFillsAnswer(selected, results)) {
+                boolean cancellationOpportunity = canCancelIncompleteSuffix(selected, results);
+                earlyCancellationOpportunityObserved |= cancellationOpportunity;
+                if (earlySuccessCancellationEnabled && cancellationOpportunity) {
                     cancelIncomplete(namesByFuture, cancellationReasons, "early_sufficient_evidence");
-                    return false;
+                    return new ShardCollectionResult(false, true, true);
                 }
             }
-            return false;
+            return new ShardCollectionResult(false, earlyCancellationOpportunityObserved, false);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             cancelIncomplete(namesByFuture, cancellationReasons, "interrupted");
-            return true;
+            return new ShardCollectionResult(true, false, false);
         } finally {
             executor.shutdownNow();
         }
     }
 
-    private static boolean completedPrefixFillsAnswer(List<Map.Entry<String, Phase34SqliteLiterature>> selected,
-                                                       List<ShardResult> results) {
+    private static boolean canCancelIncompleteSuffix(List<Map.Entry<String, Phase34SqliteLiterature>> selected,
+                                                      List<ShardResult> results) {
         Map<String, String> outputs = results.stream().collect(java.util.stream.Collectors.toMap(
                 ShardResult::name, ShardResult::output, (left, right) -> left, LinkedHashMap::new));
-        return RoutedShardCancellationPolicy.completedPrefixFillsAnswer(
+        return RoutedShardCancellationPolicy.canCancelIncompleteSuffix(
                 selected.stream().map(Map.Entry::getKey).toList(), outputs);
     }
 
@@ -196,7 +200,8 @@ final class ShardedPhase34Literature {
 
     private void logSearchTelemetry(List<Map.Entry<String, Phase34SqliteLiterature>> selected,
                                     List<ShardResult> results, Map<String, String> cancellationReasons,
-                                    String outcome, long startedNanos, long effectiveTimeoutMs) {
+                                    String outcome, long startedNanos, long effectiveTimeoutMs,
+                                    ShardCollectionResult collection) {
         Map<String, ShardResult> resultByName = results.stream().collect(java.util.stream.Collectors.toMap(
                 ShardResult::name, result -> result, (left, right) -> left, LinkedHashMap::new));
         List<String> shardTimings = selected.stream().map(entry -> {
@@ -207,8 +212,11 @@ final class ShardedPhase34Literature {
             return entry.getKey() + (reason == null ? "(unresolved)" : "(cancelled:" + reason + ")");
         }).toList();
         log.info("Phase 35 routed shard retrieval: outcome={} elapsedMs={} effectiveTimeoutMs={} parallelism={} "
+                        + "earlyCancellationEnabled={} earlyCancellationOpportunity={} earlyCancellationApplied={} "
                         + "routedShards={} shardTimings={}",
                 outcome, elapsedMsSince(startedNanos), effectiveTimeoutMs, parallelism,
+                earlySuccessCancellationEnabled, collection.earlyCancellationOpportunity(),
+                collection.earlyCancellationApplied(),
                 selected.stream().map(Map.Entry::getKey).toList(), shardTimings);
     }
 
@@ -271,4 +279,7 @@ final class ShardedPhase34Literature {
 
     private record ShardResult(String name, Phase34SqliteLiterature adapter, String output,
                                long queueWaitMs, long executionMs) {}
+
+    private record ShardCollectionResult(boolean deadlineExpired, boolean earlyCancellationOpportunity,
+                                         boolean earlyCancellationApplied) {}
 }

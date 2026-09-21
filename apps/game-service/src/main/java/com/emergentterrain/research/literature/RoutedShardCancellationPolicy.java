@@ -32,4 +32,13 @@ final class RoutedShardCancellationPolicy {
         }
         return false;
     }
+
+    /**
+     * True only while there is still an unfinished routed suffix that the completed ordered
+     * prefix cannot affect. This is also safe to observe while cancellation is disabled.
+     */
+    static boolean canCancelIncompleteSuffix(List<String> orderedShardNames, Map<String, String> completedOutputs) {
+        return completedOutputs.size() < orderedShardNames.size()
+                && completedPrefixFillsAnswer(orderedShardNames, completedOutputs);
+    }
 }

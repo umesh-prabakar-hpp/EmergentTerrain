@@ -1057,8 +1057,9 @@ app:
           enabled: true
           dir: ${user.home}/.emergentterrain/indexes/math-literature-shards
           parallelism: 3
-          # Leave disabled until controlled telemetry verifies that higher-priority shards fill
-          # all three evidence slots before a suffix is cancelled.
+          # Leave disabled until controlled telemetry reports an opportunity (the completed
+          # higher-priority prefix fills all three evidence slots while a suffix is unfinished)
+          # and response parity has been verified.
           early-success-cancellation-enabled: false
         # Phase 35 — bounded, storage-backed FTS5 retrieval. Enabled by the operator on
         # 2026-07-17. false retains the former Phase 34 all-terms-then-OR query for rollback.

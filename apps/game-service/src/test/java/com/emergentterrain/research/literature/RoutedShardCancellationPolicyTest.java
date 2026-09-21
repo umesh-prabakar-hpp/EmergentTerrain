@@ -27,4 +27,17 @@ class RoutedShardCancellationPolicyTest {
         assertThat(RoutedShardCancellationPolicy.completedPrefixFillsAnswer(order,
                 Map.of("number-theory", "- [HF01] one", "cross-list", "- [HF02] two"))).isFalse();
     }
+
+    @Test
+    void reportsAnOpportunityOnlyWhileAnAnswerFillingPrefixStillHasAnUnfinishedSuffix() {
+        List<String> order = List.of("number-theory", "cross-list", "analysis");
+        Map<String, String> completedPrefix = Map.of(
+                "number-theory", "- [HF01] one\n- [HF02] two\n- [HF03] three");
+
+        assertThat(RoutedShardCancellationPolicy.canCancelIncompleteSuffix(order, completedPrefix)).isTrue();
+        assertThat(RoutedShardCancellationPolicy.canCancelIncompleteSuffix(order, Map.of(
+                "number-theory", completedPrefix.get("number-theory"),
+                "cross-list", "search_literature: no theorem-index matches",
+                "analysis", "search_literature: no theorem-index matches"))).isFalse();
+    }
 }

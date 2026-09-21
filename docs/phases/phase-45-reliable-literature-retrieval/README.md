@@ -101,7 +101,9 @@ response. This is stronger than “first evidence wins”: an incomplete earlier
 three keys prohibits cancellation. Cancellation is recorded by shard and reason.
 
 `early-success-cancellation-enabled` remains false until a controlled routed-index observation
-captures the `early_sufficient_evidence` condition and verifies response parity. Deadline,
+captures `earlyCancellationOpportunity=true` while it remains disabled, then verifies the same
+response parity with `earlyCancellationApplied=true`. The telemetry contains only safe outcome,
+timing, shard names, and cancellation state; it contains no query text or source passage. Deadline,
 interrupt, and failure cancellations remain unresolved timeout outcomes. It cannot cancel the
 selected source's required read/citation chain, reorder issued keys, or claim that uncompleted
 shards had no evidence.
