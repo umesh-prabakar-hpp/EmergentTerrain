@@ -86,10 +86,19 @@ final class ShardedPhase34Literature {
     }
 
     String search(String query, LiteratureQueryProposal proposal, long requestBudgetMs) {
+        return searchWithObservation(query, proposal, requestBudgetMs).output();
+    }
+
+    /** Package-private diagnostic seam for the read-only Phase 45 parity harness. */
+    RoutedShardSearchObservation searchWithObservation(String query, LiteratureQueryProposal proposal,
+                                                        long requestBudgetMs) {
         long startedNanos = System.nanoTime();
         long effectiveTimeoutMs = Math.max(250, Math.min(aggregateTimeoutMs, requestBudgetMs));
         List<Map.Entry<String, Phase34SqliteLiterature>> selected = select(query);
-        if (selected.isEmpty()) return "search_literature: no routed primary literature shard is available.";
+        if (selected.isEmpty()) {
+            return new RoutedShardSearchObservation(
+                    "search_literature: no routed primary literature shard is available.", false, false);
+        }
         long submittedNanos = System.nanoTime();
         List<ShardTask> tasks = selected.stream()
                 .map(entry -> new ShardTask(entry.getKey(), entry.getValue(), submittedNanos)).toList();
@@ -108,7 +117,8 @@ final class ShardedPhase34Literature {
                     : "search_literature (Phase 34 sharded primary): no theorem-index matches for the supplied query.";
             logSearchTelemetry(selected, results, cancellationReasons, timedOut ? "timeout" : "no_match", startedNanos,
                     effectiveTimeoutMs, collection);
-            return output;
+            return new RoutedShardSearchObservation(output, collection.earlyCancellationOpportunity(),
+                    collection.earlyCancellationApplied());
         }
         LinkedHashMap<String, String> lines = new LinkedHashMap<>();
         for (ShardResult result : evidence) {
@@ -125,7 +135,8 @@ final class ShardedPhase34Literature {
         lines.values().stream().limit(3).forEach(line -> output.append(line).append('\n'));
         logSearchTelemetry(selected, results, cancellationReasons, "evidence", startedNanos, effectiveTimeoutMs,
                 collection);
-        return output.toString().stripTrailing();
+        return new RoutedShardSearchObservation(output.toString().stripTrailing(),
+                collection.earlyCancellationOpportunity(), collection.earlyCancellationApplied());
     }
 
     private ShardCollectionResult collectShardResults(String query, LiteratureQueryProposal proposal,
@@ -282,4 +293,7 @@ final class ShardedPhase34Literature {
 
     private record ShardCollectionResult(boolean deadlineExpired, boolean earlyCancellationOpportunity,
                                          boolean earlyCancellationApplied) {}
+
+    record RoutedShardSearchObservation(String output, boolean earlyCancellationOpportunity,
+                                        boolean earlyCancellationApplied) {}
 }

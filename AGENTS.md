@@ -451,7 +451,11 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - **Phase 45 benchmark harness** — `run-phase45-literature-benchmark.sh` is read-only: it records
   the representative maximum-prime-gap and divisor/omega searches alone, pair-concurrent, and
   mixed with Phase 35 claims as a safe JSON timing/outcome report plus the existing telemetry log
-  beneath ignored `.runtime/test-artifacts/`. It must not rebuild/optimize the index, flush host
+  beneath ignored `.runtime/test-artifacts/`. When a complete routed-shard catalog is available,
+  it also compares disabled versus enabled early-cancellation runs on the same immutable generation
+  and records outcome, opaque-key-order, read eligibility, opportunity, and application state.
+  Only `matched_after_cancellation` is parity evidence; `not_observed` is not. A mismatch is evidence
+  against enablement, never an error to hide. It must not rebuild/optimize the index, flush host
   caches, start the app, or make an LLM call. Operators perform maintenance or cold-cache setup
   separately and set `PHASE45_BENCHMARK_CACHE_STATE` truthfully; retain the resulting artifact
   only locally unless a sanitized benchmark summary is explicitly needed in documentation.

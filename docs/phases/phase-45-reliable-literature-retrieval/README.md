@@ -183,7 +183,10 @@ offline build.
    queue wait, remaining-budget propagation to routed primary work, and source-safe queue/execution
    telemetry. Distinct-query fairness and queue-expiry-as-timeout have focused regression coverage.
    The separately default-off routed-shard early-success policy is implemented with completed-prefix
-   safety tests; capture controlled routed-index parity telemetry before enabling it.
+   safety tests. The read-only benchmark now records disabled/enabled outcome, opaque issued-key
+   order, read eligibility, opportunity, and application state on one immutable shard generation.
+   Only `matched_after_cancellation` is parity evidence; `not_observed` means no eligible suffix
+   occurred and cannot support enablement.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

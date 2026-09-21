@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 index_dir="${PHASE34_REAL_INDEX_DIR:-${HOME}/.emergentterrain/indexes/math-literature}"
+routed_shards_dir="${PHASE45_ROUTED_SHARDS_DIR:-${HOME}/.emergentterrain/indexes/math-literature-shards}"
 cache_state="${PHASE45_BENCHMARK_CACHE_STATE:-normal-cache}"
 output_dir="${PHASE45_BENCHMARK_OUTPUT_DIR:-${repo_root}/.runtime/test-artifacts/phase45-literature-retrieval/$(date -u +%Y%m%dT%H%M%SZ)}"
 
@@ -17,6 +18,13 @@ export PHASE34_REAL_INDEX_DIR="$index_dir"
 export PHASE45_BENCHMARK_ENABLED=true
 export PHASE45_BENCHMARK_CACHE_STATE="$cache_state"
 export PHASE45_BENCHMARK_OUTPUT_DIR="$output_dir"
+if [[ -f "${routed_shards_dir}/catalog.json" ]]; then
+  export PHASE45_ROUTED_SHARDS_DIR="$routed_shards_dir"
+  echo "Phase 45 routed-shard parity: enabled for read-only observation"
+else
+  unset PHASE45_ROUTED_SHARDS_DIR || true
+  echo "Phase 45 routed-shard parity: skipped (no completed shard catalog)"
+fi
 
 cd "$repo_root"
 mvn -f apps/game-service/pom.xml test -Dtest=Phase45RealIndexBenchmarkTest -DtrimStackTrace=false 2>&1 | tee "$output_dir/maven.log"
