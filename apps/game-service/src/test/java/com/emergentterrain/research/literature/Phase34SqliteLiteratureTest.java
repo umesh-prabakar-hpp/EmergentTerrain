@@ -127,7 +127,7 @@ class Phase34SqliteLiteratureTest {
             Files.createDirectories(directory);
             Files.copy(indexDir.resolve("literature.db"), directory.resolve("literature.db"));
         }
-        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":1}\n");
+        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":2}\n");
         LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
         ShardedPhase34Literature shards = new ShardedPhase34Literature(shardsDir, true, 15_000,
                 64, planner, 2);
@@ -142,6 +142,38 @@ class Phase34SqliteLiteratureTest {
         assertThat(routed.read(key.group(1), "confirmed range"))
                 .startsWith("read_reference " + key.group(1))
                 .contains("Prime gap bounds");
+    }
+
+    @Test
+    void legacyShardCatalogFallsBackToTheCompleteMonolithicPrimary() throws Exception {
+        indexedAdapter();
+        Path shardsDir = indexDir.resolve("legacy-shards");
+        Files.createDirectories(shardsDir);
+        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":1}\n");
+
+        ShardedPhase34Literature legacy = new ShardedPhase34Literature(shardsDir, true, 15_000,
+                64, new DeterministicLiteratureQueryPlanner(), 2);
+        Phase34SqliteLiterature routed = new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                new DeterministicLiteratureQueryPlanner(), null, legacy);
+
+        assertThat(legacy.available()).isFalse();
+        assertThat(routed.search("prime gap bound")).contains("Prime gap bounds", "EVIDENCE");
+    }
+
+    @Test
+    void partialV2ShardCatalogFallsBackToTheCompleteMonolithicPrimary() throws Exception {
+        indexedAdapter();
+        Path shardsDir = indexDir.resolve("partial-v2-shards");
+        Files.createDirectories(shardsDir);
+        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":2}\n");
+
+        ShardedPhase34Literature partial = new ShardedPhase34Literature(shardsDir, true, 15_000,
+                64, new DeterministicLiteratureQueryPlanner(), 2);
+        Phase34SqliteLiterature routed = new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                new DeterministicLiteratureQueryPlanner(), null, partial);
+
+        assertThat(partial.available()).isFalse();
+        assertThat(routed.search("prime gap bound")).contains("Prime gap bounds", "EVIDENCE");
     }
 
     @Test

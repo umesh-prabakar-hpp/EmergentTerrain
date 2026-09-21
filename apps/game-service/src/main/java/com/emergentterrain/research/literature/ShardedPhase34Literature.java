@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
 final class ShardedPhase34Literature {
     private static final Logger log = LoggerFactory.getLogger(ShardedPhase34Literature.class);
     private static final Pattern KEY_LINE = Pattern.compile("(?m)^- \\[?(HF[0-9A-F]+)\\]?.*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CATALOG_SCHEMA_V2 = Pattern.compile("\\\"schema_version\\\"\\s*:\\s*2\\b");
     private static final List<String> DEFAULT_ORDER = List.of(
             "number-theory", "analysis", "algebra", "combinatorics", "geometry", "probability", "cross-list");
 
@@ -51,9 +52,9 @@ final class ShardedPhase34Literature {
         this.aggregateTimeoutMs = Math.max(1_000, timeoutMs);
         this.earlySuccessCancellationEnabled = earlySuccessCancellationEnabled;
         Map<String, Phase34SqliteLiterature> loaded = new LinkedHashMap<>();
-        // The offline builder writes catalog.json only after every shard has committed. Refuse
-        // partial directories so an app restart during an import remains on the complete monolith.
-        if (!Files.isRegularFile(shardsDir.resolve("catalog.json"))) {
+        // Version 2 makes cross-list the complement of named subject lanes. Refuse incomplete
+        // and legacy catalogs so a stale routed derivation cannot hide monolith evidence.
+        if (!hasSupportedCatalog(shardsDir)) {
             this.shards = Map.of();
             return;
         }
@@ -72,6 +73,15 @@ final class ShardedPhase34Literature {
             loaded.put(name, shard);
         }
         this.shards = Map.copyOf(loaded);
+    }
+
+    private static boolean hasSupportedCatalog(Path shardsDir) {
+        Path catalog = shardsDir.resolve("catalog.json");
+        try {
+            return Files.isRegularFile(catalog) && CATALOG_SCHEMA_V2.matcher(Files.readString(catalog)).find();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     boolean available() { return !shards.isEmpty(); }

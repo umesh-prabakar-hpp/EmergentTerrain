@@ -23,6 +23,8 @@ SHARDS = {
     "combinatorics": ("math.CO",), "geometry": ("math.GT", "math.DG", "math.AG"),
     "probability": ("math.PR", "stat."),
 }
+CATALOG_SCHEMA_VERSION = 2
+ASSIGNED_CATEGORY_PREFIXES = tuple(prefix for categories in SHARDS.values() for prefix in categories)
 
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -41,7 +43,12 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
     try:
         out.execute("ATTACH DATABASE ? AS source", (str(source),))
         if categories is None:
-            where, params = "(p.primary_category IS NULL OR p.primary_category='' OR p.primary_category NOT LIKE 'math.%' AND p.primary_category NOT LIKE 'stat.%')", []
+            # Cross-list is the complement of the six coarse subject lanes, not merely non-math
+            # records. This retains e.g. math.GM and math.HO sources that can carry valid
+            # evidence for a routed number-theory query without duplicating named-lane records.
+            assigned = " OR ".join("p.primary_category LIKE ?" for _ in ASSIGNED_CATEGORY_PREFIXES)
+            where = f"(p.primary_category IS NULL OR p.primary_category='' OR NOT ({assigned}))"
+            params = [f"{category}%" for category in ASSIGNED_CATEGORY_PREFIXES]
         else:
             where, params = "(" + " OR ".join("p.primary_category LIKE ?" for _ in categories) + ")", [f"{category}%" for category in categories]
         out.executescript("""
@@ -59,8 +66,8 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
                        SELECT st.rowid,st.theorem_id,st.paper_id,st.name,st.slogan,st.body
                        FROM source.theorem_fts st JOIN theorems t ON t.theorem_id=st.theorem_id""")
         out.execute("""INSERT INTO fulltext_fts(rowid,paper_id,title,text)
-                       SELECT sf.rowid,sf.paper_id,sf.title,sf.text
-                       FROM source.fulltext_fts sf JOIN fulltext f ON f.rowid=sf.rowid""")
+                       SELECT f.rowid,sf.paper_id,sf.title,sf.text
+                       FROM source.fulltext_fts sf JOIN fulltext f ON f.paper_id=sf.paper_id""")
         out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
         out.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
         count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
@@ -83,7 +90,7 @@ def main() -> int:
     dest.mkdir(parents=True)
     counts = {name: build_one(source, dest / name, categories) for name, categories in SHARDS.items()}
     counts["cross-list"] = build_one(source, dest / "cross-list", None)
-    (dest / "catalog.json").write_text(json.dumps({"schema_version": 1, "source_index": str(source), "shards": counts}, indent=2) + "\n")
+    (dest / "catalog.json").write_text(json.dumps({"schema_version": CATALOG_SCHEMA_VERSION, "source_index": str(source), "shards": counts}, indent=2) + "\n")
     print(json.dumps({"shards_dir": str(dest), "counts": counts}, indent=2))
     return 0
 

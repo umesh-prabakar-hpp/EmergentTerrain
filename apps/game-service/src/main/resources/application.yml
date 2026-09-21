@@ -1051,6 +1051,8 @@ app:
         index-dir: ${user.home}/.emergentterrain/indexes/math-literature
         # Optional coarse routed primary shards. Build them OFFLINE with
         # build-hf-math-literature-shards.py, shadow-validate results/latency, then enable.
+        # The builder emits catalog schema v2; a legacy or incomplete catalog falls back to the
+        # complete monolith rather than serving a partial routed result.
         # The router selects a few subject shards plus cross-list and applies one aggregate
         # deadline; it never fans a query out to every shard or compares raw FTS ranks.
         shards:

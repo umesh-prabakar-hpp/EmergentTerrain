@@ -190,6 +190,13 @@ offline build.
    order, read eligibility, opportunity, and application state on one immutable shard generation.
    Only `matched_after_cancellation` is parity evidence; `not_observed` means no eligible suffix
    occurred and cannot support enablement.
+   Benchmark evidence also found a routed-recall defect: the former cross-list omitted mathematics
+   categories outside the six named lanes, so an admissible monolith record could disappear from
+   both selected shards. The builder now emits catalog schema v2 with cross-list as the exact
+   complement of those lanes, and runtime rejects old catalogs in favor of the monolith until an
+   operator completes the offline v2 rebuild and shadow validation.
+   Its filtered full-text FTS copy also joins source and derived records by paper ID, then uses the
+   derived row ID; a source SQLite row ID is not a stable identity after a category filter.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

@@ -668,9 +668,12 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 
 **Literature-timeout recovery** — a Phase 35 timeout is not treated as a no-match. For a locked established target, its reviewed local subject query runs before any first-pass, professor, student, or panel work; a timeout journals the already allocated draft immediately, without manufacturing a partial manuscript. Within a narration, identical semantic searches are cached across best-of-N candidates and resamples. A recovery hold is based only on the selected trace’s final `search_literature` outcome: a later local EVIDENCE or no-match clears an earlier timeout and proceeds through the ordinary evidence/publication gates. With `app.research.literature.timeout-recovery.enabled=true`, an unresolved terminal timeout journals its exact semantic request plus a re-narration snapshot under `simulation-history/research-literature-recovery/`. OpenAlex discovery is advisory only: unavailable/exhausted discovery never blocks a later local immutable-index refresh. Those candidates are non-evidentiary and cannot issue an `HF…` key, be cited, or alter a label. After an operator completes the normal offline core/index refresh, the changed index fingerprint releases one held draft at a time through the normal local `search_literature → read_reference → Related Work` path; another retry waits until the active one settles or restart re-arms it. Do not mutate the SQLite index from this worker.
 
-**Optional routed primary shards** — `scripts/build-hf-math-literature-shards.py` derives seven
+**Optional routed primary shards** — `scripts/build-hf-math-literature-shards.py` derives six
 coarse, immutable SQLite/FTS5 shards from a completed primary index: number theory, analysis,
-algebra, combinatorics, geometry, probability, and a small cross-list lane. With
+algebra, combinatorics, geometry, probability, and a complement cross-list lane. Catalog schema
+v2 includes categories outside those named lanes (such as `math.GM`) instead of silently dropping
+them. Older catalogs are rejected and safely fall back to the monolithic primary index; rebuild
+the shards offline before routed reads resume. With
 `app.research.literature.phase34-sqlite.shards.enabled=true`, the router picks relevant subject
 shards plus the cross-list lane, queries at most eight with a shared 15-second deadline and a
 small parallelism cap, then deterministically interleaves local ranks before the unchanged

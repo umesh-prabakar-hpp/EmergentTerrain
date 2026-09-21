@@ -141,7 +141,10 @@ public final class Phase34SqliteLiterature {
         this.initialSearchCandidates = Math.clamp(initialSearchCandidates, 1, SEARCH_CANDIDATES);
         this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
         this.paperReviewScreenedLiterature = paperReviewScreenedLiterature;
-        this.shardedPrimary = shardedPrimary;
+        // Treat an unavailable or obsolete routed catalog exactly like no optional routed index.
+        // This keeps the complete monolith authoritative rather than allowing a direct caller to
+        // convert a safe shard rejection into an unavailable literature service.
+        this.shardedPrimary = shardedPrimary != null && shardedPrimary.available() ? shardedPrimary : null;
         this.maxConcurrentPrimarySearches = Math.clamp(maxConcurrentPrimarySearches, 1, 4);
     }
 
