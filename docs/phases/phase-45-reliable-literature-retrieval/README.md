@@ -195,8 +195,9 @@ offline build.
    both selected shards. The builder now emits catalog schema v2 with cross-list as the exact
    complement of those lanes, and runtime rejects old catalogs in favor of the monolith until an
    operator completes the offline v2 rebuild and shadow validation.
-   Its filtered full-text FTS copy also joins source and derived records by paper ID, then uses the
-   derived row ID; a source SQLite row ID is not a stable identity after a category filter.
+   Its full-text FTS is rebuilt from the already filtered derived `fulltext` and `papers` rows;
+   source SQLite FTS row IDs are not identities after a category filter, and the source FTS table
+   does not need to be scanned once per shard.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

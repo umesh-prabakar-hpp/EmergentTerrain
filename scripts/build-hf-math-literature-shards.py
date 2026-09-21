@@ -65,9 +65,11 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
         out.execute("""INSERT INTO theorem_fts(rowid,theorem_id,paper_id,name,slogan,body)
                        SELECT st.rowid,st.theorem_id,st.paper_id,st.name,st.slogan,st.body
                        FROM source.theorem_fts st JOIN theorems t ON t.theorem_id=st.theorem_id""")
+        # Rebuild from the already-filtered derived rows. Scanning the 30 GB source FTS table for
+        # each shard is unnecessary, and source FTS row IDs are not identities after filtering.
         out.execute("""INSERT INTO fulltext_fts(rowid,paper_id,title,text)
-                       SELECT f.rowid,sf.paper_id,sf.title,sf.text
-                       FROM source.fulltext_fts sf JOIN fulltext f ON f.paper_id=sf.paper_id""")
+                       SELECT f.rowid,f.paper_id,p.title,f.text
+                       FROM fulltext f JOIN papers p ON p.paper_id=f.paper_id""")
         out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
         out.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
         count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
