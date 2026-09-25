@@ -207,7 +207,9 @@ offline build.
    still exhausted the 15-second routed deadline for both representative routed shapes, and the
    disabled/enabled maximum-prime observation had outcome/key non-parity. Keep routed shards off
    (the runtime safely uses the monolith) until the mathematics complement is separated from the
-   broad non-lane cross-list and the same benchmark reports outcome/key parity.
+   broad non-lane cross-list and the same benchmark reports outcome/key parity. Catalog schema v3
+   now makes that split explicit: mathematics-shaped routing uses `math-complement`, while broad
+   non-mathematics records remain in `cross-list`; v2 safely falls back to the monolith.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

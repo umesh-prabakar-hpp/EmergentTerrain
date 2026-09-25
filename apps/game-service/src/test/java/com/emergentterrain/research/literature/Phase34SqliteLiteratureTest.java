@@ -122,12 +122,12 @@ class Phase34SqliteLiteratureTest {
         indexedAdapter();
         Path shardsDir = indexDir.resolve("shards");
         for (String shard : List.of("number-theory", "analysis", "algebra", "combinatorics", "geometry",
-                "probability", "cross-list")) {
+                "probability", "math-complement", "cross-list")) {
             Path directory = shardsDir.resolve(shard);
             Files.createDirectories(directory);
             Files.copy(indexDir.resolve("literature.db"), directory.resolve("literature.db"));
         }
-        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":2}\n");
+        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":3}\n");
         LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
         ShardedPhase34Literature shards = new ShardedPhase34Literature(shardsDir, true, 15_000,
                 64, planner, 2);
@@ -165,7 +165,7 @@ class Phase34SqliteLiteratureTest {
         indexedAdapter();
         Path shardsDir = indexDir.resolve("partial-v2-shards");
         Files.createDirectories(shardsDir);
-        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":2}\n");
+        Files.writeString(shardsDir.resolve("catalog.json"), "{\"schema_version\":3}\n");
 
         ShardedPhase34Literature partial = new ShardedPhase34Literature(shardsDir, true, 15_000,
                 64, new DeterministicLiteratureQueryPlanner(), 2);

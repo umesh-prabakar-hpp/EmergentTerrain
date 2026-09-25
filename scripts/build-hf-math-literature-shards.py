@@ -17,14 +17,16 @@ import time
 
 DEFAULT_SOURCE = Path.home() / ".emergentterrain" / "indexes" / "math-literature"
 DEFAULT_DEST = Path.home() / ".emergentterrain" / "indexes" / "math-literature-shards"
-SHARDS = {
+NAMED_SHARDS = {
     "number-theory": ("math.NT",), "analysis": ("math.CA", "math.FA", "math.AP", "math.CV"),
     "algebra": ("math.RA", "math.GR", "math.RT", "math.AT", "math.KT"),
     "combinatorics": ("math.CO",), "geometry": ("math.GT", "math.DG", "math.AG"),
     "probability": ("math.PR", "stat."),
 }
-CATALOG_SCHEMA_VERSION = 2
-ASSIGNED_CATEGORY_PREFIXES = tuple(prefix for categories in SHARDS.values() for prefix in categories)
+MATH_COMPLEMENT = ("__math_complement__",)
+SHARDS = {**NAMED_SHARDS, "math-complement": MATH_COMPLEMENT}
+CATALOG_SCHEMA_VERSION = 3
+ASSIGNED_CATEGORY_PREFIXES = tuple(prefix for categories in NAMED_SHARDS.values() for prefix in categories)
 
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -52,13 +54,14 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
     out = sqlite3.connect(destination / "literature.db")
     try:
         out.execute("ATTACH DATABASE ? AS source", (str(source),))
-        if categories is None:
-            # Cross-list is the complement of the six coarse subject lanes, not merely non-math
-            # records. This retains e.g. math.GM and math.HO sources that can carry valid
-            # evidence for a routed number-theory query without duplicating named-lane records.
+        if categories == MATH_COMPLEMENT:
             assigned = " OR ".join("p.primary_category LIKE ?" for _ in ASSIGNED_CATEGORY_PREFIXES)
-            where = f"(p.primary_category IS NULL OR p.primary_category='' OR NOT ({assigned}))"
+            where = f"(p.primary_category LIKE 'math.%' AND NOT ({assigned}))"
             params = [f"{category}%" for category in ASSIGNED_CATEGORY_PREFIXES]
+        elif categories is None:
+            # Broad non-mathematics fallback only. Mathematics outside named lanes belongs in the
+            # focused math-complement shard, so it cannot make number-theory fan-out unbounded.
+            where, params = "(p.primary_category IS NULL OR p.primary_category='' OR (p.primary_category NOT LIKE 'math.%' AND p.primary_category NOT LIKE 'stat.%'))", []
         else:
             where, params = "(" + " OR ".join("p.primary_category LIKE ?" for _ in categories) + ")", [f"{category}%" for category in categories]
         out.executescript("""
@@ -96,45 +99,22 @@ def v1_catalog(source: Path) -> dict:
         raise SystemExit(f"v1 shard catalog is unreadable: {catalog}") from exc
     if parsed.get("schema_version") != 1:
         raise SystemExit("--upgrade-from-v1 requires a complete schema_version 1 catalog")
-    for name in (*SHARDS, "cross-list"):
+    for name in (*NAMED_SHARDS, "cross-list"):
         if not (source / name / "literature.db").is_file():
             raise SystemExit(f"v1 shard is missing: {source / name / 'literature.db'}")
     return parsed
 
 def upgrade_v1(source: Path, v1: Path, destination: Path) -> dict[str, int]:
-    """Copy v1 theorem summaries, repair local full-text FTS, then extend cross-list once."""
+    """Copy v1 subject summaries, repair local FTS, and derive the focused math complement once."""
     v1_catalog(v1)
-    for name in (*SHARDS, "cross-list"):
+    for name in (*NAMED_SHARDS, "cross-list"):
         shutil.copytree(v1 / name, destination / name)
-    for name in SHARDS:
+    for name in (*NAMED_SHARDS, "cross-list"):
         with sqlite3.connect(destination / name / "literature.db") as out:
             rebuild_fulltext_fts(out)
             out.commit()
-
-    cross_list = destination / "cross-list" / "literature.db"
-    with sqlite3.connect(cross_list) as out:
-        out.execute("ATTACH DATABASE ? AS source", (str(source),))
-        assigned = " OR ".join("p.primary_category LIKE ?" for _ in ASSIGNED_CATEGORY_PREFIXES)
-        out.execute("CREATE TEMP TABLE v2_additions AS "
-                    f"SELECT p.* FROM source.papers p WHERE p.primary_category LIKE 'math.%' AND NOT ({assigned})",
-                    [f"{category}%" for category in ASSIGNED_CATEGORY_PREFIXES])
-        out.execute("INSERT INTO papers SELECT * FROM v2_additions")
-        out.execute("INSERT INTO theorems SELECT t.* FROM source.theorems t "
-                    "JOIN v2_additions p ON p.paper_id=t.paper_id")
-        out.execute("INSERT INTO fulltext SELECT f.* FROM source.fulltext f "
-                    "JOIN v2_additions p ON p.paper_id=f.paper_id")
-        # This is the one unavoidable primary theorem-FTS pass: its generated slogan is not stored
-        # in the base theorem table. Subject shards retain their already validated v1 summaries.
-        out.execute("""INSERT INTO theorem_fts(rowid,theorem_id,paper_id,name,slogan,body)
-                       SELECT st.rowid,st.theorem_id,st.paper_id,st.name,st.slogan,st.body
-                       FROM source.theorem_fts st JOIN v2_additions p ON p.paper_id=st.paper_id""")
-        rebuild_fulltext_fts(out)
-        out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
-        count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
-        out.execute("UPDATE metadata SET value=? WHERE key='shard_documents'", (str(count),))
-        out.execute("UPDATE metadata SET value=? WHERE key='derived_from'", (str(source),))
-        out.execute("UPDATE metadata SET value=? WHERE key='built_at_epoch_seconds'", (str(int(time.time())),))
-        out.commit()
+    # The one unavoidable primary theorem-FTS pass carries generated slogan text absent from base rows.
+    build_one(source, destination / "math-complement", MATH_COMPLEMENT)
     counts = {}
     for name in (*SHARDS, "cross-list"):
         with sqlite3.connect(destination / name / "literature.db") as shard:

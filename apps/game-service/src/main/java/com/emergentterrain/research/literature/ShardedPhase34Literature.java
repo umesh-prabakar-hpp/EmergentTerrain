@@ -30,9 +30,10 @@ import java.util.regex.Pattern;
 final class ShardedPhase34Literature {
     private static final Logger log = LoggerFactory.getLogger(ShardedPhase34Literature.class);
     private static final Pattern KEY_LINE = Pattern.compile("(?m)^- \\[?(HF[0-9A-F]+)\\]?.*$", Pattern.CASE_INSENSITIVE);
-    private static final Pattern CATALOG_SCHEMA_V2 = Pattern.compile("\\\"schema_version\\\"\\s*:\\s*2\\b");
+    private static final Pattern CATALOG_SCHEMA_V3 = Pattern.compile("\\\"schema_version\\\"\\s*:\\s*3\\b");
     private static final List<String> DEFAULT_ORDER = List.of(
-            "number-theory", "analysis", "algebra", "combinatorics", "geometry", "probability", "cross-list");
+            "number-theory", "analysis", "algebra", "combinatorics", "geometry", "probability",
+            "math-complement", "cross-list");
 
     private final Map<String, Phase34SqliteLiterature> shards;
     private final int parallelism;
@@ -52,8 +53,8 @@ final class ShardedPhase34Literature {
         this.aggregateTimeoutMs = Math.max(1_000, timeoutMs);
         this.earlySuccessCancellationEnabled = earlySuccessCancellationEnabled;
         Map<String, Phase34SqliteLiterature> loaded = new LinkedHashMap<>();
-        // Version 2 makes cross-list the complement of named subject lanes. Refuse incomplete
-        // and legacy catalogs so a stale routed derivation cannot hide monolith evidence.
+        // Version 3 separates the mathematics complement from broad non-mathematics records.
+        // Refuse incomplete and legacy catalogs so a stale derivation cannot hide monolith evidence.
         if (!hasSupportedCatalog(shardsDir)) {
             this.shards = Map.of();
             return;
@@ -78,7 +79,7 @@ final class ShardedPhase34Literature {
     private static boolean hasSupportedCatalog(Path shardsDir) {
         Path catalog = shardsDir.resolve("catalog.json");
         try {
-            return Files.isRegularFile(catalog) && CATALOG_SCHEMA_V2.matcher(Files.readString(catalog)).find();
+            return Files.isRegularFile(catalog) && CATALOG_SCHEMA_V3.matcher(Files.readString(catalog)).find();
         } catch (Exception ignored) {
             return false;
         }
@@ -266,15 +267,17 @@ final class ShardedPhase34Literature {
     private List<Map.Entry<String, Phase34SqliteLiterature>> select(String query) {
         String lower = (query == null ? "" : query).toLowerCase(Locale.ROOT);
         List<String> names = new ArrayList<>();
+        boolean mathematics = false;
         if (containsAny(lower, "prime", "divisor", "mertens", "mobius", "omega", "zeta", "dirichlet")) {
             names.add("number-theory");
+            mathematics = true;
         }
-        if (containsAny(lower, "integral", "fourier", "measure", "asymptotic", "analytic")) names.add("analysis");
-        if (containsAny(lower, "group", "ring", "field", "module", "representation")) names.add("algebra");
-        if (containsAny(lower, "graph", "hypergraph", "matroid", "combinator")) names.add("combinatorics");
-        if (containsAny(lower, "manifold", "geometry", "topology", "polygon")) names.add("geometry");
-        if (containsAny(lower, "random", "probability", "stochastic", "distribution")) names.add("probability");
-        names.add("cross-list"); // bounded recall lane for category-missing records.
+        if (containsAny(lower, "integral", "fourier", "measure", "asymptotic", "analytic")) { names.add("analysis"); mathematics = true; }
+        if (containsAny(lower, "group", "ring", "field", "module", "representation")) { names.add("algebra"); mathematics = true; }
+        if (containsAny(lower, "graph", "hypergraph", "matroid", "combinator")) { names.add("combinatorics"); mathematics = true; }
+        if (containsAny(lower, "manifold", "geometry", "topology", "polygon")) { names.add("geometry"); mathematics = true; }
+        if (containsAny(lower, "random", "probability", "stochastic", "distribution")) { names.add("probability"); mathematics = true; }
+        names.add(mathematics ? "math-complement" : "cross-list");
         List<Map.Entry<String, Phase34SqliteLiterature>> selected = new ArrayList<>();
         for (String name : names.stream().distinct().toList()) {
             Phase34SqliteLiterature shard = shards.get(name);

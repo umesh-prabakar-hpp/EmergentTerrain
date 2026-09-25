@@ -671,8 +671,9 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 **Optional routed primary shards** — `scripts/build-hf-math-literature-shards.py` derives six
 coarse, immutable SQLite/FTS5 shards from a completed primary index: number theory, analysis,
 algebra, combinatorics, geometry, probability, and a complement cross-list lane. Catalog schema
-v2 includes categories outside those named lanes (such as `math.GM`) instead of silently dropping
-them. Older catalogs are rejected and safely fall back to the monolithic primary index; rebuild
+v3 places categories outside those named lanes (such as `math.GM`) in a focused `math-complement`
+lane, separate from the broad non-mathematics `cross-list`. Mathematics-shaped requests use the
+focused lane; older catalogs are rejected and safely fall back to the monolithic primary index; rebuild
 the shards offline before routed reads resume. With
 `app.research.literature.phase34-sqlite.shards.enabled=true`, the router picks relevant subject
 shards plus the cross-list lane, queries at most eight with a shared 15-second deadline and a
