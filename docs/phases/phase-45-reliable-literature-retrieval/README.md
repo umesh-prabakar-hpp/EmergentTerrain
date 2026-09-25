@@ -238,6 +238,9 @@ offline build.
    `name` tokens to theorem row IDs using `fts5vocab(..., 'instance')`. It is offline-only and
    records a completion marker; runtime use remains pending until it can be limited to the existing
    safe two-anchor theorem-name attempt with the ordinary full-FTS fallback preserved.
+   `check-phase45-candidate-first-parity.py` is the read-only membership probe for that next gate:
+   it compares the bounded surface with the current FTS theorem rows on one immutable index and
+   fails on a set difference. It deliberately does not claim rank parity.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
