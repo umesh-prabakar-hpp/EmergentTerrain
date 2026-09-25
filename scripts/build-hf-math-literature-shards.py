@@ -28,6 +28,7 @@ MATH_COMPLEMENT = ("__math_complement__",)
 SHARDS = {**NAMED_SHARDS, "math-complement": MATH_COMPLEMENT}
 CATALOG_SCHEMA_VERSION = 3
 PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION = "phase45-title-anchor-documents-v1"
+PHASE45_THEOREM_NAME_TOKEN_DOCUMENTS_VERSION = "phase45-theorem-name-token-documents-v1"
 ASSIGNED_CATEGORY_PREFIXES = tuple(prefix for categories in NAMED_SHARDS.values() for prefix in categories)
 
 def args() -> argparse.Namespace:
@@ -81,6 +82,30 @@ def prepare_shard_title_anchors(out: sqlite3.Connection) -> None:
     out.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
                 ("phase45_title_anchor_documents_rows", str(rows)))
 
+def prepare_shard_theorem_name_tokens(out: sqlite3.Connection) -> None:
+    """Materialize exact FTS5 name tokens for a future bounded candidate-first read."""
+    out.execute("DROP TABLE IF EXISTS literature_theorem_name_token_documents")
+    out.execute("""CREATE TABLE literature_theorem_name_token_documents (
+                       token TEXT NOT NULL,
+                       theorem_rowid INTEGER NOT NULL,
+                       PRIMARY KEY (token, theorem_rowid)
+                   ) WITHOUT ROWID""")
+    out.execute("DROP TABLE IF EXISTS phase45_shard_theorem_name_vocab")
+    out.execute("CREATE VIRTUAL TABLE phase45_shard_theorem_name_vocab USING fts5vocab(theorem_fts, 'instance')")
+    try:
+        out.execute("""INSERT OR IGNORE INTO literature_theorem_name_token_documents(token, theorem_rowid)
+                       SELECT term, doc
+                         FROM phase45_shard_theorem_name_vocab
+                        WHERE col = 'name'""")
+    finally:
+        out.execute("DROP TABLE phase45_shard_theorem_name_vocab")
+    rows = out.execute("SELECT COUNT(*) FROM literature_theorem_name_token_documents").fetchone()[0]
+    out.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                ("phase45_theorem_name_token_documents_version",
+                 PHASE45_THEOREM_NAME_TOKEN_DOCUMENTS_VERSION))
+    out.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                ("phase45_theorem_name_token_documents_rows", str(rows)))
+
 def build_one(source: Path, destination: Path, categories: tuple[str, ...] | None) -> int:
     destination.mkdir(parents=True, exist_ok=True)
     out = sqlite3.connect(destination / "literature.db")
@@ -114,6 +139,7 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
         # each shard is unnecessary, and source FTS row IDs are not identities after filtering.
         rebuild_fulltext_fts(out)
         prepare_shard_title_anchors(out)
+        prepare_shard_theorem_name_tokens(out)
         out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
         count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
         out.executemany("INSERT INTO metadata VALUES (?,?)", [
@@ -146,6 +172,7 @@ def upgrade_v1(source: Path, v1: Path, destination: Path) -> dict[str, int]:
         with sqlite3.connect(destination / name / "literature.db") as out:
             rebuild_fulltext_fts(out)
             prepare_shard_title_anchors(out)
+            prepare_shard_theorem_name_tokens(out)
             out.commit()
     # The one unavoidable primary theorem-FTS pass carries generated slogan text absent from base rows.
     build_one(source, destination / "math-complement", MATH_COMPLEMENT)

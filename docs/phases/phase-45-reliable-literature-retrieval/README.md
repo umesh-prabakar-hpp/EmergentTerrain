@@ -234,6 +234,10 @@ offline build.
    number-theory candidate had eleven; neither small candidate surface bounded the virtual-table
    scan. Future work must demonstrate a candidate-first theorem representation or an equivalent
    exact bounded path, not merely add another `rowid IN (...)` filter.
+   The first implementation slice now materializes a per-shard B-tree of FTS5 `name` tokens to
+   theorem row IDs using `fts5vocab(..., 'instance')`. It is offline-only and records a completion
+   marker; runtime use remains pending until it can be limited to the existing safe two-anchor
+   theorem-name attempt with the ordinary full-FTS fallback preserved.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

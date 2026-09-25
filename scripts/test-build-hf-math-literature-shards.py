@@ -57,11 +57,22 @@ class CrossListCoverageTest(unittest.TestCase):
                     SELECT value FROM metadata
                     WHERE key = 'phase45_title_anchor_documents_version'
                 """).fetchone()[0]
+                theorem_name_tokens = {row[0] for row in connection.execute("""
+                    SELECT token FROM literature_theorem_name_token_documents
+                    WHERE theorem_rowid = 2
+                """)}
+                theorem_name_token_version = connection.execute("""
+                    SELECT value FROM metadata
+                    WHERE key = 'phase45_theorem_name_token_documents_version'
+                """).fetchone()[0]
 
             self.assertEqual({"gm"}, paper_ids)
             self.assertEqual({"gm"}, fts_paper_ids)
             self.assertEqual({"maximum", "prime", "gap"}, title_anchors)
             self.assertEqual(BUILDER.PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION, title_anchor_version)
+            self.assertEqual({"gm"}, theorem_name_tokens)
+            self.assertEqual(BUILDER.PHASE45_THEOREM_NAME_TOKEN_DOCUMENTS_VERSION,
+                             theorem_name_token_version)
 
             v1 = Path(temporary) / "v1"
             for name, categories in BUILDER.SHARDS.items():
