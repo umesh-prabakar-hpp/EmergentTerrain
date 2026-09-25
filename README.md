@@ -674,7 +674,9 @@ algebra, combinatorics, geometry, probability, and a complement cross-list lane.
 v3 places categories outside those named lanes (such as `math.GM`) in a focused `math-complement`
 lane, separate from the broad non-mathematics `cross-list`. Mathematics-shaped requests use the
 focused lane; older catalogs are rejected and safely fall back to the monolithic primary index; rebuild
-the shards offline before routed reads resume. With
+the shards offline before routed reads resume. Each shard also materializes the same completed
+`phase45-title-anchor-documents-v1` mapping as the primary index, so a routed two-title-anchor
+theorem attempt can narrow locally without changing its in-budget unchanged-query fallback. With
 `app.research.literature.phase34-sqlite.shards.enabled=true`, the router picks relevant subject
 shards plus the cross-list lane, queries at most eight with a shared 15-second deadline and a
 small parallelism cap, then deterministically interleaves local ranks before the unchanged
@@ -684,7 +686,8 @@ rollback path.
 To upgrade an existing complete v1 shard directory without repeatedly scanning the primary theorem
 FTS, use `--upgrade-from-v1 /path/to/math-literature-shards`; it retains the existing subject-shard
 theorem summaries, repairs every shard's locally rebuilt full-text FTS, and makes one primary
-theorem-FTS pass only for the newly included cross-list mathematics categories. Build into a fresh
+theorem-FTS pass only for the newly included `math-complement` mathematics categories; it also
+regenerates each shard's title-anchor mapping. Build into a fresh
 directory and validate it before any directory switch.
 
 **Index-maintenance timing** — `scripts/prepare-hf-math-index.py` emits machine-readable elapsed

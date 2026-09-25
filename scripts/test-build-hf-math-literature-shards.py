@@ -29,7 +29,7 @@ class CrossListCoverageTest(unittest.TestCase):
                     CREATE VIRTUAL TABLE fulltext_fts USING fts5(paper_id UNINDEXED, title, text);
                 """)
                 connection.executemany("INSERT INTO papers VALUES (?, ?, ?)", [
-                    ("nt", "math.NT", "NT source"), ("gm", "math.GM", "GM source"),
+                    ("nt", "math.NT", "NT source"), ("gm", "math.GM", "Maximum prime gaps"),
                     ("cs", "cs.AI", "CS source")])
                 connection.executemany("INSERT INTO theorems VALUES (?, ?)", [(1, "nt"), (2, "gm"), (3, "cs")])
                 connection.executemany("INSERT INTO fulltext VALUES (?, ?, ?)", [
@@ -49,9 +49,19 @@ class CrossListCoverageTest(unittest.TestCase):
                       JOIN fulltext f ON f.rowid = ff.rowid
                      WHERE fulltext_fts MATCH 'GM'
                 """)}
+                title_anchors = {row[0] for row in connection.execute("""
+                    SELECT anchor FROM literature_title_anchor_documents
+                    WHERE paper_id = 'gm'
+                """)}
+                title_anchor_version = connection.execute("""
+                    SELECT value FROM metadata
+                    WHERE key = 'phase45_title_anchor_documents_version'
+                """).fetchone()[0]
 
             self.assertEqual({"gm"}, paper_ids)
             self.assertEqual({"gm"}, fts_paper_ids)
+            self.assertEqual({"maximum", "prime", "gap"}, title_anchors)
+            self.assertEqual(BUILDER.PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION, title_anchor_version)
 
             v1 = Path(temporary) / "v1"
             for name, categories in BUILDER.SHARDS.items():
@@ -76,10 +86,21 @@ class CrossListCoverageTest(unittest.TestCase):
                       JOIN fulltext f ON f.rowid = ff.rowid
                      WHERE fulltext_fts MATCH 'GM'
                 """)}
+                upgraded_title_anchors = {row[0] for row in connection.execute("""
+                    SELECT anchor FROM literature_title_anchor_documents
+                    WHERE paper_id = 'gm'
+                """)}
+                upgraded_title_anchor_version = connection.execute("""
+                    SELECT value FROM metadata
+                    WHERE key = 'phase45_title_anchor_documents_version'
+                """).fetchone()[0]
 
             self.assertEqual(1, counts["math-complement"])
             self.assertEqual({"gm"}, upgraded_paper_ids)
             self.assertEqual({"gm"}, upgraded_fts_ids)
+            self.assertEqual({"maximum", "prime", "gap"}, upgraded_title_anchors)
+            self.assertEqual(BUILDER.PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION,
+                             upgraded_title_anchor_version)
 
 
 if __name__ == "__main__":

@@ -215,7 +215,11 @@ offline build.
    theorem surface for both representative routed shapes, so it also has no outcome/key parity and
    is **not** enabled. The next target is a selective theorem-surface path within that focused
    lane; do not raise the deadline or claim that a smaller document count alone establishes FTS
-   latency.
+   latency. The builder now materializes the completed `phase45-title-anchor-documents-v1` mapping
+   from each shard's durable `papers` rows, including the focused lane, so the existing exact
+   two-title-anchor theorem narrowing can run locally before its unchanged-query fallback. This
+   is a source-preserving selectivity attempt; a fresh v3 staging build and the same benchmark are
+   still required before any routed activation claim.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

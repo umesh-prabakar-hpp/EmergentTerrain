@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import sys
@@ -26,6 +27,7 @@ NAMED_SHARDS = {
 MATH_COMPLEMENT = ("__math_complement__",)
 SHARDS = {**NAMED_SHARDS, "math-complement": MATH_COMPLEMENT}
 CATALOG_SCHEMA_VERSION = 3
+PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION = "phase45-title-anchor-documents-v1"
 ASSIGNED_CATEGORY_PREFIXES = tuple(prefix for categories in NAMED_SHARDS.values() for prefix in categories)
 
 def args() -> argparse.Namespace:
@@ -48,6 +50,36 @@ def rebuild_fulltext_fts(out: sqlite3.Connection) -> None:
                    SELECT f.rowid,f.paper_id,p.title,f.text
                    FROM fulltext f JOIN papers p ON p.paper_id=f.paper_id""")
     out.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
+
+def normalize_anchor(value: str) -> str:
+    value = value.lower()
+    if len(value) <= 3 or value.endswith("ss"): return value
+    if value.endswith("ies") and len(value) > 4: return value[:-3] + "y"
+    if value.endswith(("ches", "shes", "sses", "xes", "zes")): return value[:-2]
+    return value[:-1] if value.endswith("s") else value
+
+def prepare_shard_title_anchors(out: sqlite3.Connection) -> None:
+    """Materialize the existing Phase 45 title-gated theorem narrowing data per shard."""
+    out.execute("DROP TABLE IF EXISTS literature_title_anchor_documents")
+    out.execute("""CREATE TABLE literature_title_anchor_documents (
+                       anchor TEXT NOT NULL,
+                       paper_id TEXT NOT NULL,
+                       PRIMARY KEY (anchor, paper_id)
+                   ) WITHOUT ROWID""")
+    pending: list[tuple[str, str]] = []
+    for paper_id, title in out.execute("SELECT paper_id, title FROM papers"):
+        pending.extend((normalize_anchor(anchor), paper_id)
+                       for anchor in re.findall(r"[^\W\d_]{2,}", (title or "").lower()))
+        if len(pending) >= 20_000:
+            out.executemany("INSERT OR IGNORE INTO literature_title_anchor_documents VALUES (?, ?)", pending)
+            pending.clear()
+    if pending:
+        out.executemany("INSERT OR IGNORE INTO literature_title_anchor_documents VALUES (?, ?)", pending)
+    rows = out.execute("SELECT COUNT(*) FROM literature_title_anchor_documents").fetchone()[0]
+    out.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                ("phase45_title_anchor_documents_version", PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION))
+    out.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)",
+                ("phase45_title_anchor_documents_rows", str(rows)))
 
 def build_one(source: Path, destination: Path, categories: tuple[str, ...] | None) -> int:
     destination.mkdir(parents=True, exist_ok=True)
@@ -81,6 +113,7 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
         # Rebuild from the already-filtered derived rows. Scanning the 30 GB source FTS table for
         # each shard is unnecessary, and source FTS row IDs are not identities after filtering.
         rebuild_fulltext_fts(out)
+        prepare_shard_title_anchors(out)
         out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
         count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
         out.executemany("INSERT INTO metadata VALUES (?,?)", [
@@ -112,6 +145,7 @@ def upgrade_v1(source: Path, v1: Path, destination: Path) -> dict[str, int]:
     for name in (*NAMED_SHARDS, "cross-list"):
         with sqlite3.connect(destination / name / "literature.db") as out:
             rebuild_fulltext_fts(out)
+            prepare_shard_title_anchors(out)
             out.commit()
     # The one unavoidable primary theorem-FTS pass carries generated slogan text absent from base rows.
     build_one(source, destination / "math-complement", MATH_COMPLEMENT)
