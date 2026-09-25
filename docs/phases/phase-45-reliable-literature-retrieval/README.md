@@ -220,6 +220,14 @@ offline build.
    two-title-anchor theorem narrowing can run locally before its unchanged-query fallback. This
    is a source-preserving selectivity attempt; a fresh v3 staging build and the same benchmark are
    still required before any routed activation claim.
+   That fresh build and normal-cache benchmark completed later on 2026-09-25: all eight shards
+   had the completed marker, and both selected shards reported `titleAnchorNarrowingAvailable=true`
+   with one narrowed candidate. Nevertheless, the first `theorem_title_anchor_narrowed` batch for
+   both representative shapes exhausted roughly 14.3 seconds. The mapping is therefore present
+   and correctly wired, but the current SQL shape does not yet prove a bounded theorem candidate
+   surface. Keep routed shards disabled. The next safe target is an independently measured query
+   shape that makes the title-selected candidate surface an input to the theorem lookup, while
+   retaining the unchanged-query fallback and every existing evidence gate.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
