@@ -50,6 +50,7 @@ INDEX_FORMAT = "phase34-hf-math-sqlite-v3"
 IMPORTER_VERSION = "2026-07-27"
 PHASE45_ANCHOR_STATISTICS_VERSION = "phase45-anchor-statistics-v1"
 PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION = "phase45-title-anchor-documents-v1"
+PHASE45_THEOREM_NAME_TOKEN_DOCUMENTS_VERSION = "phase45-theorem-name-token-documents-v1"
 VERSION_RE = re.compile(r"v\d+$", re.IGNORECASE)
 AR5IV_SUFFIX_RE = re.compile(r"(?:\.html)?$")
 TEXT_SOURCE_EXTENSIONS = {".tex", ".txt", ".bib", ".bbl", ".sty"}
@@ -140,6 +141,11 @@ def connect(index_dir: Path) -> sqlite3.Connection:
           anchor TEXT NOT NULL,
           paper_id TEXT NOT NULL,
           PRIMARY KEY (anchor, paper_id)
+        ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS literature_theorem_name_token_documents (
+          token TEXT NOT NULL,
+          theorem_rowid INTEGER NOT NULL,
+          PRIMARY KEY (token, theorem_rowid)
         ) WITHOUT ROWID;
         CREATE VIRTUAL TABLE IF NOT EXISTS theorem_fts USING fts5(
           theorem_id UNINDEXED, paper_id UNINDEXED, name, slogan, body,
@@ -661,6 +667,29 @@ def prepare_title_anchor_documents(conn: sqlite3.Connection, force: bool) -> Non
     print(f"selectivity: title-anchor documents complete ({rows:,} anchor/paper rows)")
 
 
+def prepare_theorem_name_token_documents(conn: sqlite3.Connection, force: bool) -> None:
+    """Build exact FTS5 name-token/theorem-row mappings for controlled candidate-first parity."""
+    if state(conn, "phase45_theorem_name_token_documents_version") == PHASE45_THEOREM_NAME_TOKEN_DOCUMENTS_VERSION and not force:
+        print("selectivity: theorem-name token documents already complete")
+        return
+    if state(conn, "theorems_complete") != "true":
+        raise SystemExit("selectivity theorem-name tokens require completed theorem stage")
+    print("selectivity: materializing exact theorem-name token rows")
+    conn.execute("DELETE FROM literature_theorem_name_token_documents")
+    conn.execute("DROP TABLE IF EXISTS phase45_theorem_name_instance_vocab")
+    conn.execute("CREATE VIRTUAL TABLE phase45_theorem_name_instance_vocab USING fts5vocab(theorem_fts, 'instance')")
+    try:
+        conn.execute("""INSERT OR IGNORE INTO literature_theorem_name_token_documents(token, theorem_rowid)
+                        SELECT term, doc FROM phase45_theorem_name_instance_vocab WHERE col = 'name'""")
+    finally:
+        conn.execute("DROP TABLE phase45_theorem_name_instance_vocab")
+    rows = conn.execute("SELECT COUNT(*) FROM literature_theorem_name_token_documents").fetchone()[0]
+    set_state(conn, "phase45_theorem_name_token_documents_version", PHASE45_THEOREM_NAME_TOKEN_DOCUMENTS_VERSION)
+    set_state(conn, "phase45_theorem_name_token_documents_rows", str(rows))
+    conn.commit()
+    print(f"selectivity: theorem-name token documents complete ({rows:,} token/theorem rows)")
+
+
 def prepare_anchor_statistics(conn: sqlite3.Connection, force: bool) -> None:
     """Materialize compact title/theorem-name frequencies outside the serving request path."""
     if state(conn, "phase45_anchor_statistics_version") == PHASE45_ANCHOR_STATISTICS_VERSION and not force:
@@ -887,6 +916,7 @@ def main() -> int:
         if args.stage in ("all", "selectivity"):
             prepare_anchor_statistics(conn, args.force)
             prepare_title_anchor_documents(conn, args.force)
+            prepare_theorem_name_token_documents(conn, args.force)
         if args.stage == "optimize":
             optimize_started = time.perf_counter()
             optimize_fts(conn)
