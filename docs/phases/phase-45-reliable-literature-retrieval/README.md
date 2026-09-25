@@ -210,6 +210,12 @@ offline build.
    broad non-lane cross-list and the same benchmark reports outcome/key parity. Catalog schema v3
    now makes that split explicit: mathematics-shaped routing uses `math-complement`, while broad
    non-mathematics records remain in `cross-list`; v2 safely falls back to the monolith.
+   The 2026-09-25 v3 staging build produced 686 `math-complement` and 7,288 broad cross-list
+   documents. Its read-only normal-cache benchmark still timed out on the focused complement's
+   theorem surface for both representative routed shapes, so it also has no outcome/key parity and
+   is **not** enabled. The next target is a selective theorem-surface path within that focused
+   lane; do not raise the deadline or claim that a smaller document count alone establishes FTS
+   latency.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
