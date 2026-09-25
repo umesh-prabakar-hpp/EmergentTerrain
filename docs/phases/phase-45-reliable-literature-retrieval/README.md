@@ -228,6 +228,12 @@ offline build.
    surface. Keep routed shards disabled. The next safe target is an independently measured query
    shape that makes the title-selected candidate surface an input to the theorem lookup, while
    retaining the unchanged-query fallback and every existing evidence gate.
+   A read-only `EXPLAIN QUERY PLAN` of that staged query found the decisive ordering: SQLite scans
+   `theorem_fts` for the `MATCH` before applying the candidate-row subquery. The maximum-prime
+   complement title candidate had zero indexed theorem rows, while the divisor/omega
+   number-theory candidate had eleven; neither small candidate surface bounded the virtual-table
+   scan. Future work must demonstrate a candidate-first theorem representation or an equivalent
+   exact bounded path, not merely add another `rowid IN (...)` filter.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
