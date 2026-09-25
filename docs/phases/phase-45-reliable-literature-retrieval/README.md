@@ -202,6 +202,12 @@ offline build.
    rebuilds each local full-text FTS from its durable rows, and scans the primary theorem FTS only
    once for the newly admitted cross-list mathematics categories. It must build into a fresh
    directory and receive the same shadow validation as a clean derivation.
+   The first normal-cache v2 staging observation completed on 2026-09-25, with cross-list growing
+   from 7,288 to 7,974 documents. It is **not** cutover evidence: the broad combined cross-list
+   still exhausted the 15-second routed deadline for both representative routed shapes, and the
+   disabled/enabled maximum-prime observation had outcome/key non-parity. Keep routed shards off
+   (the runtime safely uses the monolith) until the mathematics complement is separated from the
+   broad non-lane cross-list and the same benchmark reports outcome/key parity.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
