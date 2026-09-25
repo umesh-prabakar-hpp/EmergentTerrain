@@ -198,6 +198,10 @@ offline build.
    Its full-text FTS is rebuilt from the already filtered derived `fulltext` and `papers` rows;
    source SQLite FTS row IDs are not identities after a category filter, and the source FTS table
    does not need to be scanned once per shard.
+   A controlled v1-to-v2 upgrade path now copies the complete v1 subject-shard theorem summaries,
+   rebuilds each local full-text FTS from its durable rows, and scans the primary theorem FTS only
+   once for the newly admitted cross-list mathematics categories. It must build into a fresh
+   directory and receive the same shadow validation as a clean derivation.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

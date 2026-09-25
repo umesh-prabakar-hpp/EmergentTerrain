@@ -30,12 +30,22 @@ def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-index", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--shards-dir", type=Path, default=DEFAULT_DEST)
+    parser.add_argument("--upgrade-from-v1", type=Path,
+                        help="derive v2 from a complete v1 shard directory, preserving its theorem summaries")
     parser.add_argument("--force", action="store_true", help="replace an existing derived shard directory")
     return parser.parse_args()
 
 def complete(conn: sqlite3.Connection) -> bool:
     row = conn.execute("SELECT value FROM metadata WHERE key='fulltext_fts_complete'").fetchone()
     return row is not None and row[0].lower() == "true"
+
+def rebuild_fulltext_fts(out: sqlite3.Connection) -> None:
+    """Recreate FTS from this shard's own durable rows, never from primary FTS row IDs."""
+    out.execute("DELETE FROM fulltext_fts")
+    out.execute("""INSERT INTO fulltext_fts(rowid,paper_id,title,text)
+                   SELECT f.rowid,f.paper_id,p.title,f.text
+                   FROM fulltext f JOIN papers p ON p.paper_id=f.paper_id""")
+    out.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
 
 def build_one(source: Path, destination: Path, categories: tuple[str, ...] | None) -> int:
     destination.mkdir(parents=True, exist_ok=True)
@@ -67,11 +77,8 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
                        FROM source.theorem_fts st JOIN theorems t ON t.theorem_id=st.theorem_id""")
         # Rebuild from the already-filtered derived rows. Scanning the 30 GB source FTS table for
         # each shard is unnecessary, and source FTS row IDs are not identities after filtering.
-        out.execute("""INSERT INTO fulltext_fts(rowid,paper_id,title,text)
-                       SELECT f.rowid,f.paper_id,p.title,f.text
-                       FROM fulltext f JOIN papers p ON p.paper_id=f.paper_id""")
+        rebuild_fulltext_fts(out)
         out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
-        out.execute("INSERT INTO fulltext_fts(fulltext_fts) VALUES ('optimize')")
         count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
         out.executemany("INSERT INTO metadata VALUES (?,?)", [
             ("fulltext_fts_complete", "true"), ("shard_documents", str(count)),
@@ -80,6 +87,59 @@ def build_one(source: Path, destination: Path, categories: tuple[str, ...] | Non
         return count
     finally:
         out.close()
+
+def v1_catalog(source: Path) -> dict:
+    catalog = source / "catalog.json"
+    try:
+        parsed = json.loads(catalog.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"v1 shard catalog is unreadable: {catalog}") from exc
+    if parsed.get("schema_version") != 1:
+        raise SystemExit("--upgrade-from-v1 requires a complete schema_version 1 catalog")
+    for name in (*SHARDS, "cross-list"):
+        if not (source / name / "literature.db").is_file():
+            raise SystemExit(f"v1 shard is missing: {source / name / 'literature.db'}")
+    return parsed
+
+def upgrade_v1(source: Path, v1: Path, destination: Path) -> dict[str, int]:
+    """Copy v1 theorem summaries, repair local full-text FTS, then extend cross-list once."""
+    v1_catalog(v1)
+    for name in (*SHARDS, "cross-list"):
+        shutil.copytree(v1 / name, destination / name)
+    for name in SHARDS:
+        with sqlite3.connect(destination / name / "literature.db") as out:
+            rebuild_fulltext_fts(out)
+            out.commit()
+
+    cross_list = destination / "cross-list" / "literature.db"
+    with sqlite3.connect(cross_list) as out:
+        out.execute("ATTACH DATABASE ? AS source", (str(source),))
+        assigned = " OR ".join("p.primary_category LIKE ?" for _ in ASSIGNED_CATEGORY_PREFIXES)
+        out.execute("CREATE TEMP TABLE v2_additions AS "
+                    f"SELECT p.* FROM source.papers p WHERE p.primary_category LIKE 'math.%' AND NOT ({assigned})",
+                    [f"{category}%" for category in ASSIGNED_CATEGORY_PREFIXES])
+        out.execute("INSERT INTO papers SELECT * FROM v2_additions")
+        out.execute("INSERT INTO theorems SELECT t.* FROM source.theorems t "
+                    "JOIN v2_additions p ON p.paper_id=t.paper_id")
+        out.execute("INSERT INTO fulltext SELECT f.* FROM source.fulltext f "
+                    "JOIN v2_additions p ON p.paper_id=f.paper_id")
+        # This is the one unavoidable primary theorem-FTS pass: its generated slogan is not stored
+        # in the base theorem table. Subject shards retain their already validated v1 summaries.
+        out.execute("""INSERT INTO theorem_fts(rowid,theorem_id,paper_id,name,slogan,body)
+                       SELECT st.rowid,st.theorem_id,st.paper_id,st.name,st.slogan,st.body
+                       FROM source.theorem_fts st JOIN v2_additions p ON p.paper_id=st.paper_id""")
+        rebuild_fulltext_fts(out)
+        out.execute("INSERT INTO theorem_fts(theorem_fts) VALUES ('optimize')")
+        count = out.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
+        out.execute("UPDATE metadata SET value=? WHERE key='shard_documents'", (str(count),))
+        out.execute("UPDATE metadata SET value=? WHERE key='derived_from'", (str(source),))
+        out.execute("UPDATE metadata SET value=? WHERE key='built_at_epoch_seconds'", (str(int(time.time())),))
+        out.commit()
+    counts = {}
+    for name in (*SHARDS, "cross-list"):
+        with sqlite3.connect(destination / name / "literature.db") as shard:
+            counts[name] = shard.execute("SELECT COUNT(*) FROM fulltext").fetchone()[0]
+    return counts
 
 def main() -> int:
     parsed = args(); source = parsed.source_index.expanduser().resolve() / "literature.db"; dest = parsed.shards_dir.expanduser().resolve()
@@ -90,8 +150,11 @@ def main() -> int:
         if not parsed.force: raise SystemExit(f"shards directory exists: {dest} (use --force after verifying no reader uses it)")
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
-    counts = {name: build_one(source, dest / name, categories) for name, categories in SHARDS.items()}
-    counts["cross-list"] = build_one(source, dest / "cross-list", None)
+    if parsed.upgrade_from_v1:
+        counts = upgrade_v1(source, parsed.upgrade_from_v1.expanduser().resolve(), dest)
+    else:
+        counts = {name: build_one(source, dest / name, categories) for name, categories in SHARDS.items()}
+        counts["cross-list"] = build_one(source, dest / "cross-list", None)
     (dest / "catalog.json").write_text(json.dumps({"schema_version": CATALOG_SCHEMA_VERSION, "source_index": str(source), "shards": counts}, indent=2) + "\n")
     print(json.dumps({"shards_dir": str(dest), "counts": counts}, indent=2))
     return 0

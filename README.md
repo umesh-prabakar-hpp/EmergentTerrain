@@ -680,6 +680,11 @@ small parallelism cap, then deterministically interleaves local ranks before the
 title/record evidence gates. It never searches hundreds of databases or compares raw FTS ranks
 across shards. Build and shadow-validate offline before enabling; `false` remains the monolithic
 rollback path.
+To upgrade an existing complete v1 shard directory without repeatedly scanning the primary theorem
+FTS, use `--upgrade-from-v1 /path/to/math-literature-shards`; it retains the existing subject-shard
+theorem summaries, repairs every shard's locally rebuilt full-text FTS, and makes one primary
+theorem-FTS pass only for the newly included cross-list mathematics categories. Build into a fresh
+directory and validate it before any directory switch.
 
 **Index-maintenance timing** — `scripts/prepare-hf-math-index.py` emits machine-readable elapsed
 seconds for `fts_optimize`, `manifest_provenance`, `manifest`, and the total run. Retain those

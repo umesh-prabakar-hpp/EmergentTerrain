@@ -53,6 +53,34 @@ class CrossListCoverageTest(unittest.TestCase):
             self.assertEqual({"gm", "cs"}, paper_ids)
             self.assertEqual({"gm"}, fts_paper_ids)
 
+            v1 = Path(temporary) / "v1"
+            for name, categories in BUILDER.SHARDS.items():
+                BUILDER.build_one(source, v1 / name, categories)
+            BUILDER.build_one(source, v1 / "cross-list", None)
+            with sqlite3.connect(v1 / "cross-list" / "literature.db") as connection:
+                # Model the former v1 cross-list, which excluded every math category.
+                connection.execute("DELETE FROM theorem_fts WHERE paper_id='gm'")
+                connection.execute("DELETE FROM fulltext_fts WHERE paper_id='gm'")
+                connection.execute("DELETE FROM theorems WHERE paper_id='gm'")
+                connection.execute("DELETE FROM fulltext WHERE paper_id='gm'")
+                connection.execute("DELETE FROM papers WHERE paper_id='gm'")
+            (v1 / "catalog.json").write_text('{"schema_version": 1}\n')
+
+            v2 = Path(temporary) / "v2"
+            counts = BUILDER.upgrade_v1(source, v1, v2)
+            with sqlite3.connect(v2 / "cross-list" / "literature.db") as connection:
+                upgraded_paper_ids = {row[0] for row in connection.execute("SELECT paper_id FROM papers")}
+                upgraded_fts_ids = {row[0] for row in connection.execute("""
+                    SELECT f.paper_id
+                      FROM fulltext_fts ff
+                      JOIN fulltext f ON f.rowid = ff.rowid
+                     WHERE fulltext_fts MATCH 'GM'
+                """)}
+
+            self.assertEqual(2, counts["cross-list"])
+            self.assertEqual({"gm", "cs"}, upgraded_paper_ids)
+            self.assertEqual({"gm"}, upgraded_fts_ids)
+
 
 if __name__ == "__main__":
     unittest.main()
