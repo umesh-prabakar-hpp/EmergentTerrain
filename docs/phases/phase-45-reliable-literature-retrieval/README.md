@@ -249,6 +249,10 @@ offline build.
    with a focused non-empty SQLite regression. It is deliberately unwired: it cannot issue a key,
    alter request deadlines, or change the normal FTS result until a separately default-off runtime
    observer proves outcome and ordered-key parity.
+   The first runtime observer is now separately default-off. It emits only aggregate bounded-path
+   versus title-filtered-FTS theorem-row membership counts and parity before normal retrieval; it
+   cannot affect results, issued keys, evidence gates, or deadlines. Ordered-key/outcome parity is
+   still a later gate, so this is controlled diagnostic evidence rather than activation authority.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

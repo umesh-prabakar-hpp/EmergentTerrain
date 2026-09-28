@@ -1073,6 +1073,9 @@ app:
           # Fair, generation-scoped cap for distinct primary-index queries. Identical semantic
           # requests still share one single-flight leader and do not consume another permit.
           max-concurrent-primary-searches: 2
+          # Controlled read-only parity audit; it records candidate-first/FTS row-membership only
+          # and cannot alter issued sources, evidence gates, or the ordinary FTS result.
+          candidate-first-membership-observer-enabled: false
           # Search the highest-ranked tranche first, then retain the complete 512-result range
           # only when it has not produced evidence within the same fail-soft deadline.
           initial-candidates: 64

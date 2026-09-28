@@ -24,6 +24,8 @@ public class Phase34SqliteLiteratureConfig {
             int initialCandidates,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.max-concurrent-primary-searches:2}")
             int maxConcurrentPrimarySearches,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-observer-enabled:false}")
+            boolean candidateFirstMembershipObserverEnabled,
             @Value("${app.research.literature.paper-review-screened.enabled:false}")
             boolean paperReviewScreenedEnabled,
             @Value("${app.research.literature.paper-review-screened.index-dir:${user.home}/.emergentterrain/indexes/math-literature-paper-review-screened}")
@@ -47,7 +49,9 @@ public class Phase34SqliteLiteratureConfig {
         // monolith as the safe live fallback until the offline builder has produced usable files.
         ShardedPhase34Literature shardedPrimary = candidateShards != null && candidateShards.available()
                 ? candidateShards : null;
-        return new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
                 initialCandidates, planner, paperReviewScreened, shardedPrimary, maxConcurrentPrimarySearches);
+        adapter.setCandidateFirstMembershipObserverEnabled(candidateFirstMembershipObserverEnabled);
+        return adapter;
     }
 }

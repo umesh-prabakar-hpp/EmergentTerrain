@@ -73,6 +73,7 @@ public final class Phase34SqliteLiterature {
     private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
     private final ShardedPhase34Literature shardedPrimary;
     private final int maxConcurrentPrimarySearches;
+    private volatile boolean candidateFirstMembershipObserverEnabled;
     // This is deliberately only an in-flight map, never a result cache. It prevents concurrent
     // retries of the same semantic lookup from competing for the immutable SQLite/FTS pages.
     private final Map<SearchFlightKey, CompletableFuture<String>> inFlightSearches = new ConcurrentHashMap<>();
@@ -161,6 +162,11 @@ public final class Phase34SqliteLiterature {
             // Treat a partial, old, or unreadable staging database as unavailable.
             return false;
         }
+    }
+
+    /** Controlled Phase 45 audit switch; never changes returned evidence or retrieval policy. */
+    void setCandidateFirstMembershipObserverEnabled(boolean enabled) {
+        this.candidateFirstMembershipObserverEnabled = enabled;
     }
 
     /**
@@ -374,6 +380,7 @@ public final class Phase34SqliteLiterature {
                 // statement name field first: it is a safe, bounded narrowing attempt whose
                 // general theorem query remains immediately behind it for complete recall.
                 theoremCandidateQueries = theoremNameFirstCandidates(candidateQueries);
+                observeCandidateFirstMembership(connection, theoremCandidateQueries);
                 log.info("Phase 35 literature plan: routedShard={} expressions={} candidateEvidenceAnchors={} candidateRequiredTitleAnchors={}",
                         routedShardForTelemetry(), candidateQueries.stream().map(SearchCandidate::expression).toList(),
                         candidateQueries.stream().map(SearchCandidate::evidenceAnchors).toList(),
@@ -505,6 +512,25 @@ public final class Phase34SqliteLiterature {
             logSearchTelemetry(telemetry, "error", 0);
             return "search_literature: Phase 34 SQLite query unavailable (" + safeMessage(e) + ").";
         }
+    }
+
+    private void observeCandidateFirstMembership(Connection connection, List<SearchCandidate> candidates) {
+        if (!candidateFirstMembershipObserverEnabled || !hasOfflineTitleAnchorDocuments(connection)
+                || !hasOfflineTheoremNameTokenDocuments(connection)) return;
+        candidates.stream().filter(candidate -> candidate.requiredTitleAnchors().size() == 2
+                        && candidate.expression().equals(candidate.nameAnchorExpression()))
+                .findFirst().ifPresent(candidate -> {
+                    try {
+                        CandidateFirstTheoremParity.Observation observation = CandidateFirstTheoremParity.observe(
+                                connection, candidate.normalizedRequiredTitleAnchors(), candidate.queryAnchors());
+                        log.info("Phase 45 candidate-first membership audit: routedShard={} parity={} "
+                                        + "candidateRows={} ftsRows={}", routedShardForTelemetry(),
+                                observation.membershipParity(), observation.candidateFirstRows().size(),
+                                observation.ftsRows().size());
+                    } catch (SQLException failure) {
+                        log.info("Phase 45 candidate-first membership audit: routedShard={} unavailable", routedShardForTelemetry());
+                    }
+                });
     }
 
     /** Preserve the screened incremental index when the large primary surface is routed by shard. */
@@ -699,6 +725,17 @@ public final class Phase34SqliteLiterature {
                 "SELECT value FROM metadata WHERE key = 'phase45_title_anchor_documents_version'")) {
             try (ResultSet row = version.executeQuery()) {
                 return row.next() && PHASE45_TITLE_ANCHOR_DOCUMENTS_VERSION.equals(row.getString(1));
+            }
+        } catch (SQLException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean hasOfflineTheoremNameTokenDocuments(Connection connection) {
+        try (PreparedStatement version = connection.prepareStatement(
+                "SELECT value FROM metadata WHERE key = 'phase45_theorem_name_token_documents_version'")) {
+            try (ResultSet row = version.executeQuery()) {
+                return row.next() && "phase45-theorem-name-token-documents-v1".equals(row.getString(1));
             }
         } catch (SQLException ignored) {
             return false;
@@ -1178,6 +1215,11 @@ public final class Phase34SqliteLiterature {
             return expression.startsWith("\"")
                     && evidenceAnchors.size() >= 3
                     && queryAnchors.stream().noneMatch(LiteratureQueryPlan::isWeakSubjectTerm);
+        }
+
+        private String nameAnchorExpression() {
+            return queryAnchors.stream().map(anchor -> "name : " + anchor)
+                    .collect(java.util.stream.Collectors.joining(" AND "));
         }
     }
 
