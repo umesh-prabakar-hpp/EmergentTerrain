@@ -738,7 +738,9 @@ class Phase34SqliteLiteratureTest {
             sql.execute("INSERT INTO literature_title_anchor_documents VALUES ('gap', '2401.01234')");
         }
 
-        assertThat(new Phase34SqliteLiterature(indexDir, true, 15_000).search("prime gap bound"))
+        Phase34SqliteLiterature narrowed = new Phase34SqliteLiterature(indexDir, true, 15_000);
+        narrowed.setTitleAnchorNarrowingEnabled(true);
+        assertThat(narrowed.search("prime gap bound"))
                 .contains("EVIDENCE")
                 .contains("Prime gap bounds");
 
@@ -750,7 +752,9 @@ class Phase34SqliteLiteratureTest {
             sql.execute("DELETE FROM fulltext_fts");
         }
 
-        assertThat(new Phase34SqliteLiterature(indexDir, true, 15_000).search("prime gap bound"))
+        Phase34SqliteLiterature staleNarrowed = new Phase34SqliteLiterature(indexDir, true, 15_000);
+        staleNarrowed.setTitleAnchorNarrowingEnabled(true);
+        assertThat(staleNarrowed.search("prime gap bound"))
                 .contains("EVIDENCE")
                 .contains("Prime gap bounds");
     }

@@ -1075,7 +1075,10 @@ app:
           max-concurrent-primary-searches: 2
           # Controlled read-only parity audit; it records candidate-first/FTS row-membership only
           # and cannot alter issued sources, evidence gates, or the ordinary FTS result.
-          candidate-first-membership-observer-enabled: false
+          candidate-first-membership-observer-enabled: true
+          # Keep the old FTS-with-rowid-filter narrowing disabled until it has its own parity
+          # evidence; completed offline metadata alone must not activate it.
+          title-anchor-narrowing-enabled: false
           # Search the highest-ranked tranche first, then retain the complete 512-result range
           # only when it has not produced evidence within the same fail-soft deadline.
           initial-candidates: 64

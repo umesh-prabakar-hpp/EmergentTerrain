@@ -26,6 +26,8 @@ public class Phase34SqliteLiteratureConfig {
             int maxConcurrentPrimarySearches,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-observer-enabled:false}")
             boolean candidateFirstMembershipObserverEnabled,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.title-anchor-narrowing-enabled:false}")
+            boolean titleAnchorNarrowingEnabled,
             @Value("${app.research.literature.paper-review-screened.enabled:false}")
             boolean paperReviewScreenedEnabled,
             @Value("${app.research.literature.paper-review-screened.index-dir:${user.home}/.emergentterrain/indexes/math-literature-paper-review-screened}")
@@ -52,6 +54,7 @@ public class Phase34SqliteLiteratureConfig {
         Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
                 initialCandidates, planner, paperReviewScreened, shardedPrimary, maxConcurrentPrimarySearches);
         adapter.setCandidateFirstMembershipObserverEnabled(candidateFirstMembershipObserverEnabled);
+        adapter.setTitleAnchorNarrowingEnabled(titleAnchorNarrowingEnabled);
         return adapter;
     }
 }

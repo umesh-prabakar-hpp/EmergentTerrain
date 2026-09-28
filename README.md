@@ -664,9 +664,13 @@ The same offline selectivity stage now also materializes exact FTS5 theorem-name
 Use `scripts/check-phase45-candidate-first-parity.py` only against an immutable index with both
 completed mappings to compare candidate-first and FTS theorem-row membership for one two-anchor
 case. It is read-only and does not claim FTS rank parity.
-Set `app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-observer-enabled=true`
-only for a controlled audit. It logs aggregate theorem-row membership parity before ordinary FTS
-retrieval and cannot alter issued sources, evidence gates, deadlines, or returned search output.
+`app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-observer-enabled`
+is enabled by default while Phase 45 gathers parity evidence. It logs aggregate theorem-row
+membership parity before ordinary FTS retrieval and cannot alter issued sources, evidence gates,
+deadlines, or returned search output. Set it to `false` to remove this additional diagnostic work.
+The older title-anchor FTS narrowing has its own
+`title-anchor-narrowing-enabled` switch and remains `false`: complete metadata alone must not
+activate its timeout-prone query shape.
 
 **Phase 45 fair primary-index scheduling** — distinct semantic Phase 35 leaders share a fair, generation-scoped primary-index cap (`max-concurrent-primary-searches: 2` by default); identical requests still use the existing single-flight leader and consume no second permit. Queue waiting consumes the same 15-second request budget as retrieval. On queue expiry, the adapter emits the ordinary Phase 35 timeout marker—not a no-match—so the existing recovery hold remains eligible. Source-safe dispatch telemetry records generation digest, queue wait, execution time, and outcome. Routed primary work receives only the remaining aggregate request budget. This changes neither FTS eligibility nor evidence, title, read, citation, or publication gates.
 

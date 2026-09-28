@@ -74,6 +74,8 @@ public final class Phase34SqliteLiterature {
     private final ShardedPhase34Literature shardedPrimary;
     private final int maxConcurrentPrimarySearches;
     private volatile boolean candidateFirstMembershipObserverEnabled;
+    // Preserve established FTS behavior until title narrowing itself has controlled parity evidence.
+    private volatile boolean titleAnchorNarrowingEnabled;
     // This is deliberately only an in-flight map, never a result cache. It prevents concurrent
     // retries of the same semantic lookup from competing for the immutable SQLite/FTS pages.
     private final Map<SearchFlightKey, CompletableFuture<String>> inFlightSearches = new ConcurrentHashMap<>();
@@ -167,6 +169,10 @@ public final class Phase34SqliteLiterature {
     /** Controlled Phase 45 audit switch; never changes returned evidence or retrieval policy. */
     void setCandidateFirstMembershipObserverEnabled(boolean enabled) {
         this.candidateFirstMembershipObserverEnabled = enabled;
+    }
+
+    void setTitleAnchorNarrowingEnabled(boolean enabled) {
+        this.titleAnchorNarrowingEnabled = enabled;
     }
 
     /**
@@ -292,7 +298,7 @@ public final class Phase34SqliteLiterature {
         long connectionStarted = System.nanoTime();
         try (Connection connection = open()) {
             telemetry.connectionOpenMs = elapsedMsSince(connectionStarted);
-            boolean titleAnchorNarrowingAvailable = phase35RetrievalEnabled
+            boolean titleAnchorNarrowingAvailable = phase35RetrievalEnabled && titleAnchorNarrowingEnabled
                     && hasOfflineTitleAnchorDocuments(connection);
             long statementStarted = System.nanoTime();
             try (PreparedStatement statement = connection.prepareStatement("""

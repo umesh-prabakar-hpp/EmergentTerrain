@@ -249,10 +249,15 @@ offline build.
    with a focused non-empty SQLite regression. It is deliberately unwired: it cannot issue a key,
    alter request deadlines, or change the normal FTS result until a separately default-off runtime
    observer proves outcome and ordered-key parity.
-   The first runtime observer is now separately default-off. It emits only aggregate bounded-path
-   versus title-filtered-FTS theorem-row membership counts and parity before normal retrieval; it
-   cannot affect results, issued keys, evidence gates, or deadlines. Ordered-key/outcome parity is
-   still a later gate, so this is controlled diagnostic evidence rather than activation authority.
+   The first runtime observer is now enabled by default while Phase 45 gathers parity evidence. It
+   emits only aggregate bounded-path versus title-filtered-FTS theorem-row membership counts and
+   parity before normal retrieval; it cannot affect results, issued keys, evidence gates, or
+   deadlines. Set its configuration flag to `false` to remove the additional diagnostic work.
+   Ordered-key/outcome parity is still a later gate, so this is evidence rather than activation
+   authority.
+   Completing title-anchor metadata must likewise not activate the old `MATCH … AND rowid IN (…)`
+   query: `title-anchor-narrowing-enabled` remains false until that path has its own controlled
+   parity and latency evidence.
    A focused regression enables that observer against a completed fixture, records non-empty
    membership parity, and proves the ordinary returned search output is byte-for-byte unchanged.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
