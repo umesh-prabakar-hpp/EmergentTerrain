@@ -241,6 +241,10 @@ offline build.
    `check-phase45-candidate-first-parity.py` is the read-only membership probe for that next gate:
    it compares the bounded surface with the current FTS theorem rows on one immutable index and
    fails on a set difference. It deliberately does not claim rank parity.
+   On 2026-09-28, the completed primary index passed both representative zero-row membership
+   controls (`maximum`/`prime` and `divisor`/`omega`) and a non-empty `ball`/`classification`
+   control (one row on each path). This validates token membership for those cases only; it is not
+   issued-key, rank, latency, or routed-shard activation evidence.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
