@@ -107,6 +107,23 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void candidateFirstMembershipObserverCannotChangeOrdinarySearchOutput() throws Exception {
+        Phase34SqliteLiterature adapter = indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE literature_title_anchor_documents (anchor TEXT, paper_id TEXT, PRIMARY KEY(anchor,paper_id)) WITHOUT ROWID");
+            sql.execute("CREATE TABLE literature_theorem_name_token_documents (token TEXT, theorem_rowid INTEGER, PRIMARY KEY(token,theorem_rowid)) WITHOUT ROWID");
+            sql.execute("INSERT INTO literature_title_anchor_documents VALUES ('prime','2401.01234'),('gap','2401.01234')");
+            sql.execute("INSERT INTO literature_theorem_name_token_documents VALUES ('prime',1),('gap',1)");
+            sql.execute("INSERT INTO metadata VALUES ('phase45_title_anchor_documents_version','phase45-title-anchor-documents-v1')");
+            sql.execute("INSERT INTO metadata VALUES ('phase45_theorem_name_token_documents_version','phase45-theorem-name-token-documents-v1')");
+        }
+        String baseline = adapter.search("prime gap bound");
+        adapter.setCandidateFirstMembershipObserverEnabled(true);
+        assertThat(adapter.search("prime gap bound")).isEqualTo(baseline);
+    }
+
+    @Test
     void routedShardTelemetryScopeDoesNotLeakToLaterDirectSearches() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 

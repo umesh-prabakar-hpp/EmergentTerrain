@@ -253,6 +253,8 @@ offline build.
    versus title-filtered-FTS theorem-row membership counts and parity before normal retrieval; it
    cannot affect results, issued keys, evidence gates, or deadlines. Ordered-key/outcome parity is
    still a later gate, so this is controlled diagnostic evidence rather than activation authority.
+   A focused regression enables that observer against a completed fixture, records non-empty
+   membership parity, and proves the ordinary returned search output is byte-for-byte unchanged.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
