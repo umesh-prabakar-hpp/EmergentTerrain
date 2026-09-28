@@ -245,6 +245,10 @@ offline build.
    controls (`maximum`/`prime` and `divisor`/`omega`) and a non-empty `ball`/`classification`
    control (one row on each path). This validates token membership for those cases only; it is not
    issued-key, rank, latency, or routed-shard activation evidence.
+   The same read-only comparison now exists in the Java service as `CandidateFirstTheoremParity`,
+   with a focused non-empty SQLite regression. It is deliberately unwired: it cannot issue a key,
+   alter request deadlines, or change the normal FTS result until a separately default-off runtime
+   observer proves outcome and ordered-key parity.
 6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.

@@ -90,6 +90,23 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void candidateFirstParityComparesExactTokenMembershipWithoutIssuingEvidence() throws Exception {
+        indexedAdapter();
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + indexDir.resolve("literature.db"));
+             Statement sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE literature_title_anchor_documents (anchor TEXT, paper_id TEXT, PRIMARY KEY(anchor,paper_id)) WITHOUT ROWID");
+            sql.execute("CREATE TABLE literature_theorem_name_token_documents (token TEXT, theorem_rowid INTEGER, PRIMARY KEY(token,theorem_rowid)) WITHOUT ROWID");
+            sql.execute("INSERT INTO literature_title_anchor_documents VALUES ('prime','2401.01234'),('gap','2401.01234')");
+            sql.execute("INSERT INTO literature_theorem_name_token_documents VALUES ('prime',1),('gap',1)");
+            CandidateFirstTheoremParity.Observation observation = CandidateFirstTheoremParity.observe(
+                    connection, List.of("prime", "gap"), List.of("prime", "gap"));
+            assertThat(observation.membershipParity()).isTrue();
+            assertThat(observation.candidateFirstRows()).containsExactly(1L);
+            assertThat(observation.ftsRows()).containsExactly(1L);
+        }
+    }
+
+    @Test
     void routedShardTelemetryScopeDoesNotLeakToLaterDirectSearches() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 
