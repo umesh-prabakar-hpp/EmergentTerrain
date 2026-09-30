@@ -35,6 +35,7 @@ Thumbs.db
 # Local env
 .env
 /.runtime/
+/apps/research-service/.runtime/
 # Legacy local paths from before the `.runtime/` consolidation. Keep these ignored so an
 # interrupted local migration never exposes generated data as untracked source files.
 /sample-output/
