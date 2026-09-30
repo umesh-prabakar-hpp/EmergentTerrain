@@ -193,13 +193,24 @@ cd "$(git rev-parse --show-toplevel)"
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-tail -F \
-  .runtime/logs/et-app.log \
-  .runtime/logs/maven-stdout.log \
-  .runtime/logs/local-ai-gateway.log \
-  services/julia-math-sidecar/logs/sidecar.log \
-  services/julia-math-sidecar/logs/py-sidecar.log \
+logs=(
+  .runtime/logs/et-app.log
+  .runtime/logs/maven-stdout.log
+  apps/research-service/.runtime/logs/et-app.log
+  .runtime/logs/local-ai-gateway.log
+  services/julia-math-sidecar/logs/sidecar.log
+  services/julia-math-sidecar/logs/py-sidecar.log
   engines/gpu-engine/logs/gpu-engine.log
+)
+available_logs=()
+for log in "${logs[@]}"; do
+  [[ -f "$log" ]] && available_logs+=("$log")
+done
+if ((${#available_logs[@]})); then
+  tail -F "${available_logs[@]}"
+else
+  echo "No service logs exist yet; start a service, then run this command again."
+fi
 ```
 
 ```bash

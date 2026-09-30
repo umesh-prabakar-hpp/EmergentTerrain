@@ -10,6 +10,7 @@ import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.MaxDivisorCountMeasurementPreRegistration;
+import com.emergentterrain.research.MaxDivisorCountMeasurementProtocolStateExecutor;
 import com.emergentterrain.research.MaxPrimeGapMultiScalePreRegistration;
 import com.emergentterrain.research.MaxPrimeGapProtocolStateExecutor;
 import com.emergentterrain.research.NarrationResult;
@@ -170,6 +171,10 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.max-prime-gap-multiscale-preregistration-executor.enabled:false}")
     private boolean maxPrimeGapProtocolStateExecutorEnabled;
+
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.max-divisor-count-measurement-preregistration-executor.enabled:false}")
+    private boolean maxDivisorCountMeasurementProtocolStateExecutorEnabled;
 
     /**
      * Phase 32 Wave 2 (32.3, 2026-06-13) — second-order ENGAGEMENT gate. Shares the
@@ -700,6 +705,42 @@ public class ResearchNarrationService {
             } catch (Exception e) {
                 callPath.add("prereg:auto:max_prime_gap:" + action.phase() + ":error");
                 log.warn("max-prime-gap protocol executor failed phase={} paperId={}: {}",
+                        action.phase(), draft.paperId(), e.toString());
+                break;
+            }
+        }
+        return trace;
+    }
+
+    /** Executes only verifier-supplied max-divisor fit/refutation/holdout actions. */
+    private List<com.emergentterrain.llm.ToolInvocation> executeMaxDivisorCountMeasurementProtocolState(
+            PaperDraft draft, List<com.emergentterrain.llm.ToolInvocation> initialTrace,
+            List<String> callPath) {
+        if (!maxDivisorCountMeasurementProtocolStateExecutorEnabled
+                || !MaxDivisorCountMeasurementPreRegistration.isLocked(draft.preRegistration())
+                || initialTrace == null || initialTrace.isEmpty()) return initialTrace;
+        List<com.emergentterrain.llm.ToolInvocation> trace = initialTrace;
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        java.util.function.Function<String, String> executor = toolSuite.buildExecutor(draft, metrics);
+        for (int actions = 0; actions < 5; actions++) {
+            java.util.Optional<MaxDivisorCountMeasurementProtocolStateExecutor.PlannedCall> planned =
+                    MaxDivisorCountMeasurementProtocolStateExecutor.next(draft.preRegistration(), trace);
+            if (planned.isEmpty()) break;
+            MaxDivisorCountMeasurementProtocolStateExecutor.PlannedCall action = planned.orElseThrow();
+            try {
+                com.fasterxml.jackson.databind.JsonNode arguments = objectMapper.readTree(action.argumentsJson());
+                String request = objectMapper.writeValueAsString(java.util.Map.of(
+                        "name", "verify_conjecture", "arguments", arguments));
+                updateDraftPhase(draft, "narration:max_divisor_count_protocol:" + action.phase());
+                String result = executor.apply(request);
+                trace = appendTrace(trace, List.of(new com.emergentterrain.llm.ToolInvocation(
+                        "verify_conjecture", action.argumentsJson(), result, 0)));
+                callPath.add("prereg:auto:max_divisor_count:" + action.phase());
+                log.info("max-divisor-count protocol executor: phase={} paperId={} result={}",
+                        action.phase(), draft.paperId(), abbrev(result));
+            } catch (Exception e) {
+                callPath.add("prereg:auto:max_divisor_count:" + action.phase() + ":error");
+                log.warn("max-divisor-count protocol executor failed phase={} paperId={}: {}",
                         action.phase(), draft.paperId(), e.toString());
                 break;
             }
@@ -3092,6 +3133,7 @@ public class ResearchNarrationService {
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
 
             profTrace = executeMaxPrimeGapProtocolState(draft, profTrace, callPath);
+            profTrace = executeMaxDivisorCountMeasurementProtocolState(draft, profTrace, callPath);
 
             // Phase 32 Wave 2 (32.3) — off-target corrective re-run. Sits AFTER
             // the D3 gate (trace verified non-empty) so a failed re-run can fall

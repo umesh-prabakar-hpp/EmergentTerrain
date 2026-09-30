@@ -1432,6 +1432,10 @@ app:
     # search result that was read and cited in Related Work. Rollback: false.
     max-divisor-count-measurement-preregistration-gate:
       enabled: true
+    # Carry only verifier-supplied fit/refutation parameters through the three locked holdouts.
+    # No coefficient is invented, no failed action is retried, and source grounding remains separate.
+    max-divisor-count-measurement-preregistration-executor:
+      enabled: true
     # The signed window Möbius sum is a finite envelope measurement, never an affine
     # frontier claim. The selected trace must retain its locked primary, disjoint-location,
     # and changed-width verify_oscillation calls; the computational plan separately requires

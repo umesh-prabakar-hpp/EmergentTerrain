@@ -296,20 +296,31 @@ proxies, Julia sidecars, and GPU listener. It prints each detected service's PID
 preferred start command when absent. It may exit nonzero when a service is down; use `|| true` when
 inspecting a partial runtime.
 
-To follow all usual logs at once:
+To follow every log that already exists at once:
 
 ```bash
-tail -F \
-  .runtime/logs/et-app.log \
-  .runtime/logs/maven-stdout.log \
-  .runtime/logs/local-ai-gateway.log \
-  services/julia-math-sidecar/logs/sidecar.log \
-  services/julia-math-sidecar/logs/py-sidecar.log \
+logs=(
+  .runtime/logs/et-app.log
+  .runtime/logs/maven-stdout.log
+  apps/research-service/.runtime/logs/et-app.log
+  .runtime/logs/local-ai-gateway.log
+  services/julia-math-sidecar/logs/sidecar.log
+  services/julia-math-sidecar/logs/py-sidecar.log
   engines/gpu-engine/logs/gpu-engine.log
+)
+available_logs=()
+for log in "${logs[@]}"; do
+  [[ -f "$log" ]] && available_logs+=("$log")
+done
+if ((${#available_logs[@]})); then
+  tail -F "${available_logs[@]}"
+else
+  echo "No service logs exist yet; start a service, then run this command again."
+fi
 ```
 
-`tail -F` tolerates services that have not yet created their log file and continues across log
-rotation.
+This avoids errors for optional services that are not running. Run it again after starting an
+additional service; `tail -F` continues across log rotation for every file it selected.
 
 When finished, stop the managed web app and its managed proxies:
 

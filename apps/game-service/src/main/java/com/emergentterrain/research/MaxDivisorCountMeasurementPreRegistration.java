@@ -73,6 +73,12 @@ public final class MaxDivisorCountMeasurementPreRegistration {
                 && registration.mappingNotes().startsWith(PREFIX);
     }
 
+    /** Registered fit grid exposed only to the deterministic protocol-state executor. */
+    public static Grid fitGrid() { return FIT; }
+
+    /** Registered holdouts exposed only to the deterministic protocol-state executor. */
+    public static List<Grid> holdoutGrids() { return HOLDOUTS; }
+
     /** True only when the selected trace completes every fixed fit/refutation/holdout check. */
     public static boolean hasExactEvidence(PreRegistration registration, List<ToolInvocation> trace) {
         return assess(registration, trace).complete();

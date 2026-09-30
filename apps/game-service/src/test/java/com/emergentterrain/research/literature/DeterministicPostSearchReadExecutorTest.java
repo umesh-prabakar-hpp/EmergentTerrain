@@ -42,7 +42,7 @@ class DeterministicPostSearchReadExecutorTest {
         assertThat(outcome.key()).isEqualTo(key);
         assertThat(outcome.invocation().functionName()).isEqualTo("read_reference");
         assertThat(outcome.invocation().argsJson()).contains("\"key\":\"" + key + "\"")
-                .contains("\"query\":\"prime gap bound\"");
+                .contains("\"query\":\"prime gap\"");
         assertThat(outcome.invocation().resultJson()).startsWith("read_reference " + key)
                 .contains("Top passages matching");
     }

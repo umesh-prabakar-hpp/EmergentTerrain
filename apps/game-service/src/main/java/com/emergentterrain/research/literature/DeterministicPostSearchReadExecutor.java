@@ -53,13 +53,14 @@ public final class DeterministicPostSearchReadExecutor {
             String result = nullToEmpty(call.resultJson());
             if (!result.contains("EVIDENCE")) continue;
             String claim = textArgument(call.argsJson(), "claim");
-            if (claim.isBlank()) continue;
+            String query = anchoredReadQuery(call.argsJson(), claim);
+            if (query.isBlank()) continue;
             Matcher key = HF_KEY.matcher(result);
             if (!key.find()) continue;
 
             String issuedKey = key.group(1);
-            String readResult = literature.read(issuedKey, claim);
-            String args = arguments(issuedKey, claim);
+            String readResult = literature.read(issuedKey, query);
+            String args = arguments(issuedKey, query);
             ToolInvocation invocation = new ToolInvocation("read_reference", args, readResult,
                     nextRound(safeTrace));
             boolean successful = successfulRead(readResult, issuedKey);
@@ -90,6 +91,23 @@ public final class DeterministicPostSearchReadExecutor {
             return value != null && value.isTextual() ? value.asText().strip() : "";
         } catch (Exception ignored) {
             return "";
+        }
+    }
+
+    /** Prefer the search's validated subject anchors over free-form narration wording. */
+    private String anchoredReadQuery(String raw, String fallback) {
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            JsonNode anchors = mapper.readTree(raw).path("subject_anchors");
+            if (!anchors.isArray()) return fallback;
+            java.util.List<String> tokens = new java.util.ArrayList<>();
+            for (JsonNode anchor : anchors) {
+                String token = anchor.asText("").strip();
+                if (!token.isBlank()) tokens.add(token);
+            }
+            return tokens.isEmpty() ? fallback : String.join(" ", tokens);
+        } catch (Exception ignored) {
+            return fallback;
         }
     }
 
