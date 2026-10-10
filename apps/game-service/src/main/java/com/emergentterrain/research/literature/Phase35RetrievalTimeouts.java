@@ -10,8 +10,8 @@ record Phase35RetrievalTimeouts(long dispatchQueueTimeoutMs, long anchorStatisti
     static final long DEFAULT_DISPATCH_QUEUE_TIMEOUT_MS = 45_000;
     static final long DEFAULT_ANCHOR_STATISTICS_TIMEOUT_MS = 5_000;
     static final long DEFAULT_PLANNING_TIMEOUT_MS = 2_000;
-    static final long DEFAULT_RETRIEVAL_TIMEOUT_MS = 45_000;
-    static final long DEFAULT_BATCH_TIMEOUT_MS = 10_000;
+    static final long DEFAULT_RETRIEVAL_TIMEOUT_MS = 300_000;
+    static final long DEFAULT_BATCH_TIMEOUT_MS = 60_000;
     static final long DEFAULT_SCREENED_MERGE_TIMEOUT_MS = 10_000;
 
     Phase35RetrievalTimeouts {

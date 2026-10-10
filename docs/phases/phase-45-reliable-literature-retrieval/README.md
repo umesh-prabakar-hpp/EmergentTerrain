@@ -267,8 +267,8 @@ offline build.
    membership parity, and proves the ordinary returned search output is byte-for-byte unchanged.
 6. **Implemented: independent generous stage deadlines.** The serving path now has separate
    configurable limits rather than one request-wide cap: 45 seconds for fair queueing, five
-   seconds for offline anchor statistics, two seconds for deterministic planning, 45 seconds for
-   the full primary retrieval sequence, ten seconds per FTS batch, and ten seconds for the
+   seconds for offline anchor statistics, two seconds for deterministic planning, five minutes for
+   the full primary retrieval sequence, one minute per FTS batch, and ten seconds for the
    paper-review-screened merge. A statistics timeout falls back to the historical deterministic
    ordering; a planner timeout rejects without issuing evidence; a batch timeout continues with
    the next safe candidate; and a screened-index timeout preserves the primary result. The

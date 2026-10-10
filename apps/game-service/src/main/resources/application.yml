@@ -1072,8 +1072,8 @@ app:
           dispatch-queue-timeout-ms: 45000
           anchor-statistics-timeout-ms: 5000
           planning-timeout-ms: 2000
-          retrieval-timeout-ms: 45000
-          batch-timeout-ms: 10000
+          retrieval-timeout-ms: 300000
+          batch-timeout-ms: 60000
           screened-merge-timeout-ms: 10000
           # Fair, generation-scoped cap for distinct primary-index queries. Identical semantic
           # requests still share one single-flight leader and do not consume another permit.

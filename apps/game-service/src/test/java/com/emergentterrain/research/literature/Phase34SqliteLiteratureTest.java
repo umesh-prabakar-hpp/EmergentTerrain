@@ -177,6 +177,14 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void defaultFtsBatchTimeoutIsOneMinuteWithinTheFiveMinuteRetrievalStage() {
+        Phase35RetrievalTimeouts limits = Phase35RetrievalTimeouts.defaults();
+
+        assertThat(limits.retrievalTimeoutMs()).isEqualTo(300_000);
+        assertThat(limits.batchTimeoutMs()).isEqualTo(60_000);
+    }
+
+    @Test
     void routedShardTelemetryScopeDoesNotLeakToLaterDirectSearches() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 

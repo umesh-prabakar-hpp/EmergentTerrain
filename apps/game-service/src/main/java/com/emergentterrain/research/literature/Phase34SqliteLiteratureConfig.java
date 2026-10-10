@@ -19,7 +19,7 @@ public class Phase34SqliteLiteratureConfig {
             String indexDir,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.enabled:false}")
             boolean phase35RetrievalEnabled,
-            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.retrieval-timeout-ms:${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:45000}}")
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.retrieval-timeout-ms:${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:300000}}")
             long retrievalTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.dispatch-queue-timeout-ms:45000}")
             long dispatchQueueTimeoutMs,
@@ -27,7 +27,7 @@ public class Phase34SqliteLiteratureConfig {
             long anchorStatisticsTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.planning-timeout-ms:2000}")
             long planningTimeoutMs,
-            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.batch-timeout-ms:10000}")
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.batch-timeout-ms:60000}")
             long batchTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.screened-merge-timeout-ms:10000}")
             long screenedMergeTimeoutMs,
