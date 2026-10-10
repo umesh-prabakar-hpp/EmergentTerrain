@@ -29,13 +29,20 @@ copy_jar_notices() {
   done
 }
 
-copy_symja_sources() {
+copy_lgpl_sources() {
   local destination="$1"
   local artifact
   local -a artifacts=(
     "org.matheclipse:matheclipse-core:3.2.0:jar:sources"
     "org.matheclipse:matheclipse-external:3.2.0:jar:sources"
     "org.matheclipse:matheclipse-parser:3.2.0:jar:sources"
+    "ch.qos.logback:logback-classic:1.5.6:jar:sources"
+    "ch.qos.logback:logback-core:1.5.6:jar:sources"
+    "net.sf.trove4j:trove4j:3.0.3:jar:sources"
+    "org.hibernate.common:hibernate-commons-annotations:6.0.6.Final:jar:sources"
+    "org.hibernate.orm:hibernate-core:6.5.2.Final:jar:sources"
+    "org.jgrapht:jgrapht-core:1.5.3:jar:sources"
+    "org.jgrapht:jgrapht-io:1.5.3:jar:sources"
   )
 
   mkdir -p "$destination"
@@ -46,7 +53,7 @@ copy_symja_sources() {
   done
   (
     cd "$destination"
-    sha256sum matheclipse-*-3.2.0-sources.jar > SHA256SUMS
+    sha256sum *-sources.jar > SHA256SUMS
   )
 }
 
@@ -90,7 +97,7 @@ install -m 0644 "$repo_root/docs/release/sbom/cargo.cdx.json" "$stage/sbom/cargo
 install -m 0644 "$repo_root/docs/release/README.md" "$stage/SOURCE-AND-BUILD.md"
 
 copy_jar_notices "$stage/lib" "$stage/licenses/from-jars"
-copy_symja_sources "$stage/sources/third-party"
+copy_lgpl_sources "$stage/sources/third-party"
 
 commit="$(git -C "$repo_root" rev-parse HEAD)"
 git -C "$repo_root" archive --format=tar.gz --prefix="$release_name-source/" HEAD \

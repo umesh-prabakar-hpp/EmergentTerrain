@@ -27,3 +27,8 @@ supported game-service ZIP is made by [`../scripts/build-game-release.sh`](../..
 it carries the Maven and Cargo SBOMs, notices, a matching source archive, and ordinary replaceable
 runtime JARs under `lib/`. Its generated output remains under `apps/game-service/target/release/`
 and is never committed.
+
+The only Node dependency is the dev-only `scripts/ui-tests` Playwright harness. Its locked
+packages are not installed into, copied into, or needed by the supported game-service ZIP, so they
+are intentionally outside these runtime SBOMs. If a Node tool, browser bundle, or `node_modules`
+directory is ever distributed, add a Node inventory and review its exact dependency closure first.

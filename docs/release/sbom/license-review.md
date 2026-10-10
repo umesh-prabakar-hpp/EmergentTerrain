@@ -1,6 +1,6 @@
 # Transitive license review
 
-Generated from the inventories on 2026-08-25. This is a release gate, not legal advice.
+Reviewed against the regenerated inventories on 2026-10-10. This is a release gate, not legal advice.
 
 ## Automated results
 
@@ -9,6 +9,7 @@ Generated from the inventories on 2026-08-25. This is a release gate, not legal 
 | Maven | 191 | External components carry CycloneDX license metadata, and the EmergentTerrain monorepo, `research-contract`, `game-service`, and `research-service` now declare AGPL-3.0-or-later in their POM metadata. |
 | Cargo | 245 | External components declare a Cargo license expression, and the EmergentTerrain GPU-engine crate now declares AGPL-3.0-or-later in `Cargo.toml`. |
 | Julia | 162 | The inventory records a conventional top-level license/notice file when one is present in the resolved package source. Julia standard-library and binary-wrapper packages require a distribution-specific review before packaging them in a container. |
+| Node UI tests | 3 locked packages | `scripts/ui-tests` is a dev-only Playwright harness, excluded from the supported game-service ZIP. Its locked package declarations are Playwright / Playwright Core: Apache-2.0; optional macOS-only fsevents: MIT. Review a generated Node inventory before distributing Node tooling or browser binaries. |
 
 ## Distribution decision
 
@@ -24,6 +25,9 @@ For Julia, review every resolved standard-library/binary-wrapper dependency in t
 including its transitive native libraries. For Cargo, honor every expression in `cargo.cdx.json`,
 including LGPL alternatives and bundled native-library terms. For Maven, retain any notice files
 identified by the dependency's own license.
+
+The Node UI-test package was isolated after the 2026-08-25 Maven/Cargo/Julia inventory run. Its
+non-runtime exclusion is recorded above; it must not be treated as covered by those inventories.
 
 ## Re-run procedure
 

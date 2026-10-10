@@ -29,9 +29,9 @@ apps/game-service/target/release/EmergentTerrain-<version>-distribution.zip
 
 It contains a matching Git source archive, `app/emergent-terrain-app.jar`, unmodified runtime
 dependencies under `lib/`, `bin/start`, SBOMs, notices, and license texts. It also includes the
-exact Symja LGPL source JARs and their SHA-256 file under `sources/third-party/`; see
-`licenses/THIRD_PARTY_SOURCE_MANIFEST.md`. Build from a clean tag for publication so the included
-source archive exactly matches the binaries.
+exact source JARs and SHA-256 file for every runtime component using the selected LGPL treatment
+under `sources/third-party/`; see `licenses/THIRD_PARTY_SOURCE_MANIFEST.md`. Build from a clean
+tag for publication so the included source archive exactly matches the binaries.
 
 ## Run and replace a library
 

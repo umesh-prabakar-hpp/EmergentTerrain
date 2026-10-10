@@ -13,19 +13,19 @@
 #   (188,219 Number-Theory records, server throttled to ~9.4 s/request and prone
 #   to transient HTTP 500s — see build-msc-zbmath-oai.py). Rather than make every
 #   open-source user endure that flaky harvest, the finished result is committed
-#   to the repo as a compact, gzipped lookup: src/main/resources/msc-map.jsonl.gz
+#   to the repo as a compact, gzipped lookup: apps/game-service/src/main/resources/msc-map.jsonl.gz
 #   (~0.3 MB gz / ~1.4 MB raw). A user just runs `--apply` and gets MSC instantly.
 #
 #   ⚠️ LICENSE / ATTRIBUTION: this data is DERIVED FROM zbMATH Open, licensed
 #   CC-BY-SA 4.0. By committing it we accept that obligation for this one file —
-#   see src/main/resources/msc-map.README.md for the required NOTICE. The MSC
+#   see apps/game-service/src/main/resources/msc-map.README.md for the required NOTICE. The MSC
 #   scheme itself is maintained by zbMATH + Mathematical Reviews (AMS).
 #
 # ---------------------------------------------------------------------
 # TWO MODES
 #
 #   --apply   (OSS USERS — the fast path; NO harvest, NO network)
-#       Reads the committed src/main/resources/msc-map.jsonl.gz and injects the
+#       Reads the committed apps/game-service/src/main/resources/msc-map.jsonl.gz and injects the
 #       `msc` field into your local corpus abstracts.jsonl by OpenAlex id. Run it
 #       after build-nt-corpus.sh; then start the py-sidecar with
 #       ET_GROUND_SUBJECTS=msc:11 to gate on MSC Number Theory. Idempotent.
@@ -35,12 +35,12 @@
 #   --extract (MAINTAINERS ONLY — regenerate the committed map)
 #       After a fresh zbMATH harvest (build-msc-zbmath-oai.py) has written the
 #       `msc` field into abstracts.jsonl, this pulls id->msc for the rows that got
-#       one and (re)writes the committed src/main/resources/msc-map.jsonl.gz.
+#       one and (re)writes the committed apps/game-service/src/main/resources/msc-map.jsonl.gz.
 #       Then `git add` + commit it. Do this only when refreshing the corpus.
 #
 #         python3 scripts/build-msc-zbmath-oai.py     # ~5 h, one time
-#         python3 scripts/msc-map.py --extract        # -> src/main/resources/msc-map.jsonl.gz
-#         git add src/main/resources/msc-map.jsonl.gz && git commit ...
+#         python3 scripts/msc-map.py --extract        # -> apps/game-service/src/main/resources/msc-map.jsonl.gz
+#         git add apps/game-service/src/main/resources/msc-map.jsonl.gz && git commit ...
 #
 # Env: CORPUS (default ~/.emergentterrain/corpus-nt/abstracts.jsonl)
 # =====================================================================
@@ -48,7 +48,7 @@ import argparse, datetime, gzip, json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-MAP = os.path.join(REPO, "src", "main", "resources", "msc-map.jsonl.gz")
+MAP = os.path.join(REPO, "apps", "game-service", "src", "main", "resources", "msc-map.jsonl.gz")
 CORPUS = os.path.expanduser(os.environ.get(
     "CORPUS", "~/.emergentterrain/corpus-nt/abstracts.jsonl"))
 
@@ -79,7 +79,7 @@ def extract():
     print(f"wrote {MAP}", flush=True)
     print(f"  generated {meta['_meta']['generated']} | {len(pairs):,} works with MSC | "
           f"{os.path.getsize(MAP)/1e6:.2f} MB gzipped", flush=True)
-    print("  next: git add src/main/resources/msc-map.jsonl.gz && commit (keep the NOTICE).", flush=True)
+    print("  next: git add apps/game-service/src/main/resources/msc-map.jsonl.gz && commit (keep the NOTICE).", flush=True)
 
 def apply_():
     """committed msc-map.jsonl.gz -> inject `msc` into the local corpus. OSS users, no harvest."""

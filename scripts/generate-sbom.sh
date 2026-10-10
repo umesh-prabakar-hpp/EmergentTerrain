@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-sbom_dir="$repo_root/sbom"
+sbom_dir="$repo_root/docs/release/sbom"
 mkdir -p "$sbom_dir"
 
 mvn -q -f "$repo_root/pom.xml" org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom \

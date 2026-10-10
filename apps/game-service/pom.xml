@@ -21,8 +21,8 @@
     <grpc.version>1.63.0</grpc.version>
     <protobuf.version>3.25.3</protobuf.version>
     <!-- Phase 8 Tier 3 — Symja (matheclipse-core) for symbolic math. LGPL-v3;
-         used as a separate run_symbolic tool, not linked into the GPL-incompatible
-         parts of the build. Pinned to a single version to keep behaviour stable. -->
+         distributed as an unmodified, replaceable runtime JAR with its matching
+         source JAR in the supported release. Pinned to a single version. -->
     <symja.version>3.2.0</symja.version>
   </properties>
   <dependencyManagement>

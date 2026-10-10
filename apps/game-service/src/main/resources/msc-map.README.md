@@ -46,7 +46,7 @@ python3 scripts/msc-map.py --apply  # inject `msc` into abstracts.jsonl from thi
 ```bash
 python3 scripts/build-msc-zbmath-oai.py   # ~5 h zbMATH OAI-PMH harvest + join (writes msc into abstracts.jsonl)
 python3 scripts/msc-map.py --extract      # rewrite this file (stamps today's date into _meta)
-git add src/main/resources/msc-map.jsonl.gz && git commit -m "data: refresh MSC map (zbMATH CC-BY-SA)"
+git add apps/game-service/src/main/resources/msc-map.jsonl.gz && git commit -m "data: refresh MSC map (zbMATH CC-BY-SA)"
 ```
 
 ## Coverage & caveats

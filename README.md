@@ -142,7 +142,8 @@ runtime/configuration impact, and update the relevant documentation.
 For a distributable game-service binary, generate and commit the reviewed SBOM update first, then
 run `./scripts/build-game-release.sh` from a clean checkout. It writes a Git-ignored ZIP beneath
 `apps/game-service/target/release/` with a plain application JAR and separate, replaceable
-dependency JARs under `lib/`, plus the exact Symja LGPL source JARs and checksums under
+dependency JARs under `lib/`, plus the exact source JARs and checksums for every runtime component
+using the selected LGPL treatment under
 `sources/third-party/`; it does not add JARs to this repository. See
 [docs/release/README.md](docs/release/README.md) and
 [THIRD_PARTY_SOURCE_MANIFEST.md](THIRD_PARTY_SOURCE_MANIFEST.md) for the release procedure and

@@ -2,7 +2,7 @@
 
 The literature-grounding corpus and its auxiliary stores. Data lives **outside the repo** under
 `~/.emergentterrain/corpus-nt/` (built by `scripts/*`, see RUN.md §0); the repo ships the *builders*,
-plus one committed derived asset (`src/main/resources/msc-map.jsonl.gz`). §-refs point to
+plus one committed derived asset (`apps/game-service/src/main/resources/msc-map.jsonl.gz`). §-refs point to
 `docs/phases/phase-32-manuscript-grounding/`.
 
 ## 1. Download inventory
@@ -41,7 +41,7 @@ All are JSONL under `~/.emergentterrain/corpus-nt/` unless noted. `id` = OpenAle
 // domain-refs/oeis.jsonl     — {"id":"A000045","name":"Fibonacci…","terms":["0","1","1",…]}  (terms are STRINGS)
 // domain-refs/dlmf.jsonl     — {"id":"25.10","title":"§25.10 Zeros ‣ …","text":"…"}
 
-// src/main/resources/msc-map.jsonl.gz  (COMMITTED, gzipped; zbMATH CC-BY-SA — see msc-map.README.md)
+// apps/game-service/src/main/resources/msc-map.jsonl.gz  (COMMITTED, gzipped; zbMATH CC-BY-SA — see msc-map.README.md)
 {"_meta":{"generated":"YYYY-MM-DD","source":"zbMATH … set=11","license":"CC-BY-SA-4.0","records":N}}
 {"id":"W2007557094","msc":["11N37","11M06"]}
 ```
