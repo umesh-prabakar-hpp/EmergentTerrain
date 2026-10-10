@@ -49,7 +49,7 @@ This avoids implementing a proposal that conflicts with an in-progress phase pla
 ## Contribution license
 
 By submitting a pull request, you represent that you have the right to submit it and license your
-contribution under the repository's [AGPL-3.0-or-later license](LICENSE). No contributor license
+contribution under the repository's [Apache-2.0 license](LICENSE). No contributor license
 agreement is required.
 
 ## Conduct and security

@@ -3,7 +3,7 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-10-10T17:36:02+00:00",
+    "timestamp": "2026-10-10T18:19:04+00:00",
     "component": {
       "type": "application",
       "name": "emergent_terrain_gpu_engine",
@@ -11,7 +11,7 @@
       "purl": "pkg:cargo/emergent_terrain_gpu_engine@0.1.0",
       "licenses": [
         {
-          "expression": "AGPL-3.0-or-later"
+          "expression": "Apache-2.0"
         }
       ]
     },
@@ -726,7 +726,7 @@
       "bom-ref": "pkg:cargo/emergent_terrain_gpu_engine@0.1.0",
       "licenses": [
         {
-          "expression": "AGPL-3.0-or-later"
+          "expression": "Apache-2.0"
         }
       ]
     },

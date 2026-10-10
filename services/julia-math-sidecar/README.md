@@ -310,6 +310,6 @@ Tracked in [`phase-22-julia-math-sidecar.md`][p22] in EmergentTerrain.
 ## License
 
 This sidecar is project-authored code included in the EmergentTerrain monorepo and is licensed
-under the repository's [AGPL-3.0-or-later license](../../LICENSE). Its Julia dependencies retain
+under the repository's [Apache-2.0 license](../../LICENSE). Its Julia dependencies retain
 their own licenses; see [`../../docs/release/sbom/README.md`](../../docs/release/sbom/README.md) before distributing a
 binary or container.

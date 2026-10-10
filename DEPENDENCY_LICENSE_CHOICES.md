@@ -6,7 +6,7 @@ substitute for the upstream license text, notices, or source obligations bundled
 
 | Runtime component | Version | Available expression | Selected treatment | Reason |
 |---|---:|---|---|---|
-| Logback Classic/Core | 1.5.6 | EPL-1.0 OR LGPL | LGPL-2.1-or-later route | Avoid relying on the EPL-1.0 option in the AGPL application distribution; retain LGPL notices and replacement path. |
+| Logback Classic/Core | 1.5.6 | EPL-1.0 OR LGPL | LGPL-2.1-or-later route | Retain LGPL notices and the replacement path for the separately distributed runtime JARs. |
 | JGraphT Core/IO | 1.5.3 | LGPL-2.1-only OR EPL-2.0 | LGPL-2.1 route | It is carried by the Symja runtime closure and is included as an unmodified, replaceable JAR. |
 | Paguro | 3.10.3 | EPL-1.0 OR Apache-2.0 | Apache-2.0 | Use the permissive alternative. |
 | `r-efi` | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | MIT or Apache-2.0 | The Cargo package may be redistributed under either permissive alternative. |

@@ -160,8 +160,8 @@ execution is being extracted in staged, parity-checked increments.
 ## License
 
 Unless a file states otherwise, EmergentTerrain code and project documentation are licensed under
-[AGPL-3.0-or-later](LICENSE). This permits commercial use but requires operators of modified
-network-facing versions to offer their corresponding source to users. Third-party data, downloaded
+[Apache-2.0](LICENSE). This permits commercial use, modification, and redistribution subject to
+the license's notice and patent terms. Third-party data, downloaded
 papers, model weights, dependencies, and generated research artifacts retain their own terms; see
 [NOTICE](NOTICE), [THIRD_PARTY_PROVENANCE.md](THIRD_PARTY_PROVENANCE.md), and
 [docs/release/sbom/README.md](docs/release/sbom/README.md). Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -750,7 +750,7 @@ manifest; after upgrading this script, repair previously imported display titles
 python3 scripts/prepare-paper-review-screened-literature-index.py --repair-titles
 ```
 
-**Literature licenses and release boundary** — the repository's AGPL license covers the code, not
+**Literature licenses and release boundary** — the repository's Apache-2.0 license covers the code, not
 downloaded papers, Hugging Face corpora, or derived SQLite indexes. Keep every such input outside
 Git. New paper-review staging manifests use schema v3 and attach a source license kind, HTTPS
 license URL, and reviewed `redistribution_allowed` decision to every retained source. Older

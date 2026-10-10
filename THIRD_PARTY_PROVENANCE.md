@@ -1,7 +1,7 @@
 # Third-party provenance
 
 This register distinguishes project-authored components from external code, data, and reference
-material. The repository-wide default license is AGPL-3.0-or-later; an entry here never changes an
+material. The repository-wide default license is Apache-2.0; an entry here never changes an
 upstream license.
 
 ## Project-authored imported histories
@@ -16,7 +16,7 @@ Git submodules.
 | `services/julia-math-sidecar/` | Julia math sidecar — imported project-owned source; no external remote required | `1b4efba74fe06136985fec6802ffa9904d30d1b1` — 2026-05-20, `Phase 22.1 — bootstrap julia-math-sidecar` | `455ad7e5398220aa45f555a8807505278cf4769c` — same date and subject | Matching chronological history through the 2026-07-09 grounding-performance commit |
 
 The project operator represents that they hold the right to license these project-authored sources
-under this repository's AGPL-3.0-or-later license. Their dependencies remain separately licensed;
+under this repository's Apache-2.0 license. Their dependencies remain separately licensed;
 see [`docs/release/sbom/README.md`](docs/release/sbom/README.md).
 
 ## Adapted external material

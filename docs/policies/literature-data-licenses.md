@@ -1,6 +1,6 @@
 # Literature data and redistribution policy
 
-EmergentTerrain's AGPL license covers this repository's code. It does not license downloaded
+EmergentTerrain's Apache-2.0 license covers this repository's code. It does not license downloaded
 papers, literature datasets, derived indexes, or third-party notices. Keep all such inputs local
 and outside Git unless a separately reviewed distribution decision says otherwise.
 
@@ -37,7 +37,7 @@ download being publicly readable does not itself grant downstream redistribution
 specific version's rights link and the [arXiv license policy](https://info.arxiv.org/help/license/index.html).
 
 `redistribution_allowed: true` is a reviewed distribution decision, not an assertion that source
-text becomes AGPL. Preserve the source's notice, attribution, and its own license conditions.
+text becomes Apache-2.0. Preserve the source's notice, attribution, and its own license conditions.
 
 ## Release check
 

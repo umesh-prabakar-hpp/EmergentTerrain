@@ -6,8 +6,8 @@ Reviewed against the regenerated inventories on 2026-10-10. This is a release ga
 
 | Ecosystem | Components checked | Result |
 |---|---:|---|
-| Maven | 191 | External components carry CycloneDX license metadata, and the EmergentTerrain monorepo, `research-contract`, `game-service`, and `research-service` now declare AGPL-3.0-or-later in their POM metadata. |
-| Cargo | 245 | External components declare a Cargo license expression, and the EmergentTerrain GPU-engine crate now declares AGPL-3.0-or-later in `Cargo.toml`. |
+| Maven | 191 | External components carry CycloneDX license metadata, and the EmergentTerrain monorepo, `research-contract`, `game-service`, and `research-service` now declare Apache-2.0 in their POM metadata. |
+| Cargo | 245 | External components declare a Cargo license expression, and the EmergentTerrain GPU-engine crate now declares Apache-2.0 in `Cargo.toml`. |
 | Julia | 162 | The inventory records a conventional top-level license/notice file when one is present in the resolved package source. Julia standard-library and binary-wrapper packages require a distribution-specific review before packaging them in a container. |
 | Node UI tests | 3 locked packages | `scripts/ui-tests` is a dev-only Playwright harness, excluded from the supported game-service ZIP. Its locked package declarations are Playwright / Playwright Core: Apache-2.0; optional macOS-only fsevents: MIT. Review a generated Node inventory before distributing Node tooling or browser binaries. |
 

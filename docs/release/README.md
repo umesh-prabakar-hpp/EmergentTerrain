@@ -1,6 +1,6 @@
 # Binary release distribution
 
-The source repository is AGPL-3.0-or-later. The game-service binary release deliberately uses a
+The source repository is Apache-2.0. The game-service binary release deliberately uses a
 plain application JAR plus a `lib/` directory rather than a shaded or nested dependency archive.
 That makes every runtime library, including LGPL libraries, plainly replaceable.
 

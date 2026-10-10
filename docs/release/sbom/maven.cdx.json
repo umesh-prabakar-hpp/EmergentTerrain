@@ -4,7 +4,7 @@
   "serialNumber" : "urn:uuid:7e26590c-c345-3737-8160-cfd79b2b2659",
   "version" : 1,
   "metadata" : {
-    "timestamp" : "2026-10-10T17:35:55Z",
+    "timestamp" : "2026-10-10T18:18:56Z",
     "lifecycles" : [
       {
         "phase" : "build"
@@ -65,8 +65,7 @@
       "licenses" : [
         {
           "license" : {
-            "id" : "AGPL-3.0-or-later",
-            "url" : "https://www.gnu.org/licenses/agpl.txt"
+            "id" : "Apache-2.0"
           }
         }
       ],
@@ -94,8 +93,7 @@
       "licenses" : [
         {
           "license" : {
-            "id" : "AGPL-3.0-or-later",
-            "url" : "https://www.gnu.org/licenses/agpl.txt"
+            "id" : "Apache-2.0"
           }
         }
       ],
@@ -321,8 +319,7 @@
       "licenses" : [
         {
           "license" : {
-            "id" : "AGPL-3.0-or-later",
-            "url" : "https://www.gnu.org/licenses/agpl.txt"
+            "id" : "Apache-2.0"
           }
         }
       ],
@@ -12746,8 +12743,7 @@
       "licenses" : [
         {
           "license" : {
-            "id" : "AGPL-3.0-or-later",
-            "url" : "https://www.gnu.org/licenses/agpl.txt"
+            "id" : "Apache-2.0"
           }
         }
       ],

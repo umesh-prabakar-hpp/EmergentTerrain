@@ -84,7 +84,7 @@ mvn -q -f "$service_dir/pom.xml" org.apache.maven.plugins:maven-dependency-plugi
 
 install -m 0644 "$service_dir/target/game-service-$version.jar" "$stage/app/emergent-terrain-app.jar"
 install -m 0755 "$repo_root/scripts/release-game-start.sh" "$stage/bin/start"
-install -m 0644 "$repo_root/LICENSE" "$stage/licenses/EmergentTerrain-AGPL-3.0-or-later.txt"
+install -m 0644 "$repo_root/LICENSE" "$stage/licenses/EmergentTerrain-Apache-2.0.txt"
 install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$stage/licenses/THIRD_PARTY_NOTICES.md"
 install -m 0644 "$repo_root/THIRD_PARTY_SOURCE_MANIFEST.md" "$stage/licenses/THIRD_PARTY_SOURCE_MANIFEST.md"
 install -m 0644 "$repo_root/DEPENDENCY_LICENSE_CHOICES.md" "$stage/licenses/DEPENDENCY_LICENSE_CHOICES.md"
