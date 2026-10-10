@@ -73,6 +73,7 @@ public final class Phase34SqliteLiterature {
     private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
     private final ShardedPhase34Literature shardedPrimary;
     private final int maxConcurrentPrimarySearches;
+    private final CandidateFirstMembershipAuditQueue candidateFirstMembershipAuditQueue;
     private volatile boolean candidateFirstMembershipObserverEnabled;
     // Preserve established FTS behavior until title narrowing itself has controlled parity evidence.
     private volatile boolean titleAnchorNarrowingEnabled;
@@ -138,6 +139,15 @@ public final class Phase34SqliteLiterature {
                             int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
                             PaperReviewScreenedLiterature paperReviewScreenedLiterature,
                             ShardedPhase34Literature shardedPrimary, int maxConcurrentPrimarySearches) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, initialSearchCandidates, queryPlanner,
+                paperReviewScreenedLiterature, shardedPrimary, maxConcurrentPrimarySearches, null);
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
+                            PaperReviewScreenedLiterature paperReviewScreenedLiterature,
+                            ShardedPhase34Literature shardedPrimary, int maxConcurrentPrimarySearches,
+                            CandidateFirstMembershipAuditQueue candidateFirstMembershipAuditQueue) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
         this.phase35RetrievalEnabled = phase35RetrievalEnabled;
         this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
@@ -149,6 +159,7 @@ public final class Phase34SqliteLiterature {
         // convert a safe shard rejection into an unavailable literature service.
         this.shardedPrimary = shardedPrimary != null && shardedPrimary.available() ? shardedPrimary : null;
         this.maxConcurrentPrimarySearches = Math.clamp(maxConcurrentPrimarySearches, 1, 4);
+        this.candidateFirstMembershipAuditQueue = candidateFirstMembershipAuditQueue;
     }
 
     public boolean available() {
@@ -296,6 +307,7 @@ public final class Phase34SqliteLiterature {
             return "search_literature: Phase 34 SQLite index is not available.";
         }
         long connectionStarted = System.nanoTime();
+        CandidateFirstMembershipAuditQueue.AuditInput pendingMembershipAudit = null;
         try (Connection connection = open()) {
             telemetry.connectionOpenMs = elapsedMsSince(connectionStarted);
             boolean titleAnchorNarrowingAvailable = phase35RetrievalEnabled && titleAnchorNarrowingEnabled
@@ -355,7 +367,7 @@ public final class Phase34SqliteLiterature {
                    ORDER BY ranked.rank
                      """) : null) {
             telemetry.statementPrepareMs = elapsedMsSince(statementStarted);
-            QueryBudget budget = phase35RetrievalEnabled ? new QueryBudget(connection, requestBudgetMs) : null;
+            QueryBudget budget = null;
             List<SearchCandidate> candidateQueries;
             List<SearchCandidate> theoremCandidateQueries;
             if (phase35RetrievalEnabled) {
@@ -386,7 +398,7 @@ public final class Phase34SqliteLiterature {
                 // statement name field first: it is a safe, bounded narrowing attempt whose
                 // general theorem query remains immediately behind it for complete recall.
                 theoremCandidateQueries = theoremNameFirstCandidates(candidateQueries);
-                observeCandidateFirstMembership(connection, theoremCandidateQueries);
+                pendingMembershipAudit = pendingCandidateFirstMembershipAudit(connection, theoremCandidateQueries);
                 log.info("Phase 35 literature plan: routedShard={} expressions={} candidateEvidenceAnchors={} candidateRequiredTitleAnchors={}",
                         routedShardForTelemetry(), candidateQueries.stream().map(SearchCandidate::expression).toList(),
                         candidateQueries.stream().map(SearchCandidate::evidenceAnchors).toList(),
@@ -398,10 +410,10 @@ public final class Phase34SqliteLiterature {
                 theoremCandidateQueries = candidateQueries;
             }
             if (candidateQueries.isEmpty()) {
-                if (budget != null) budget.close();
                 logSearchTelemetry(telemetry, "invalid_query", 0);
                 return "search_literature: no sufficiently specific literature anchors were found; no evidence was issued.";
             }
+            budget = phase35RetrievalEnabled ? new QueryBudget(connection, requestBudgetMs) : null;
             Map<String, Citation> distinct = new LinkedHashMap<>();
             try {
                 int theoremPasses = phase35RetrievalEnabled && telemetry.titleAnchorNarrowingAvailable ? 2 : 1;
@@ -410,12 +422,16 @@ public final class Phase34SqliteLiterature {
                     if (pass > 0) telemetry.titleAnchorNarrowingFallbacks++;
                     for (int attempt = 0; attempt < theoremCandidateQueries.size(); attempt++) {
                         SearchCandidate candidate = theoremCandidateQueries.get(attempt);
-                        telemetry.candidateAttempts++;
+                        boolean candidateAttempted = false;
                         for (int batchLimit : phase35RetrievalEnabled
                                 ? stagedCandidateLimits(initialSearchCandidates) : List.of(LEGACY_SEARCH_ROWS)) {
                             boolean titleNarrowed = useTitleNarrowing && candidate.requiredTitleAnchors().size() == 2;
                             PreparedStatement activeStatement = titleNarrowed ? titleAnchorStatement : statement;
                             if (budget != null) budget.apply(activeStatement);
+                            if (!candidateAttempted) {
+                                telemetry.candidateAttempts++;
+                                candidateAttempted = true;
+                            }
                             telemetry.batches++;
                             telemetry.lastExpression = candidate.expression();
                             telemetry.lastSurface = titleNarrowed ? "theorem_title_anchor_narrowed" : "theorem";
@@ -517,26 +533,25 @@ public final class Phase34SqliteLiterature {
             }
             logSearchTelemetry(telemetry, "error", 0);
             return "search_literature: Phase 34 SQLite query unavailable (" + safeMessage(e) + ").";
+        } finally {
+            // This only writes a compact durable job after the normal request is complete.  The
+            // audit's FTS comparison runs later on its own connection and budget.
+            if (pendingMembershipAudit != null && candidateFirstMembershipAuditQueue != null) {
+                candidateFirstMembershipAuditQueue.enqueue(database, pendingMembershipAudit.indexFingerprint(),
+                        pendingMembershipAudit.titleAnchors(), pendingMembershipAudit.nameAnchors());
+            }
         }
     }
 
-    private void observeCandidateFirstMembership(Connection connection, List<SearchCandidate> candidates) {
+    private CandidateFirstMembershipAuditQueue.AuditInput pendingCandidateFirstMembershipAudit(
+            Connection connection, List<SearchCandidate> candidates) {
         if (!candidateFirstMembershipObserverEnabled || !hasOfflineTitleAnchorDocuments(connection)
-                || !hasOfflineTheoremNameTokenDocuments(connection)) return;
-        candidates.stream().filter(candidate -> candidate.requiredTitleAnchors().size() == 2
+                || !hasOfflineTheoremNameTokenDocuments(connection) || candidateFirstMembershipAuditQueue == null) return null;
+        return candidates.stream().filter(candidate -> candidate.requiredTitleAnchors().size() == 2
                         && candidate.expression().equals(candidate.nameAnchorExpression()))
-                .findFirst().ifPresent(candidate -> {
-                    try {
-                        CandidateFirstTheoremParity.Observation observation = CandidateFirstTheoremParity.observe(
-                                connection, candidate.normalizedRequiredTitleAnchors(), candidate.queryAnchors());
-                        log.info("Phase 45 candidate-first membership audit: routedShard={} parity={} "
-                                        + "candidateRows={} ftsRows={}", routedShardForTelemetry(),
-                                observation.membershipParity(), observation.candidateFirstRows().size(),
-                                observation.ftsRows().size());
-                    } catch (SQLException failure) {
-                        log.info("Phase 45 candidate-first membership audit: routedShard={} unavailable", routedShardForTelemetry());
-                    }
-                });
+                .findFirst().map(candidate -> new CandidateFirstMembershipAuditQueue.AuditInput(
+                        indexFingerprint(), candidate.normalizedRequiredTitleAnchors(), candidate.queryAnchors()))
+                .orElse(null);
     }
 
     /** Preserve the screened incremental index when the large primary surface is routed by shard. */
@@ -792,11 +807,16 @@ public final class Phase34SqliteLiterature {
              LEFT JOIN papers p ON p.paper_id = f.paper_id
               ORDER BY ranked.rank
                 """)) {
-            for (SearchCandidate candidate : candidateQueries) {
-                telemetry.candidateAttempts++;
+            for (int candidateAttempt = 0; candidateAttempt < candidateQueries.size(); candidateAttempt++) {
+                SearchCandidate candidate = candidateQueries.get(candidateAttempt);
+                boolean candidateAttempted = false;
                 String expression = fullTextExpression(candidate);
                 for (int batchLimit : stagedCandidateLimits(initialSearchCandidates)) {
                     if (budget != null) budget.apply(statement);
+                    if (!candidateAttempted) {
+                        telemetry.candidateAttempts++;
+                        candidateAttempted = true;
+                    }
                     telemetry.batches++;
                     telemetry.lastExpression = expression;
                     telemetry.lastSurface = "fulltext";
@@ -820,7 +840,7 @@ public final class Phase34SqliteLiterature {
                             }
                         }
                     } finally {
-                        telemetry.recordBatch("fulltext", telemetry.candidateAttempts - 1, batchLimit,
+                        telemetry.recordBatch("fulltext", candidateAttempt, batchLimit,
                                 elapsedMsSince(batchStarted));
                     }
                     if (!distinct.isEmpty()) return;

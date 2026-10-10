@@ -249,10 +249,15 @@ offline build.
    with a focused non-empty SQLite regression. It is deliberately unwired: it cannot issue a key,
    alter request deadlines, or change the normal FTS result until a separately default-off runtime
    observer proves outcome and ordered-key parity.
-   The first runtime observer is now enabled by default while Phase 45 gathers parity evidence. It
-   emits only aggregate bounded-path versus title-filtered-FTS theorem-row membership counts and
-   parity before normal retrieval; it cannot affect results, issued keys, evidence gates, or
-   deadlines. Set its configuration flag to `false` to remove the additional diagnostic work.
+   The first runtime observer is enabled by default while Phase 45 gathers parity evidence. A
+   completed normal retrieval persists one deduplicated, restart-safe audit job for its immutable
+   index generation and anchors; a single low-priority worker later compares aggregate bounded-path
+   versus title-filtered-FTS theorem-row membership on a separate read-only connection with its own
+   five-second deadline. It never runs before or inside normal retrieval, cannot consume its
+   deadline, and cannot affect results, issued keys, or evidence gates. Jobs record `PENDING`,
+   `RUNNING`, `PASSED`, `MISMATCHED`, `TIMED_OUT`, or `FAILED`, reclaim expired leases after a
+   restart, and retry bounded failures. Set its configuration flag to `false` to stop creating new
+   audit jobs.
    Ordered-key/outcome parity is still a later gate, so this is evidence rather than activation
    authority.
    Completing title-anchor metadata must likewise not activate the old `MATCH … AND rowid IN (…)`

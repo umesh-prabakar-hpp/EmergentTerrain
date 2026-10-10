@@ -119,8 +119,28 @@ class Phase34SqliteLiteratureTest {
             sql.execute("INSERT INTO metadata VALUES ('phase45_theorem_name_token_documents_version','phase45-theorem-name-token-documents-v1')");
         }
         String baseline = adapter.search("prime gap bound");
-        adapter.setCandidateFirstMembershipObserverEnabled(true);
-        assertThat(adapter.search("prime gap bound")).isEqualTo(baseline);
+        try (CandidateFirstMembershipAuditQueue queue = new CandidateFirstMembershipAuditQueue(
+                indexDir.resolve("candidate-first-audit-state"), 5_000, 60_000, 30_000, 3, false)) {
+            Phase34SqliteLiterature observed = new Phase34SqliteLiterature(indexDir, true, 15_000, 64,
+                    new DeterministicLiteratureQueryPlanner(), null, null, 2, queue);
+            observed.setCandidateFirstMembershipObserverEnabled(true);
+
+            assertThat(observed.search("prime gap bound")).isEqualTo(baseline);
+            assertThat(queue.snapshots()).singleElement().satisfies(snapshot -> {
+                assertThat(snapshot.state()).isEqualTo("PENDING");
+                assertThat(snapshot.attempts()).isZero();
+            });
+            assertThat(observed.search("prime gap bound")).isEqualTo(baseline);
+            assertThat(queue.snapshots()).hasSize(1);
+
+            queue.runOne();
+            assertThat(queue.snapshots()).singleElement().satisfies(snapshot -> {
+                assertThat(snapshot.state()).isEqualTo("PASSED");
+                assertThat(snapshot.attempts()).isEqualTo(1);
+                assertThat(snapshot.candidateRows()).isEqualTo(1);
+                assertThat(snapshot.ftsRows()).isEqualTo(1);
+            });
+        }
     }
 
     @Test

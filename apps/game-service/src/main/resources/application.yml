@@ -1073,9 +1073,15 @@ app:
           # Fair, generation-scoped cap for distinct primary-index queries. Identical semantic
           # requests still share one single-flight leader and do not consume another permit.
           max-concurrent-primary-searches: 2
-          # Controlled read-only parity audit; it records candidate-first/FTS row-membership only
-          # and cannot alter issued sources, evidence gates, or the ordinary FTS result.
+          # Controlled read-only parity audit. Searches enqueue a durable, deduplicated job only
+          # after normal retrieval; its single worker uses a separate read-only connection and
+          # deadline, so it cannot consume the live 15-second search budget.
           candidate-first-membership-observer-enabled: true
+          candidate-first-membership-audit-state-dir: ${user.home}/.emergentterrain/runtime/candidate-first-membership-audits
+          candidate-first-membership-audit-timeout-ms: 5000
+          candidate-first-membership-audit-poll-interval-ms: 5000
+          candidate-first-membership-audit-lease-ms: 30000
+          candidate-first-membership-audit-max-attempts: 3
           # Keep the old FTS-with-rowid-filter narrowing disabled until it has its own parity
           # evidence; completed offline metadata alone must not activate it.
           title-anchor-narrowing-enabled: false

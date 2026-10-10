@@ -1,6 +1,7 @@
 package com.emergentterrain.research.literature;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,7 +40,8 @@ public class Phase34SqliteLiteratureConfig {
             @Value("${app.research.literature.phase34-sqlite.shards.parallelism:3}")
             int shardParallelism,
             @Value("${app.research.literature.phase34-sqlite.shards.early-success-cancellation-enabled:false}")
-            boolean earlySuccessCancellationEnabled) {
+            boolean earlySuccessCancellationEnabled,
+            ObjectProvider<CandidateFirstMembershipAuditQueue> candidateFirstMembershipAuditQueue) {
         PaperReviewScreenedLiterature paperReviewScreened = paperReviewScreenedEnabled
                 ? new PaperReviewScreenedLiterature(Path.of(paperReviewScreenedIndexDir)) : null;
         LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
@@ -52,9 +54,28 @@ public class Phase34SqliteLiteratureConfig {
         ShardedPhase34Literature shardedPrimary = candidateShards != null && candidateShards.available()
                 ? candidateShards : null;
         Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
-                initialCandidates, planner, paperReviewScreened, shardedPrimary, maxConcurrentPrimarySearches);
+                initialCandidates, planner, paperReviewScreened, shardedPrimary, maxConcurrentPrimarySearches,
+                candidateFirstMembershipAuditQueue.getIfAvailable());
         adapter.setCandidateFirstMembershipObserverEnabled(candidateFirstMembershipObserverEnabled);
         adapter.setTitleAnchorNarrowingEnabled(titleAnchorNarrowingEnabled);
         return adapter;
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-observer-enabled",
+            havingValue = "true")
+    CandidateFirstMembershipAuditQueue candidateFirstMembershipAuditQueue(
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-state-dir:${user.home}/.emergentterrain/runtime/candidate-first-membership-audits}")
+            String stateDir,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-timeout-ms:5000}")
+            long auditTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-poll-interval-ms:5000}")
+            long pollIntervalMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-lease-ms:30000}")
+            long leaseMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-max-attempts:3}")
+            int maxAttempts) {
+        return new CandidateFirstMembershipAuditQueue(Path.of(stateDir), auditTimeoutMs, pollIntervalMs,
+                leaseMs, maxAttempts);
     }
 }

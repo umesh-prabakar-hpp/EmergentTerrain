@@ -665,9 +665,13 @@ Use `scripts/check-phase45-candidate-first-parity.py` only against an immutable 
 completed mappings to compare candidate-first and FTS theorem-row membership for one two-anchor
 case. It is read-only and does not claim FTS rank parity.
 `app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-observer-enabled`
-is enabled by default while Phase 45 gathers parity evidence. It logs aggregate theorem-row
-membership parity before ordinary FTS retrieval and cannot alter issued sources, evidence gates,
-deadlines, or returned search output. Set it to `false` to remove this additional diagnostic work.
+is enabled by default while Phase 45 gathers parity evidence. A completed normal search queues one
+deduplicated, restart-safe audit for its immutable index generation and anchors; a single
+low-priority worker later compares aggregate candidate-first/FTS theorem-row membership on its own
+read-only connection and five-second deadline. It never shares the live 15-second request budget,
+alters issued sources, evidence gates, or returned search output. Its durable state is under
+`~/.emergentterrain/runtime/candidate-first-membership-audits/`; set the flag to `false` to stop
+creating new audit jobs.
 The older title-anchor FTS narrowing has its own
 `title-anchor-narrowing-enabled` switch and remains `false`: complete metadata alone must not
 activate its timeout-prone query shape.
