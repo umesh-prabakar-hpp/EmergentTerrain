@@ -144,6 +144,39 @@ class Phase34SqliteLiteratureTest {
     }
 
     @Test
+    void independentPlanningBudgetRejectsSlowPlannerWithoutReducingRetrievalBudget() throws Exception {
+        indexedAdapter();
+        LiteratureQueryPlanner delegate = new DeterministicLiteratureQueryPlanner();
+        LiteratureQueryPlanner slowPlanner = new LiteratureQueryPlanner() {
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts) {
+                return delegate.plan(claim, documentCounts);
+            }
+
+            @Override
+            public LiteratureQueryPlan plan(String claim, Map<String, Integer> documentCounts,
+                                            LiteratureQueryProposal proposal) {
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                return delegate.plan(claim, documentCounts, proposal);
+            }
+        };
+        Phase35RetrievalTimeouts limits = new Phase35RetrievalTimeouts(1_000, 1_000, 50,
+                5_000, 1_000, 1_000);
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(indexDir, true, 5_000, 64,
+                slowPlanner, null, null, 2, null, limits);
+
+        long started = System.nanoTime();
+        assertThat(adapter.search("prime gap bound"))
+                .contains("deterministic query planning exceeded its 50ms budget")
+                .contains("no evidence was issued");
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(200);
+    }
+
+    @Test
     void routedShardTelemetryScopeDoesNotLeakToLaterDirectSearches() throws Exception {
         Phase34SqliteLiterature adapter = indexedAdapter();
 

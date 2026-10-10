@@ -38,6 +38,7 @@ final class ShardedPhase34Literature {
     private final Map<String, Phase34SqliteLiterature> shards;
     private final int parallelism;
     private final long aggregateTimeoutMs;
+    private final Phase35RetrievalTimeouts timeouts;
     private final boolean earlySuccessCancellationEnabled;
     private final Map<String, Phase34SqliteLiterature> readerForKey = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -49,8 +50,16 @@ final class ShardedPhase34Literature {
     ShardedPhase34Literature(Path shardsDir, boolean phase35, long timeoutMs, int initialCandidates,
                              LiteratureQueryPlanner planner, int parallelism,
                              boolean earlySuccessCancellationEnabled) {
+        this(shardsDir, phase35, Phase35RetrievalTimeouts.legacy(timeoutMs), initialCandidates, planner,
+                parallelism, earlySuccessCancellationEnabled);
+    }
+
+    ShardedPhase34Literature(Path shardsDir, boolean phase35, Phase35RetrievalTimeouts timeouts,
+                             int initialCandidates, LiteratureQueryPlanner planner, int parallelism,
+                             boolean earlySuccessCancellationEnabled) {
         this.parallelism = Math.clamp(parallelism, 1, 4);
-        this.aggregateTimeoutMs = Math.max(1_000, timeoutMs);
+        this.timeouts = timeouts == null ? Phase35RetrievalTimeouts.defaults() : timeouts;
+        this.aggregateTimeoutMs = this.timeouts.retrievalTimeoutMs();
         this.earlySuccessCancellationEnabled = earlySuccessCancellationEnabled;
         Map<String, Phase34SqliteLiterature> loaded = new LinkedHashMap<>();
         // Version 3 separates the mathematics complement from broad non-mathematics records.
@@ -65,8 +74,9 @@ final class ShardedPhase34Literature {
                 this.shards = Map.of();
                 return;
             }
-            Phase34SqliteLiterature shard = new Phase34SqliteLiterature(directory, phase35, timeoutMs,
-                    initialCandidates, planner, null);
+            Phase34SqliteLiterature shard = new Phase34SqliteLiterature(directory, phase35,
+                    this.timeouts.retrievalTimeoutMs(), initialCandidates, planner, null, null, 2, null,
+                    this.timeouts);
             if (!shard.available()) {
                 this.shards = Map.of();
                 return;

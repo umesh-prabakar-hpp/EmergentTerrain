@@ -33,6 +33,8 @@ import java.util.concurrent.TimeUnit;
 final class CandidateFirstMembershipAuditQueue implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(CandidateFirstMembershipAuditQueue.class);
     private static final int PROGRESS_HANDLER_VM_STEPS = 1_000;
+    private static final int ENQUEUE_BUSY_TIMEOUT_MS = 500;
+    private static final int WORKER_BUSY_TIMEOUT_MS = 2_000;
 
     private final Path stateDatabase;
     private final long auditTimeoutMs;
@@ -77,7 +79,7 @@ final class CandidateFirstMembershipAuditQueue implements AutoCloseable {
         QueuedInput input = new QueuedInput(indexDatabase.toAbsolutePath().toString(),
                 indexFingerprint == null ? "unavailable" : indexFingerprint,
                 List.copyOf(titleAnchors), List.copyOf(nameAnchors));
-        try (Connection connection = stateConnection();
+        try (Connection connection = stateConnection(ENQUEUE_BUSY_TIMEOUT_MS);
              PreparedStatement insert = connection.prepareStatement("""
                      INSERT INTO candidate_first_membership_audits
                          (job_key, index_fingerprint, index_database, title_anchor_one, title_anchor_two,
@@ -289,9 +291,13 @@ final class CandidateFirstMembershipAuditQueue implements AutoCloseable {
     }
 
     private Connection stateConnection() throws SQLException {
+        return stateConnection(WORKER_BUSY_TIMEOUT_MS);
+    }
+
+    private Connection stateConnection(int busyTimeoutMs) throws SQLException {
         Connection connection = DriverManager.getConnection("jdbc:sqlite:" + stateDatabase);
         try (Statement settings = connection.createStatement()) {
-            settings.execute("PRAGMA busy_timeout=2000");
+            settings.execute("PRAGMA busy_timeout=" + Math.max(1, busyTimeoutMs));
             settings.execute("PRAGMA journal_mode=WAL");
         }
         return connection;

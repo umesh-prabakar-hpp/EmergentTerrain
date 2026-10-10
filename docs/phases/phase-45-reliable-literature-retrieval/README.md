@@ -8,7 +8,7 @@ parity telemetry.**
 
 Phase 35 made local SQLite/FTS5 retrieval bounded, title-gated, and observable. The latest
 standalone research run showed that two valid searches can still behave very differently under
-the same 15-second request budget: `prime gap`/`maximum prime` issued evidence, while
+the former shared 15-second request budget: `prime gap`/`maximum prime` issued evidence, while
 `divisor`/`omega` spent its deadline in broad posting-list scans before reaching its more
 specific alternatives. A timeout is unresolved retrieval, not evidence of absence.
 
@@ -204,7 +204,7 @@ offline build.
    directory and receive the same shadow validation as a clean derivation.
    The first normal-cache v2 staging observation completed on 2026-09-25, with cross-list growing
    from 7,288 to 7,974 documents. It is **not** cutover evidence: the broad combined cross-list
-   still exhausted the 15-second routed deadline for both representative routed shapes, and the
+   still exhausted the then-15-second routed deadline for both representative routed shapes, and the
    disabled/enabled maximum-prime observation had outcome/key non-parity. Keep routed shards off
    (the runtime safely uses the monolith) until the mathematics complement is separated from the
    broad non-lane cross-list and the same benchmark reports outcome/key parity. Catalog schema v3
@@ -253,7 +253,7 @@ offline build.
    completed normal retrieval persists one deduplicated, restart-safe audit job for its immutable
    index generation and anchors; a single low-priority worker later compares aggregate bounded-path
    versus title-filtered-FTS theorem-row membership on a separate read-only connection with its own
-   five-second deadline. It never runs before or inside normal retrieval, cannot consume its
+   ten-second deadline. It never runs before or inside normal retrieval, cannot consume its
    deadline, and cannot affect results, issued keys, or evidence gates. Jobs record `PENDING`,
    `RUNNING`, `PASSED`, `MISMATCHED`, `TIMED_OUT`, or `FAILED`, reclaim expired leases after a
    restart, and retry bounded failures. Set its configuration flag to `false` to stop creating new
@@ -265,10 +265,18 @@ offline build.
    parity and latency evidence.
    A focused regression enables that observer against a completed fixture, records non-empty
    membership parity, and proves the ordinary returned search output is byte-for-byte unchanged.
-6. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
+6. **Implemented: independent generous stage deadlines.** The serving path now has separate
+   configurable limits rather than one request-wide cap: 45 seconds for fair queueing, five
+   seconds for offline anchor statistics, two seconds for deterministic planning, 45 seconds for
+   the full primary retrieval sequence, ten seconds per FTS batch, and ten seconds for the
+   paper-review-screened merge. A statistics timeout falls back to the historical deterministic
+   ordering; a planner timeout rejects without issuing evidence; a batch timeout continues with
+   the next safe candidate; and a screened-index timeout preserves the primary result. The
+   candidate-first parity audit remains separate, on its own ten-second read-only deadline.
+7. **Implemented:** durable fingerprint-pinned recovery holds selected terminal timeouts, preserves
    the normal evidence chain on release, serializes re-narration dispatch, and re-arms safely after
    restart. OpenAlex discovery is advisory and cannot strand a job before local-index recovery.
-7. Run cold/concurrent acceptance tests and one controlled research worker session before enabling
+8. Run cold/concurrent acceptance tests and one controlled research worker session before enabling
    any new default behavior.
 
 ## Acceptance criteria

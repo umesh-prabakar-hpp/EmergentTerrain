@@ -1065,20 +1065,25 @@ app:
           early-success-cancellation-enabled: false
         # Phase 35 — bounded, storage-backed FTS5 retrieval. Enabled by the operator on
         # 2026-07-17. false retains the former Phase 34 all-terms-then-OR query for rollback.
-        # The per-search guard interrupts pathological FTS work before it can occupy both
-        # narration slots; it is independent of the 90-minute narration deadline.
+        # Each retrieval stage has an independent, generous cap. There is deliberately no
+        # end-to-end Phase 35 deadline: slow metadata cannot consume the FTS evidence budget.
         phase35-retrieval:
           enabled: true
-          search-timeout-ms: 15000
+          dispatch-queue-timeout-ms: 45000
+          anchor-statistics-timeout-ms: 5000
+          planning-timeout-ms: 2000
+          retrieval-timeout-ms: 45000
+          batch-timeout-ms: 10000
+          screened-merge-timeout-ms: 10000
           # Fair, generation-scoped cap for distinct primary-index queries. Identical semantic
           # requests still share one single-flight leader and do not consume another permit.
           max-concurrent-primary-searches: 2
           # Controlled read-only parity audit. Searches enqueue a durable, deduplicated job only
           # after normal retrieval; its single worker uses a separate read-only connection and
-          # deadline, so it cannot consume the live 15-second search budget.
+          # deadline, so it cannot consume any live retrieval-stage budget.
           candidate-first-membership-observer-enabled: true
           candidate-first-membership-audit-state-dir: ${user.home}/.emergentterrain/runtime/candidate-first-membership-audits
-          candidate-first-membership-audit-timeout-ms: 5000
+          candidate-first-membership-audit-timeout-ms: 10000
           candidate-first-membership-audit-poll-interval-ms: 5000
           candidate-first-membership-audit-lease-ms: 30000
           candidate-first-membership-audit-max-attempts: 3

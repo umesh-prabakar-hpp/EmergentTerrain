@@ -19,8 +19,18 @@ public class Phase34SqliteLiteratureConfig {
             String indexDir,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.enabled:false}")
             boolean phase35RetrievalEnabled,
-            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:15000}")
-            long searchTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.retrieval-timeout-ms:${app.research.literature.phase34-sqlite.phase35-retrieval.search-timeout-ms:45000}}")
+            long retrievalTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.dispatch-queue-timeout-ms:45000}")
+            long dispatchQueueTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.anchor-statistics-timeout-ms:5000}")
+            long anchorStatisticsTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.planning-timeout-ms:2000}")
+            long planningTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.batch-timeout-ms:10000}")
+            long batchTimeoutMs,
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.screened-merge-timeout-ms:10000}")
+            long screenedMergeTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.initial-candidates:64}")
             int initialCandidates,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.max-concurrent-primary-searches:2}")
@@ -42,20 +52,23 @@ public class Phase34SqliteLiteratureConfig {
             @Value("${app.research.literature.phase34-sqlite.shards.early-success-cancellation-enabled:false}")
             boolean earlySuccessCancellationEnabled,
             ObjectProvider<CandidateFirstMembershipAuditQueue> candidateFirstMembershipAuditQueue) {
+        Phase35RetrievalTimeouts timeouts = new Phase35RetrievalTimeouts(dispatchQueueTimeoutMs,
+                anchorStatisticsTimeoutMs, planningTimeoutMs, retrievalTimeoutMs, batchTimeoutMs,
+                screenedMergeTimeoutMs);
         PaperReviewScreenedLiterature paperReviewScreened = paperReviewScreenedEnabled
                 ? new PaperReviewScreenedLiterature(Path.of(paperReviewScreenedIndexDir)) : null;
         LiteratureQueryPlanner planner = new DeterministicLiteratureQueryPlanner();
         ShardedPhase34Literature candidateShards = shardsEnabled
-                ? new ShardedPhase34Literature(Path.of(shardsDir), phase35RetrievalEnabled, searchTimeoutMs,
+                ? new ShardedPhase34Literature(Path.of(shardsDir), phase35RetrievalEnabled, timeouts,
                         initialCandidates, planner, shardParallelism, earlySuccessCancellationEnabled)
                 : null;
         // A half-built/missing shard set must never take the primary index offline. Keep the
         // monolith as the safe live fallback until the offline builder has produced usable files.
         ShardedPhase34Literature shardedPrimary = candidateShards != null && candidateShards.available()
                 ? candidateShards : null;
-        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, searchTimeoutMs,
+        Phase34SqliteLiterature adapter = new Phase34SqliteLiterature(Path.of(indexDir), phase35RetrievalEnabled, retrievalTimeoutMs,
                 initialCandidates, planner, paperReviewScreened, shardedPrimary, maxConcurrentPrimarySearches,
-                candidateFirstMembershipAuditQueue.getIfAvailable());
+                candidateFirstMembershipAuditQueue.getIfAvailable(), timeouts);
         adapter.setCandidateFirstMembershipObserverEnabled(candidateFirstMembershipObserverEnabled);
         adapter.setTitleAnchorNarrowingEnabled(titleAnchorNarrowingEnabled);
         return adapter;
@@ -67,7 +80,7 @@ public class Phase34SqliteLiteratureConfig {
     CandidateFirstMembershipAuditQueue candidateFirstMembershipAuditQueue(
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-state-dir:${user.home}/.emergentterrain/runtime/candidate-first-membership-audits}")
             String stateDir,
-            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-timeout-ms:5000}")
+            @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-timeout-ms:10000}")
             long auditTimeoutMs,
             @Value("${app.research.literature.phase34-sqlite.phase35-retrieval.candidate-first-membership-audit-poll-interval-ms:5000}")
             long pollIntervalMs,

@@ -24,8 +24,11 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -67,7 +70,7 @@ public final class Phase34SqliteLiterature {
 
     private final Path database;
     private final boolean phase35RetrievalEnabled;
-    private final long searchTimeoutMs;
+    private final Phase35RetrievalTimeouts timeouts;
     private final int initialSearchCandidates;
     private final LiteratureQueryPlanner queryPlanner;
     private final PaperReviewScreenedLiterature paperReviewScreenedLiterature;
@@ -148,9 +151,20 @@ public final class Phase34SqliteLiterature {
                             PaperReviewScreenedLiterature paperReviewScreenedLiterature,
                             ShardedPhase34Literature shardedPrimary, int maxConcurrentPrimarySearches,
                             CandidateFirstMembershipAuditQueue candidateFirstMembershipAuditQueue) {
+        this(indexDir, phase35RetrievalEnabled, searchTimeoutMs, initialSearchCandidates, queryPlanner,
+                paperReviewScreenedLiterature, shardedPrimary, maxConcurrentPrimarySearches,
+                candidateFirstMembershipAuditQueue, Phase35RetrievalTimeouts.legacy(searchTimeoutMs));
+    }
+
+    Phase34SqliteLiterature(Path indexDir, boolean phase35RetrievalEnabled, long searchTimeoutMs,
+                            int initialSearchCandidates, LiteratureQueryPlanner queryPlanner,
+                            PaperReviewScreenedLiterature paperReviewScreenedLiterature,
+                            ShardedPhase34Literature shardedPrimary, int maxConcurrentPrimarySearches,
+                            CandidateFirstMembershipAuditQueue candidateFirstMembershipAuditQueue,
+                            Phase35RetrievalTimeouts timeouts) {
         this.database = indexDir.resolve("literature.db").toAbsolutePath();
         this.phase35RetrievalEnabled = phase35RetrievalEnabled;
-        this.searchTimeoutMs = Math.max(1_000, searchTimeoutMs);
+        this.timeouts = timeouts == null ? Phase35RetrievalTimeouts.legacy(searchTimeoutMs) : timeouts;
         this.initialSearchCandidates = Math.clamp(initialSearchCandidates, 1, SEARCH_CANDIDATES);
         this.queryPlanner = queryPlanner == null ? new DeterministicLiteratureQueryPlanner() : queryPlanner;
         this.paperReviewScreenedLiterature = paperReviewScreenedLiterature;
@@ -244,7 +258,7 @@ public final class Phase34SqliteLiterature {
         CompletableFuture<String> active = inFlightSearches.putIfAbsent(key, leader);
         if (active == null) {
             long startedNanos = System.nanoTime();
-            SearchDispatchLease dispatch = acquirePrimarySearchLease(key, startedNanos);
+            SearchDispatchLease dispatch = acquirePrimarySearchLease(key);
             if (!dispatch.acquired()) {
                 String output = queueBudgetExpiredOutput(dispatch.queueWaitMs());
                 leader.complete(output);
@@ -254,15 +268,7 @@ public final class Phase34SqliteLiterature {
                 return output;
             }
             try {
-                long remainingMs = remainingSearchBudgetMs(startedNanos);
-                if (remainingMs < 1_000) {
-                    String output = queueBudgetExpiredOutput(dispatch.queueWaitMs());
-                    leader.complete(output);
-                    logPrimarySearchDispatch("queue_expired", output, dispatch.queueWaitMs(), 0, key);
-                    logSingleFlightTelemetry("leader", output, elapsedMsSince(startedNanos), key);
-                    return output;
-                }
-                String output = searchOnce(query, proposal, remainingMs);
+                String output = searchOnce(query, proposal, timeouts.retrievalTimeoutMs());
                 leader.complete(output);
                 logPrimarySearchDispatch("completed", output, dispatch.queueWaitMs(),
                         elapsedMsSince(dispatch.executionStartedNanos()), key);
@@ -292,7 +298,7 @@ public final class Phase34SqliteLiterature {
     }
 
     private String searchOnce(String query, LiteratureQueryProposal proposal) {
-        return searchOnce(query, proposal, searchTimeoutMs);
+        return searchOnce(query, proposal, timeouts.retrievalTimeoutMs());
     }
 
     private String searchOnce(String query, LiteratureQueryProposal proposal, long requestBudgetMs) {
@@ -375,14 +381,22 @@ public final class Phase34SqliteLiterature {
                 // anchors. It never queries fts5vocab or scans corpus text to estimate selectivity
                 // while a paper request is active. Missing metadata preserves the established order.
                 long anchorStatisticsStarted = System.nanoTime();
-                Map<String, Integer> anchorDocumentCounts = loadOfflineAnchorDocumentCounts(connection, query, proposal);
+                AnchorStatistics anchorStatistics = loadAnchorStatistics(connection, query, proposal);
+                Map<String, Integer> anchorDocumentCounts = anchorStatistics.counts();
                 telemetry.anchorStatisticsMs = elapsedMsSince(anchorStatisticsStarted);
                 telemetry.anchorStatisticsAvailable = !anchorDocumentCounts.isEmpty();
                 telemetry.anchorStatisticsTerms = anchorDocumentCounts.size();
+                telemetry.anchorStatisticsTimedOut = anchorStatistics.timedOut();
                 telemetry.titleAnchorNarrowingAvailable = titleAnchorNarrowingAvailable;
                 long planStarted = System.nanoTime();
-                LiteratureQueryPlan plan = queryPlanner.plan(query, anchorDocumentCounts, proposal);
+                LiteratureQueryPlan plan = planWithinBudget(query, anchorDocumentCounts, proposal);
                 telemetry.planMs = elapsedMsSince(planStarted);
+                if (plan == null) {
+                    telemetry.planningTimedOut = true;
+                    logSearchTelemetry(telemetry, "planning_timeout", 0);
+                    return "search_literature: Phase 35 deterministic query planning exceeded its "
+                            + timeouts.planningTimeoutMs() + "ms budget; no evidence was issued.";
+                }
                 if (!plan.unavailableReason().isBlank()) {
                     if (budget != null) budget.close();
                     logSearchTelemetry(telemetry, "invalid_query", 0);
@@ -413,7 +427,8 @@ public final class Phase34SqliteLiterature {
                 logSearchTelemetry(telemetry, "invalid_query", 0);
                 return "search_literature: no sufficiently specific literature anchors were found; no evidence was issued.";
             }
-            budget = phase35RetrievalEnabled ? new QueryBudget(connection, requestBudgetMs) : null;
+            budget = phase35RetrievalEnabled ? new QueryBudget(connection, requestBudgetMs,
+                    timeouts.batchTimeoutMs()) : null;
             Map<String, Citation> distinct = new LinkedHashMap<>();
             try {
                 int theoremPasses = phase35RetrievalEnabled && telemetry.titleAnchorNarrowingAvailable ? 2 : 1;
@@ -449,29 +464,37 @@ public final class Phase34SqliteLiterature {
                                     statement.setInt(2, batchLimit);
                                 }
                                 try (ResultSet rows = activeStatement.executeQuery()) {
-                                while (rows.next() && distinct.size() < SEARCH_RESULTS) {
-                                    telemetry.rowsInspected++;
-                                    String paperId = rows.getString(1);
-                                    if (paperId == null || paperId.isBlank()) continue;
-                                    String title = rows.getString(2);
-                                    // A matching pair alone is too weak: generic mathematical wording can
-                                    // match an unrelated theorem. Phase 35 needs corroboration across the
-                                    // returned record before it grants an HF citation key.
-                                    if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
-                                            rows.getString(7), rows.getString(8), candidate)) continue;
-                                    String key = keyFor(paperId);
-                                    distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
-                                            rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
+                                    while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                                        if (budget != null) budget.ensureBatchTimeRemaining();
+                                        telemetry.rowsInspected++;
+                                        String paperId = rows.getString(1);
+                                        if (paperId == null || paperId.isBlank()) continue;
+                                        String title = rows.getString(2);
+                                        // A matching pair alone is too weak: generic mathematical wording can
+                                        // match an unrelated theorem. Phase 35 needs corroboration across the
+                                        // returned record before it grants an HF citation key.
+                                        if (phase35RetrievalEnabled && !hasSufficientRecordEvidence(title, rows.getString(6),
+                                                rows.getString(7), rows.getString(8), candidate)) continue;
+                                        String key = keyFor(paperId);
+                                        distinct.putIfAbsent(paperId, new Citation(key, paperId, title,
+                                                rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
+                                    }
                                 }
+                            } catch (SQLException batchFailure) {
+                                if (budget == null || !budget.batchExpired()) throw batchFailure;
+                                telemetry.batchTimeouts++;
+                                log.info("Phase 35 literature batch timeout: routedShard={} surface=theorem attempt={} limit={} expression={}",
+                                        routedShardForTelemetry(), attempt, batchLimit, candidate.expression());
+                            } finally {
+                                telemetry.recordBatch("theorem", attempt, batchLimit, elapsedMsSince(batchStarted),
+                                        budget != null && budget.batchExpired());
+                                if (budget != null) budget.completeBatch();
                             }
-                        } finally {
-                            telemetry.recordBatch("theorem", attempt, batchLimit, elapsedMsSince(batchStarted));
-                        }
-                        log.debug("Phase 34 literature search attempt={} batchLimit={} anchors={} rows={} results={} "
+                            log.debug("Phase 34 literature search attempt={} batchLimit={} anchors={} rows={} results={} "
                                         + "batchElapsedMs={} elapsedMs={} query={}",
-                                attempt, batchLimit, candidate.evidenceAnchors().size(), telemetry.rowsInspected,
-                                distinct.size(), telemetry.lastBatchElapsedMs,
-                                budget == null ? -1 : budget.elapsedMs(), candidate.expression());
+                                    attempt, batchLimit, candidate.evidenceAnchors().size(), telemetry.rowsInspected,
+                                    distinct.size(), telemetry.lastBatchElapsedMs,
+                                    budget == null ? -1 : budget.elapsedMs(), candidate.expression());
                             if (!distinct.isEmpty()) break;
                         }
                         if (!distinct.isEmpty()) break;
@@ -487,7 +510,7 @@ public final class Phase34SqliteLiterature {
             // merge their separately ranked result lists without comparing raw FTS/BM25 ranks
             // across databases.
             long screenedMergeStarted = System.nanoTime();
-            mergePaperReviewScreenedResults(candidateQueries, distinct);
+            telemetry.screenedMergeTimedOut = mergePaperReviewScreenedResults(candidateQueries, distinct);
             telemetry.screenedMergeMs = elapsedMsSince(screenedMergeStarted);
             List<Citation> merged = mergeIndexResults(distinct.values());
             if (merged.isEmpty()) {
@@ -528,7 +551,7 @@ public final class Phase34SqliteLiterature {
         } catch (Exception e) {
             if (isInterrupted(e)) {
                 logSearchTelemetry(telemetry, "timeout", 0);
-                return "search_literature: Phase 34 SQLite retrieval exceeded its " + searchTimeoutMs
+                return "search_literature: Phase 34 SQLite retrieval exceeded its " + requestBudgetMs
                         + "ms Phase 35 budget; no evidence was issued.";
             }
             logSearchTelemetry(telemetry, "error", 0);
@@ -607,17 +630,15 @@ public final class Phase34SqliteLiterature {
     }
 
     /**
-     * Acquires a fair permit only for a distinct single-flight leader.  Waiting consumes the same
-     * request budget as SQLite execution, so queue expiry remains an unresolved retrieval and
-     * can enter the existing timeout-recovery lane.
+     * Acquires a fair permit only for a distinct single-flight leader. Queueing has its own
+     * bounded allowance and never reduces the subsequent retrieval-stage budget.
      */
-    private SearchDispatchLease acquirePrimarySearchLease(SearchFlightKey key, long requestStartedNanos) {
+    private SearchDispatchLease acquirePrimarySearchLease(SearchFlightKey key) {
         Semaphore permits = primarySearchPermits.computeIfAbsent(key.primaryGeneration(), ignored ->
                 new Semaphore(maxConcurrentPrimarySearches, true));
         long queueStartedNanos = System.nanoTime();
-        long remainingMs = remainingSearchBudgetMs(requestStartedNanos);
         try {
-            if (remainingMs < 1 || !permits.tryAcquire(remainingMs, TimeUnit.MILLISECONDS)) {
+            if (!permits.tryAcquire(timeouts.dispatchQueueTimeoutMs(), TimeUnit.MILLISECONDS)) {
                 return SearchDispatchLease.notAcquired(elapsedMsSince(queueStartedNanos));
             }
             return SearchDispatchLease.acquired(permits, elapsedMsSince(queueStartedNanos), System.nanoTime());
@@ -627,12 +648,8 @@ public final class Phase34SqliteLiterature {
         }
     }
 
-    private long remainingSearchBudgetMs(long requestStartedNanos) {
-        return Math.max(0, searchTimeoutMs - elapsedMsSince(requestStartedNanos));
-    }
-
     private String queueBudgetExpiredOutput(long queueWaitMs) {
-        return "search_literature: Phase 34 SQLite retrieval exceeded its " + searchTimeoutMs
+        return "search_literature: Phase 34 SQLite retrieval exceeded its " + timeouts.dispatchQueueTimeoutMs()
                 + "ms Phase 45 queue budget after " + queueWaitMs + "ms waiting; no evidence was issued.";
     }
 
@@ -652,6 +669,7 @@ public final class Phase34SqliteLiterature {
         if (output == null || output.isBlank()) return "error";
         if ("error".equals(output)) return "error";
         if (output.contains("EVIDENCE")) return "evidence";
+        if (output.contains("deterministic query planning exceeded")) return "planning_timeout";
         if (LiteratureTimeoutRecoveryQueue.isPhase35TimeoutResult(output)) return "timeout";
         if (output.contains("not available") || output.contains("unavailable")) return "unavailable";
         if (output.contains("no sufficiently specific") || output.contains("no valid")) return "invalid_query";
@@ -740,6 +758,41 @@ public final class Phase34SqliteLiterature {
         }
     }
 
+    private AnchorStatistics loadAnchorStatistics(Connection connection, String query,
+                                                  LiteratureQueryProposal proposal) {
+        try (QueryBudget budget = new QueryBudget(connection, timeouts.anchorStatisticsTimeoutMs(),
+                timeouts.anchorStatisticsTimeoutMs())) {
+            Map<String, Integer> counts = loadOfflineAnchorDocumentCounts(connection, query, proposal);
+            return new AnchorStatistics(counts, budget.timedOut());
+        } catch (SQLException ignored) {
+            // Statistics are an optional ordering hint. Missing or slow metadata must retain the
+            // deterministic historical planner order rather than block evidence retrieval.
+            return new AnchorStatistics(Map.of(), true);
+        }
+    }
+
+    private LiteratureQueryPlan planWithinBudget(String query, Map<String, Integer> anchorDocumentCounts,
+                                                  LiteratureQueryProposal proposal) {
+        FutureTask<LiteratureQueryPlan> task = new FutureTask<>(
+                () -> queryPlanner.plan(query, anchorDocumentCounts, proposal));
+        Thread.ofVirtual().name("phase35-literature-planner").start(task);
+        try {
+            return task.get(timeouts.planningTimeoutMs(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException timeout) {
+            task.cancel(true);
+            return null;
+        } catch (InterruptedException interrupted) {
+            task.cancel(true);
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (ExecutionException failed) {
+            Throwable cause = failed.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("Phase 35 deterministic query planner failed", cause);
+        }
+    }
+
     /** A title-anchor index only narrows candidates already required by the Phase 35 title gate. */
     private static boolean hasOfflineTitleAnchorDocuments(Connection connection) {
         try (PreparedStatement version = connection.prepareStatement(
@@ -766,16 +819,17 @@ public final class Phase34SqliteLiterature {
     private static void logSearchTelemetry(SearchTelemetry telemetry, String outcome, int resultCount) {
         log.info("Phase 35 literature retrieval: routedShard={} outcome={} elapsedMs={} candidateAttempts={} batches={} "
                         + "rowsInspected={} results={} availabilityCheckMs={} connectionOpenMs={} statementPrepareMs={} "
-                        + "anchorStatisticsMs={} anchorStatisticsAvailable={} anchorStatisticsTerms={} "
+                        + "anchorStatisticsMs={} anchorStatisticsAvailable={} anchorStatisticsTimedOut={} anchorStatisticsTerms={} "
                         + "titleAnchorNarrowingAvailable={} titleAnchorNarrowedCandidates={} titleAnchorNarrowingFallbacks={} "
-                        + "planMs={} screenedMergeMs={} batchTimings={} lastSurface={} lastBatchElapsedMs={} "
+                        + "planMs={} planningTimedOut={} screenedMergeMs={} screenedMergeTimedOut={} batchTimeouts={} batchTimings={} lastSurface={} lastBatchElapsedMs={} "
                         + "lastBatchLimit={} lastExpression={}",
                 routedShardForTelemetry(), outcome, telemetry.elapsedMs(), telemetry.candidateAttempts, telemetry.batches,
                 telemetry.rowsInspected, resultCount, telemetry.availabilityCheckMs, telemetry.connectionOpenMs,
                 telemetry.statementPrepareMs, telemetry.anchorStatisticsMs, telemetry.anchorStatisticsAvailable,
-                telemetry.anchorStatisticsTerms, telemetry.titleAnchorNarrowingAvailable,
+                telemetry.anchorStatisticsTimedOut, telemetry.anchorStatisticsTerms, telemetry.titleAnchorNarrowingAvailable,
                 telemetry.titleAnchorNarrowedCandidates, telemetry.titleAnchorNarrowingFallbacks,
-                telemetry.planMs, telemetry.screenedMergeMs, telemetry.batchTimings,
+                telemetry.planMs, telemetry.planningTimedOut, telemetry.screenedMergeMs, telemetry.screenedMergeTimedOut,
+                telemetry.batchTimeouts, telemetry.batchTimings,
                 telemetry.lastSurface, telemetry.lastBatchElapsedMs, telemetry.lastBatchLimit, telemetry.lastExpression);
     }
 
@@ -827,6 +881,7 @@ public final class Phase34SqliteLiterature {
                         statement.setInt(2, batchLimit);
                         try (ResultSet rows = statement.executeQuery()) {
                             while (rows.next() && distinct.size() < SEARCH_RESULTS) {
+                                if (budget != null) budget.ensureBatchTimeRemaining();
                                 telemetry.rowsInspected++;
                                 String paperId = rows.getString(1);
                                 if (paperId == null || paperId.isBlank()) continue;
@@ -839,9 +894,15 @@ public final class Phase34SqliteLiterature {
                                         rows.getString(3), rows.getString(4), rows.getString(5), SourceIndex.PRIMARY));
                             }
                         }
+                    } catch (SQLException batchFailure) {
+                        if (budget == null || !budget.batchExpired()) throw batchFailure;
+                        telemetry.batchTimeouts++;
+                        log.info("Phase 35 literature batch timeout: routedShard={} surface=fulltext attempt={} limit={} expression={}",
+                                routedShardForTelemetry(), candidateAttempt, batchLimit, expression);
                     } finally {
                         telemetry.recordBatch("fulltext", candidateAttempt, batchLimit,
-                                elapsedMsSince(batchStarted));
+                                elapsedMsSince(batchStarted), budget != null && budget.batchExpired());
+                        if (budget != null) budget.completeBatch();
                     }
                     if (!distinct.isEmpty()) return;
                 }
@@ -857,18 +918,38 @@ public final class Phase34SqliteLiterature {
         return expression.toString();
     }
 
-    private void mergePaperReviewScreenedResults(List<SearchCandidate> candidateQueries,
-                                                 Map<String, Citation> distinct) {
+    private boolean mergePaperReviewScreenedResults(List<SearchCandidate> candidateQueries,
+                                                    Map<String, Citation> distinct) {
         if (!phase35RetrievalEnabled || paperReviewScreenedLiterature == null
                 || !paperReviewScreenedLiterature.available()) {
-            return;
+            return false;
         }
-        for (PaperReviewScreenedLiterature.Match match
-                : paperReviewScreenedLiterature.search(candidateQueries, SEARCH_RESULTS)) {
+        FutureTask<List<PaperReviewScreenedLiterature.Match>> task = new FutureTask<>(
+                () -> paperReviewScreenedLiterature.search(candidateQueries, SEARCH_RESULTS));
+        Thread.ofVirtual().name("phase35-screened-literature-merge").start(task);
+        List<PaperReviewScreenedLiterature.Match> matches;
+        try {
+            matches = task.get(timeouts.screenedMergeTimeoutMs(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException timeout) {
+            task.cancel(true);
+            log.info("Phase 35 screened literature merge timed out after {}ms; preserving primary retrieval output",
+                    timeouts.screenedMergeTimeoutMs());
+            return true;
+        } catch (InterruptedException interrupted) {
+            task.cancel(true);
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException failed) {
+            log.info("Phase 35 screened literature merge failed; preserving primary retrieval output: {}",
+                    safeMessage(failed));
+            return false;
+        }
+        for (PaperReviewScreenedLiterature.Match match : matches) {
             String identity = "paper-review-screened:" + match.paperId();
             distinct.putIfAbsent(identity, new Citation(keyFor(identity), match.paperId(), match.title(),
                     match.authors(), match.category(), match.snippet(), SourceIndex.PAPER_REVIEW_SCREENED));
         }
+        return false;
     }
 
     /**
@@ -1132,31 +1213,66 @@ public final class Phase34SqliteLiterature {
     private static final class QueryBudget implements AutoCloseable {
         private final Connection connection;
         private final long startedNanos = System.nanoTime();
-        private final long deadlineNanos;
+        private final long retrievalDeadlineNanos;
         private final long timeoutMs;
+        private final long batchTimeoutMs;
+        private volatile long activeDeadlineNanos;
 
         private QueryBudget(Connection connection, long timeoutMs) throws SQLException {
+            this(connection, timeoutMs, timeoutMs);
+        }
+
+        private QueryBudget(Connection connection, long timeoutMs, long batchTimeoutMs) throws SQLException {
             this.connection = connection;
             this.timeoutMs = timeoutMs;
+            this.batchTimeoutMs = Math.min(Math.max(250, batchTimeoutMs), timeoutMs);
             long executionBudgetMs = Math.max(250, timeoutMs - BUDGET_HEADROOM_MS);
-            this.deadlineNanos = startedNanos + executionBudgetMs * 1_000_000L;
+            this.retrievalDeadlineNanos = startedNanos + executionBudgetMs * 1_000_000L;
+            this.activeDeadlineNanos = retrievalDeadlineNanos;
             ProgressHandler.setHandler(connection, PROGRESS_HANDLER_VM_STEPS, new ProgressHandler() {
                 @Override
                 protected int progress() {
-                    return !Thread.currentThread().isInterrupted() && System.nanoTime() < deadlineNanos ? 0 : 1;
+                    return !Thread.currentThread().isInterrupted() && System.nanoTime() < activeDeadlineNanos ? 0 : 1;
                 }
             });
         }
 
         private void apply(PreparedStatement statement) throws SQLException {
             ensureTimeRemaining();
-            statement.setQueryTimeout((int) Math.max(1, Math.ceil(timeoutMs / 1_000.0)));
+            activeDeadlineNanos = Math.min(retrievalDeadlineNanos,
+                    System.nanoTime() + batchTimeoutMs * 1_000_000L);
+            long statementTimeoutMs = Math.max(1, (activeDeadlineNanos - System.nanoTime()) / 1_000_000L);
+            statement.setQueryTimeout((int) Math.max(1, Math.ceil(statementTimeoutMs / 1_000.0)));
         }
 
         private void ensureTimeRemaining() throws SQLException {
-            if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadlineNanos) {
+            if (Thread.currentThread().isInterrupted() || System.nanoTime() >= retrievalDeadlineNanos) {
                 throw new SQLException("Phase 35 SQLite retrieval timeout");
             }
+        }
+
+        private boolean retrievalExpired() {
+            return Thread.currentThread().isInterrupted() || System.nanoTime() >= retrievalDeadlineNanos;
+        }
+
+        private boolean batchExpired() {
+            return !Thread.currentThread().isInterrupted() && !retrievalExpired()
+                    && System.nanoTime() >= activeDeadlineNanos;
+        }
+
+        private void ensureBatchTimeRemaining() throws SQLException {
+            ensureTimeRemaining();
+            if (System.nanoTime() >= activeDeadlineNanos) {
+                throw new SQLException("Phase 35 SQLite batch timeout");
+            }
+        }
+
+        private boolean timedOut() {
+            return retrievalExpired() || System.nanoTime() >= activeDeadlineNanos;
+        }
+
+        private void completeBatch() {
+            activeDeadlineNanos = retrievalDeadlineNanos;
         }
 
         private long elapsedMs() {
@@ -1171,6 +1287,12 @@ public final class Phase34SqliteLiterature {
 
     private record Citation(String key, String paperId, String title, String authors,
                             String category, String snippet, SourceIndex sourceIndex) {}
+
+    private record AnchorStatistics(Map<String, Integer> counts, boolean timedOut) {
+        private AnchorStatistics {
+            counts = Map.copyOf(counts);
+        }
+    }
 
     private record SearchFlightKey(String primaryGeneration, String indexGeneration, String query, List<String> subjectAnchors,
                                    String claimedRelation, String relevanceRationale) {
@@ -1259,21 +1381,26 @@ public final class Phase34SqliteLiterature {
         private long statementPrepareMs = -1;
         private long anchorStatisticsMs = -1;
         private boolean anchorStatisticsAvailable;
+        private boolean anchorStatisticsTimedOut;
         private int anchorStatisticsTerms;
         private boolean titleAnchorNarrowingAvailable;
         private int titleAnchorNarrowedCandidates;
         private int titleAnchorNarrowingFallbacks;
         private long planMs = -1;
+        private boolean planningTimedOut;
         private long screenedMergeMs = -1;
+        private boolean screenedMergeTimedOut;
+        private int batchTimeouts;
         private final List<String> batchTimings = new ArrayList<>();
         private long lastBatchElapsedMs;
         private int lastBatchLimit;
         private String lastSurface = "none";
         private String lastExpression = "";
 
-        private void recordBatch(String surface, int attempt, int batchLimit, long elapsedMs) {
+        private void recordBatch(String surface, int attempt, int batchLimit, long elapsedMs, boolean timedOut) {
             lastBatchElapsedMs = elapsedMs;
-            batchTimings.add(surface + ":attempt=" + attempt + ":limit=" + batchLimit + ":elapsedMs=" + elapsedMs);
+            batchTimings.add(surface + ":attempt=" + attempt + ":limit=" + batchLimit + ":elapsedMs=" + elapsedMs
+                    + ":timedOut=" + timedOut);
         }
 
         private long elapsedMs() {
